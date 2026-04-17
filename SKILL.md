@@ -23,25 +23,33 @@ Primary paths:
 - `/MemoryEntry/{id}`
 - `/SwarmOps/graph`
 
-## Script
+## Scripts
 
-Use:
+Core transport:
 - `scripts/graymatter_api.sh`
+
+Helpers:
+- `scripts/gm-write`
+- `scripts/gm-query`
+- `scripts/gm-graph`
 
 Basic examples:
 
 ```bash
 # query memory
-scripts/graymatter_api.sh POST /MemoryEntry/query '{"q":"graymatter","max_results":10}'
+scripts/gm-query "graymatter" 10
 
 # create durable context
-scripts/graymatter_api.sh POST /MemoryEntry '{"type":"context","text":"example durable memory","sourceChannel":"openclaw"}'
+scripts/gm-write context "example durable memory"
 
-# patch a memory entry
+# create durable decision
+scripts/gm-write decision "Use api-0 GrayMatter as primary durable memory"
+
+# patch a memory entry directly
 scripts/graymatter_api.sh PATCH /MemoryEntry/<id> '{"text":"updated text"}'
 
 # read graph
-scripts/graymatter_api.sh GET /SwarmOps/graph
+scripts/gm-graph GET
 ```
 
 ## MemoryEntry guidance

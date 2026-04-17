@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+METHOD="${1:-GET}"
+PATH_SUFFIX="${2:-}"
+BODY="${3:-}"
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ENDPOINT="/SwarmOps/graph"
+if [[ -n "$PATH_SUFFIX" ]]; then
+  ENDPOINT="${ENDPOINT%/}/${PATH_SUFFIX#/}"
+fi
+
+if [[ -n "$BODY" ]]; then
+  "${SCRIPT_DIR}/graymatter_api.sh" "$METHOD" "$ENDPOINT" "$BODY"
+else
+  "${SCRIPT_DIR}/graymatter_api.sh" "$METHOD" "$ENDPOINT"
+fi

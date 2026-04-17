@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+QUERY="${1:-}"
+LIMIT="${2:-10}"
+TYPE="${3:-}"
+SOURCE_CHANNEL="${4:-}"
+
+if [[ -z "$QUERY" ]]; then
+  echo "Usage: gm-query <query> [limit] [type] [sourceChannel]" >&2
+  exit 1
+fi
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [[ -n "$TYPE" && -n "$SOURCE_CHANNEL" ]]; then
+  BODY="$(jq -nc --arg q "$QUERY" --argjson max_results "$LIMIT" --arg type "$TYPE" --arg source "$SOURCE_CHANNEL" '{q:$q,max_results:$max_results,type:$type,source:$source}')"
+elif [[ -n "$TYPE" ]]; then
+  BODY="$(jq -nc --arg q "$QUERY" --argjson max_results "$LIMIT" --arg type "$TYPE" '{q:$q,max_results:$max_results,type:$type}')"
+elif [[ -n "$SOURCE_CHANNEL" ]]; then
+  BODY="$(jq -nc --arg q "$QUERY" --argjson max_results "$LIMIT" --arg source "$SOURCE_CHANNEL" '{q:$q,max_results:$max_results,source:$source}')"
+else
+  BODY="$(jq -nc --arg q "$QUERY" --argjson max_results "$LIMIT" '{q:$q,max_results:$max_results}')"
+fi
+"${SCRIPT_DIR}/graymatter_api.sh" POST /MemoryEntry/query "$BODY"

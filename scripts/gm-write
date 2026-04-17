@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+TYPE="${1:-}"
+TEXT="${2:-}"
+SOURCE_CHANNEL="${3:-openclaw}"
+
+if [[ -z "$TYPE" || -z "$TEXT" ]]; then
+  echo "Usage: gm-write <decision|todo|context|artifact|preference> <text> [sourceChannel]" >&2
+  exit 1
+fi
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+"${SCRIPT_DIR}/graymatter_api.sh" POST /MemoryEntry "$(jq -nc --arg type "$TYPE" --arg text "$TEXT" --arg sourceChannel "$SOURCE_CHANNEL" '{type:$type,text:$text,sourceChannel:$sourceChannel}')"

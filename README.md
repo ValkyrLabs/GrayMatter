@@ -1,108 +1,85 @@
 # GrayMatter
 
-> ClawHub draft metadata
->
-> - **Slug:** `graymatter`
-> - **Name:** `GrayMatter`
-> - **Version:** `0.1.0`
-> - **Tags:** `memory,durable-memory,multi-agent,graph,valkyr,latest`
-> - **Suggested changelog:** `Initial public release with install-check, smoke-test, tagged-write fallback, and multi-agent guidance`
-
 GrayMatter is the durable memory layer for Valkyr-style agentic systems.
 
-This repo now covers two modes:
-- **GrayMatter Cloud**: production-backed memory and graph operations through `api-0`
-- **GrayMatter Light**: an offline/local ThorAPI-powered concept centered on a minimal `MemoryEntry` model for demos, local dev, and resilient fallback paths
+It supports two operating modes:
+- **GrayMatter Cloud** for production-backed memory and graph operations through `api-0`
+- **GrayMatter Light** for local and offline workflows built around a minimal `MemoryEntry` model
 
-## Why this exists
+GrayMatter is designed for OpenClaw operators and agent systems that need durable shared memory for decisions, todos, reusable context, artifacts, preferences, and graph-linked operational state.
 
-Most agent systems can talk, but they do not remember well.
-GrayMatter is the layer for durable, reusable context:
-- decisions
-- todos
-- reusable context
-- artifacts
-- preferences
-- graph-linked operational state
-
-The goal is not chat history. The goal is durable operating memory.
-
-## Repo structure
+## Repository contents
 
 - `SKILL.md` — OpenClaw AgentSkill instructions
-- `scripts/graymatter_api.sh` — raw API transport for production mode
-- `scripts/gm-write` — helper to write a `MemoryEntry`
-- `scripts/gm-query` — helper to query memory
-- `scripts/gm-graph` — helper for graph endpoints
-- `scripts/gm-install-check` — prerequisite and auth readiness check
-- `scripts/gm-smoke` — one-command smoke test for auth, write, and query
-- `docs/architecture.md` — mode split, data model, and operating model
-- `docs/thorapi-integration.md` — how GrayMatter connects to ThorAPI
-- `docs/graymatter-light.md` — offline/local light-mode plan
+- `graymatter.skill` — packaged distributable AgentSkill
+- `scripts/graymatter_api.sh` — authenticated production API transport
+- `scripts/gm-write` — write a `MemoryEntry`
+- `scripts/gm-query` — query `MemoryEntry` records
+- `scripts/gm-graph` — interact with graph endpoints
+- `scripts/gm-install-check` — dependency and auth readiness check
+- `scripts/gm-smoke` — production write/query smoke test
+- `scripts/gm-light-smoke` — local GrayMatter Light write/query smoke test
+- `scripts/package_graymatter.py` — deterministic validation and packaging
+- `docs/architecture.md` — architecture and operating model
+- `docs/thorapi-integration.md` — ThorAPI relationship and bundle direction
+- `docs/graymatter-light.md` — local and offline Light-mode notes
 - `examples/memoryentry-basic.json` — minimal production payload example
 - `examples/memoryentry-decision.json` — decision example
 - `examples/memoryentry-todo.json` — todo example
 - `examples/memoryentry-artifact.json` — artifact example
-- `examples/graymatter-light-memoryentry.yaml` — starter ThorAPI bundle sketch for local mode
-- `examples/graymatter-light-thorapi-bundle.yaml` — tiny runnable-style Light-mode bundle surface
-- `graymatter.skill` — packaged distributable AgentSkill
+- `examples/graymatter-light-memoryentry.yaml` — starter Light-mode schema sketch
+- `examples/graymatter-light-thorapi-bundle.yaml` — tiny ThorAPI-shaped bundle sample
+- `references/public-release-checklist.md` — release checklist
+- `references/multi-agent-conventions.md` — naming and write-style conventions for multi-agent deployments
+- `clawhub.json` — ClawHub publishing metadata
 
-## Quickstart
+## Quick start
 
 ### Production mode
 
 Use api-0 for durable shared memory and graph operations.
 
 ```bash
-scripts/gm-write decision "Use api-0 GrayMatter as primary durable memory"
-scripts/gm-query "graymatter" 10
+scripts/gm-write decision "Use GrayMatter as the primary durable memory layer"
+scripts/gm-query "GrayMatter" 10
 scripts/gm-graph GET
 ```
 
-Auth sources:
-- `VALKYR_JWT_SESSION`
-- macOS Keychain lookup for `openclaw-valkyrai-admin-jwtSession`
-
-Base URL default:
+Default API base:
 - `https://api-0.valkyrlabs.com/v1`
 
-## OpenClaw setup
+Auth sources:
+- `VALKYR_JWT_SESSION`
+- macOS Keychain secret `openclaw-valkyrai-admin-jwtSession`
 
-GrayMatter is designed to be consumed primarily by OpenClaw operators and agent instances that need durable shared memory.
+### Local Light mode
 
-A working GrayMatter deployment requires:
+Run the local smoke test to exercise a minimal write/query loop backed by a JSON store.
 
-1. the skill or repo files available on the machine
-2. valid auth for the GrayMatter backend
-3. network access to the GrayMatter API
-4. agent instructions that treat GrayMatter as the durable memory layer
-5. a successful readiness check and smoke test before production use
+```bash
+scripts/gm-light-smoke
+```
+
+## OpenClaw installation
+
+GrayMatter can be used either from the full repository or from the packaged `graymatter.skill` artifact.
 
 ### Requirements
 
-The machine needs:
 - `bash`
 - `curl`
 - `jq`
-- access to this repo or packaged skill
-- access to the GrayMatter backend, usually `https://api-0.valkyrlabs.com/v1`
-- a valid JWT session token for ValkyrAI/api-0
+- access to the GrayMatter backend for Cloud mode
+- a valid JWT session token for ValkyrAI/api-0 when using Cloud mode
 
-The core scripts in this repo are thin wrappers around authenticated API calls:
-- `scripts/graymatter_api.sh`
-- `scripts/gm-write`
-- `scripts/gm-query`
-- `scripts/gm-graph`
+### Environment configuration
 
-### Auth configuration
-
-GrayMatter production mode expects one of these:
-
-1. `VALKYR_JWT_SESSION` environment variable, recommended for servers and non-macOS installs
-2. macOS Keychain secret named `openclaw-valkyrai-admin-jwtSession`
+Production mode expects one of the following:
+- `VALKYR_JWT_SESSION` environment variable
+- macOS Keychain secret `openclaw-valkyrai-admin-jwtSession`
 
 Optional override:
-- `VALKYR_API_BASE` if you are not using the default production API base
+- `VALKYR_API_BASE`
 
 Example:
 
@@ -111,57 +88,65 @@ export VALKYR_API_BASE="https://api-0.valkyrlabs.com/v1"
 export VALKYR_JWT_SESSION="<your-jwt-session-token>"
 ```
 
-### 5-minute install flow
+### Installation flow
 
-1. Clone the repo or import the packaged skill
-2. Install dependencies if needed:
-   ```bash
-   brew install jq
-   ```
-3. Set credentials:
-   - export `VALKYR_JWT_SESSION`, or
-   - store the token in macOS Keychain under `openclaw-valkyrai-admin-jwtSession`
+1. Clone the repository or import `graymatter.skill`
+2. Install dependencies if needed
+3. Configure auth and optional API base override
 4. Run the readiness check:
    ```bash
    scripts/gm-install-check
    ```
-5. Run the smoke test:
+5. Run the production smoke test:
    ```bash
    scripts/gm-smoke
    ```
-6. Add agent instructions that tell OpenClaw to use GrayMatter for durable decisions, todos, context, artifacts, and handoffs
+6. Instruct the agent to use GrayMatter for durable decisions, todos, context, artifacts, and handoffs
 
-### Operator checklist
+### Fresh-install validation steps
 
-- install OpenClaw
-- install or import GrayMatter
-- configure `VALKYR_JWT_SESSION`
-- optionally configure `VALKYR_API_BASE`
-- verify API reachability
-- run `scripts/gm-install-check`
-- run `scripts/gm-smoke`
-- instruct the agent to use GrayMatter as the primary durable memory and handoff layer
+Use these exact steps on a fresh OpenClaw machine or test instance.
 
-### Multi-agent guidance
+#### Repo-based install
 
-If multiple OpenClaw agents share the same GrayMatter backend, coordinate through GrayMatter instead of relying on bot-to-bot chat.
+```bash
+git clone https://github.com/ValkyrLabs/GrayMatter.git
+cd GrayMatter
+brew install jq
+export VALKYR_API_BASE="https://api-0.valkyrlabs.com/v1"
+export VALKYR_JWT_SESSION="<your-jwt-session-token>"
+scripts/gm-install-check
+scripts/gm-smoke
+scripts/gm-query "GrayMatter smoke test" 5
+```
 
-Recommended practice:
-- give each agent a distinct identity
-- write durable decisions and handoffs to GrayMatter
-- use Discord and other chat surfaces for human interaction, not as the primary machine memory layer
-- follow `references/multi-agent-conventions.md` for naming and write-style conventions
+Expected result:
+- `gm-install-check` reports dependency and auth success
+- `gm-smoke` writes and queries a test `MemoryEntry`
+- `gm-query` returns the smoke-test entry
 
-## Installation paths
+#### Packaged-skill install
 
-GrayMatter can be delivered in two practical ways:
+1. Import or place `graymatter.skill` into the target OpenClaw skills directory
+2. Confirm the installed skill resolves to `graymatter/`
+3. Set:
+   ```bash
+   export VALKYR_API_BASE="https://api-0.valkyrlabs.com/v1"
+   export VALKYR_JWT_SESSION="<your-jwt-session-token>"
+   ```
+4. From the installed skill directory, run:
+   ```bash
+   scripts/gm-install-check
+   scripts/gm-smoke
+   scripts/gm-query "GrayMatter smoke test" 5
+   ```
+
+Expected result:
+- the installed skill can complete dependency, auth, write, and query validation
 
 ### Sample OpenClaw config snippet
 
-Use this as a minimal environment-oriented pattern for an OpenClaw deployment:
-
 ```yaml
-# example only, adapt to your OpenClaw config layout
 agent:
   name: valor
 
@@ -174,11 +159,96 @@ instructions: |
   Persist durable decisions, todos, reusable context, and artifacts to GrayMatter.
 ```
 
-If the deployment uses macOS Keychain instead of env vars, omit `VALKYR_JWT_SESSION` from config and install the secret locally.
+If the deployment uses macOS Keychain instead of environment variables, omit `VALKYR_JWT_SESSION` from config and install the secret locally.
 
-### ClawHub publish command
+### Packaged skill notes
 
-When ready to publish from this repo folder:
+When using `graymatter.skill` in an OpenClaw environment:
+- import or place the package in the target skills location
+- ensure the installed skill resolves to the `graymatter/` folder name
+- configure `VALKYR_JWT_SESSION` and optional `VALKYR_API_BASE` on the deployment machine
+- run `scripts/gm-install-check`
+- run `scripts/gm-smoke`
+
+The skill package contains the instructions and helper scripts. Credentials remain external to the package.
+
+## Multi-agent usage
+
+If multiple OpenClaw agents share the same GrayMatter backend, use GrayMatter as the durable coordination layer.
+
+Recommended practice:
+- assign each agent a distinct identity
+- write durable decisions and handoffs to GrayMatter
+- use chat surfaces for human interaction rather than as the primary machine memory layer
+- follow `references/multi-agent-conventions.md`
+
+## Examples
+
+### MemoryEntry examples
+
+- `examples/memoryentry-basic.json`
+- `examples/memoryentry-decision.json`
+- `examples/memoryentry-todo.json`
+- `examples/memoryentry-artifact.json`
+
+### GrayMatter Light starter assets
+
+- `examples/graymatter-light-memoryentry.yaml`
+- `examples/graymatter-light-thorapi-bundle.yaml`
+
+These assets provide a small ThorAPI-shaped starting point for local durable memory experiments.
+
+## Troubleshooting
+
+### `VALKYR_JWT_SESSION is required`
+
+No environment token is set and no matching macOS Keychain secret was found.
+
+Fix:
+- export `VALKYR_JWT_SESSION`, or
+- add Keychain secret `openclaw-valkyrai-admin-jwtSession`
+
+### `curl: command not found` or `jq: command not found`
+
+Required CLI dependencies are missing.
+
+Fix:
+- install `curl` and `jq`
+
+Example on macOS:
+
+```bash
+brew install jq
+```
+
+### Tagged write fails
+
+Some deployments currently have a `MemoryEntry.tags` persistence mismatch on the backend.
+
+Fix:
+- use `scripts/gm-write`
+- the script automatically retries without tags when the backend rejects tagged writes
+
+### Smoke test passes but coordination is still noisy
+
+Multiple agents are writing without stable conventions.
+
+Fix:
+- assign stable agent identities
+- standardize durable write style
+- follow `references/multi-agent-conventions.md`
+
+## Packaging and release
+
+Rebuild and validate the packaged skill with:
+
+```bash
+python3 scripts/package_graymatter.py
+```
+
+ClawHub metadata is stored in `clawhub.json`.
+
+Example publish command:
 
 ```bash
 clawhub publish ./GrayMatter \
@@ -189,133 +259,18 @@ clawhub publish ./GrayMatter \
   --changelog "Initial public release with install-check, smoke-test, tagged-write fallback, and multi-agent guidance"
 ```
 
-If you want to validate auth first:
+Recommended verification commands:
 
 ```bash
 clawhub whoami
-```
-
-After publishing, recommend verifying with:
-
-```bash
 clawhub inspect graymatter
 ```
 
-### Option 1: copy or clone the repo
-
-Use this when you want the full repo, docs, examples, and scripts.
-
-### Option 2: import the packaged skill
-
-Use `graymatter.skill` when you want the minimal distributable AgentSkill payload.
-
-Install notes for OpenClaw environments:
-- place or import `graymatter.skill` into the target OpenClaw skills location
-- ensure the installed skill resolves to the `graymatter/` folder name
-- configure `VALKYR_JWT_SESSION` and optional `VALKYR_API_BASE` on the deployment machine
-- run `scripts/gm-install-check`
-- run `scripts/gm-smoke`
-
-Important:
-- the packaged skill contains the agent instructions and helper scripts
-- credentials remain external to the skill package
-- auth and API access must be configured on the deployment machine
-
-## Troubleshooting
-
-### `VALKYR_JWT_SESSION is required`
-
-Cause:
-- no environment token is set, and no matching macOS Keychain secret was found
-
-Fix:
-- export `VALKYR_JWT_SESSION`, or
-- add Keychain secret `openclaw-valkyrai-admin-jwtSession`
-
-### `curl: command not found` or `jq: command not found`
-
-Cause:
-- machine is missing required CLI dependencies
-
-Fix:
-- install `curl` and `jq`
-
-Example on macOS:
-```bash
-brew install jq
-```
-
-### tagged write fails
-
-Cause:
-- known backend `MemoryEntry.tags` persistence mismatch
-
-Fix:
-- use `scripts/gm-write` and let it retry automatically without tags
-- do not block durable writes on the tag bug
-
-### smoke test write succeeds but later coordination is messy
-
-Cause:
-- multiple agents are writing without stable conventions
-
-Fix:
-- use distinct agent identities
-- standardize durable write style
-- follow `references/multi-agent-conventions.md`
-
-## Local GrayMatter Light sample
-
-GrayMatter Light is the local/offline track for demos, development, and fallback workflows.
-
-Included now:
-- `examples/graymatter-light-thorapi-bundle.yaml` as a tiny ThorAPI-shaped local bundle surface
-- `scripts/gm-light-smoke` as a runnable local write/query smoke test using a JSON store
-
-Run the local sample:
-
-```bash
-scripts/gm-light-smoke
-```
-
-This creates a tiny local store, writes a `MemoryEntry`, queries it back, and prints the result.
-
-## Richer MemoryEntry examples
-
-Use these examples as starting points for durable writes:
-- `examples/memoryentry-decision.json`
-- `examples/memoryentry-todo.json`
-- `examples/memoryentry-artifact.json`
-
-## Production-ready skill improvements
-
-This repo includes a practical release baseline for public OpenClaw use:
-- `scripts/gm-install-check` for dependency and auth readiness checks
-- `scripts/gm-smoke` for a single-command live readiness test
-- `scripts/package_graymatter.py` for deterministic validation and packaging
-- `scripts/gm-light-smoke` for local write/query validation in GrayMatter Light mode
-- automatic fallback in `scripts/gm-write` when tagged writes fail because of the known backend tag persistence issue
-- operator-first setup instructions in this README
-- clearer execution guidance in `SKILL.md`
-- reference docs for public release and multi-agent conventions
-
-### Light mode
-
-GrayMatter Light is the local/offline track.
-
-Target shape:
-- ThorAPI-powered
-- minimal `MemoryEntry` entity
-- basic create/get/query flow
-- easy local boot for demos, tests, and offline resilience
-
-This mode is documented in `docs/graymatter-light.md`.
-
-## Operating model
+## Architecture
 
 ### GrayMatter Cloud
 
-Use this when you need:
+Use Cloud mode when you need:
 - shared durable memory across agents
 - production graph state
 - authenticated writes to api-0
@@ -323,47 +278,20 @@ Use this when you need:
 
 ### GrayMatter Light
 
-Use this when you need:
+Use Light mode when you need:
 - local demos
 - offline development
-- a tiny memory service with minimal moving parts
+- a minimal memory surface with low setup overhead
 - a fallback path when production dependencies are unavailable
+
+GrayMatter Light is intentionally small. It is a proving ground for local development, not a replacement for Cloud mode.
 
 ## ThorAPI relationship
 
-GrayMatter should be easy to explain as a ThorAPI-shaped system, not a mystery box.
-
-Current relationship:
-- production GrayMatter capabilities are exposed through ValkyrAI/api-0 endpoints
-- ThorAPI is the codegen and schema engine that can power a local/light memory service
-- the light mode should use a tiny ThorAPI bundle or spec with a basic `MemoryEntry` model
+GrayMatter Cloud is exposed through ValkyrAI/api-0 endpoints.
+GrayMatter Light is the local and offline track, shaped to align with ThorAPI-style schema and bundle workflows.
 
 See:
 - `docs/thorapi-integration.md`
-- `examples/graymatter-light-memoryentry.yaml`
-
-## Known limitation
-
-Some deployments currently have a `MemoryEntry.tags` persistence mismatch on the backend.
-
-Practical rule:
-- if tagged writes fail, write the durable fact first without tags
-- treat tag normalization/schema repair as a backend fix, not a reason to abandon GrayMatter
-
-## Quality bar
-
-This repo is meant to grow into a serious foundation repo, not a one-off helper dump.
-
-That means:
-- clear mode separation
-- tight docs
-- explicit ThorAPI cross-linking
-- minimal but real examples
-- easy upgrade path from local memory to production memory
-
-## Next upgrades
-
-- add a tiny local ThorAPI bundle and runnable sample for GrayMatter Light
-- add a simple smoke-test script for write/query flows
-- add richer examples for decisions, todos, and artifacts
-- add install notes for the packaged skill in OpenClaw environments
+- `docs/graymatter-light.md`
+- `examples/graymatter-light-thorapi-bundle.yaml`

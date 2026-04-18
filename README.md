@@ -16,6 +16,7 @@ GrayMatter is designed for OpenClaw operators and agent systems that need durabl
 - `scripts/gm-write` — write a `MemoryEntry`
 - `scripts/gm-query` — query `MemoryEntry` records
 - `scripts/gm-graph` — interact with graph endpoints
+- `scripts/gm-login` — interactive login helper that retrieves `jwtSession`
 - `scripts/gm-install-check` — dependency and auth readiness check
 - `scripts/gm-smoke` — production write/query smoke test
 - `scripts/gm-light-smoke` — local GrayMatter Light write/query smoke test
@@ -40,7 +41,7 @@ GrayMatter is designed for OpenClaw operators and agent systems that need durabl
 If you want an OpenClaw instance or other agentic system to adopt GrayMatter, the canonical flow is:
 
 1. Install GrayMatter
-2. Set `VALKYR_JWT_SESSION` or the macOS Keychain secret
+2. Run `scripts/gm-login` and complete login, or set `VALKYR_JWT_SESSION` manually
 3. Run `scripts/gm-install-check`
 4. Run `scripts/gm-smoke`
 5. Use GrayMatter as the durable memory and handoff layer
@@ -92,8 +93,17 @@ Production mode expects one of the following:
 
 Optional override:
 - `VALKYR_API_BASE`
+- `GRAYMATTER_LOGIN_PATH`, if the login endpoint differs from `/auth/login`
 
-Example:
+Simplest path:
+
+```bash
+eval "$(scripts/gm-login)"
+```
+
+This prompts for username and password, calls the login endpoint, retrieves `jwtSession`, and exports the required environment variables for the current shell.
+
+Manual example:
 
 ```bash
 export VALKYR_API_BASE="https://api-0.valkyrlabs.com/v1"
@@ -104,7 +114,7 @@ export VALKYR_JWT_SESSION="<your-jwt-session-token>"
 
 1. Clone the repository or import `graymatter.skill`
 2. Install dependencies if needed
-3. Configure auth and optional API base override
+3. Run login or configure auth manually
 4. Run the readiness check:
    ```bash
    scripts/gm-install-check
@@ -125,8 +135,7 @@ Use these exact steps on a fresh OpenClaw machine or test instance.
 git clone https://github.com/ValkyrLabs/GrayMatter.git
 cd GrayMatter
 brew install jq
-export VALKYR_API_BASE="https://api-0.valkyrlabs.com/v1"
-export VALKYR_JWT_SESSION="<your-jwt-session-token>"
+eval "$(scripts/gm-login)"
 scripts/gm-install-check
 scripts/gm-smoke
 scripts/gm-query "GrayMatter smoke test" 5
@@ -141,10 +150,9 @@ Expected result:
 
 1. Import or place `graymatter.skill` into the target OpenClaw skills directory
 2. Confirm the installed skill resolves to `graymatter/`
-3. Set:
+3. Run:
    ```bash
-   export VALKYR_API_BASE="https://api-0.valkyrlabs.com/v1"
-   export VALKYR_JWT_SESSION="<your-jwt-session-token>"
+   eval "$(scripts/gm-login)"
    ```
 4. From the installed skill directory, run:
    ```bash
@@ -188,7 +196,7 @@ Use chat or terminal output for ephemeral discussion, and GrayMatter for durable
 Claude Code or similar agents also need:
 - access to the GrayMatter repo or installed skill files
 - `bash`, `curl`, and `jq`
-- `VALKYR_JWT_SESSION` or the macOS Keychain secret
+- `scripts/gm-login`, `VALKYR_JWT_SESSION`, or the macOS Keychain secret
 - network access to `VALKYR_API_BASE`
 
 ### Packaged skill notes
@@ -196,7 +204,7 @@ Claude Code or similar agents also need:
 When using `graymatter.skill` in an OpenClaw environment:
 - import or place the package in the target skills location
 - ensure the installed skill resolves to the `graymatter/` folder name
-- configure `VALKYR_JWT_SESSION` and optional `VALKYR_API_BASE` on the deployment machine
+- run `scripts/gm-login` or configure `VALKYR_JWT_SESSION` and optional `VALKYR_API_BASE` on the deployment machine
 - run `scripts/gm-install-check`
 - run `scripts/gm-smoke`
 

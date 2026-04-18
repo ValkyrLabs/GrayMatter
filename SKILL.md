@@ -12,7 +12,7 @@ Use GrayMatter through the production API on api-0.
 For a fresh agent or machine, the canonical flow is:
 
 1. Install GrayMatter
-2. Set `VALKYR_JWT_SESSION` or the macOS Keychain secret
+2. Run `scripts/gm-login` or set `VALKYR_JWT_SESSION` manually
 3. Run `scripts/gm-install-check`
 4. Run `scripts/gm-smoke`
 5. Use GrayMatter as the durable memory and handoff layer
@@ -46,6 +46,7 @@ Helpers:
 - `scripts/gm-write`
 - `scripts/gm-query`
 - `scripts/gm-graph`
+- `scripts/gm-login`
 - `scripts/gm-install-check`
 - `scripts/gm-smoke`
 
@@ -69,6 +70,12 @@ scripts/graymatter_api.sh PATCH /MemoryEntry/<id> '{"text":"updated text"}'
 
 # read graph
 scripts/gm-graph GET
+
+# login and emit export commands
+scripts/gm-login
+
+# login and store token in macOS Keychain
+scripts/gm-login keychain
 
 # install/readiness check for dependencies + auth
 scripts/gm-install-check
@@ -119,6 +126,8 @@ Current caution:
 - `VALKYR_JWT_SESSION` if already present
 - macOS Keychain lookup for `openclaw-valkyrai-admin-jwtSession` if unset
 
+Use `scripts/gm-login` to obtain a `jwtSession` after successful login and emit shell exports, print the raw token, or store it in macOS Keychain.
+
 Do not hardcode secrets into the skill.
 
 ## When to persist
@@ -143,7 +152,7 @@ If api-0 is unavailable or returns a known schema/runtime error:
 
 Treat this as the minimum bar before relying on GrayMatter:
 1. Install GrayMatter
-2. Set `VALKYR_JWT_SESSION` or the macOS Keychain secret
+2. Run `scripts/gm-login` or set `VALKYR_JWT_SESSION` manually
 3. Run `scripts/gm-install-check`
 4. Run `scripts/gm-smoke`
 5. If both pass, use GrayMatter for durable memory

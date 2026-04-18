@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+BASE="${VALKYR_API_BASE:-https://api-0.valkyrlabs.com/v1}"
+LOGIN_PATH="${GRAYMATTER_LOGIN_PATH:-/auth/login}"
+LOGIN_URL="${BASE%/}/${LOGIN_PATH#/}"
+OUT_MODE="${1:-env}"
+
+if ! command -v jq >/dev/null 2>&1; then
+  echo "jq is required" >&2
+  exit 1
+fi
+
+read -r -p "GrayMatter username: " USERNAME
+read -r -s -p "GrayMatter password: " PASSWORD
+printf '\n' >&2
+
+RESPONSE="$(curl --fail-with-body -sS -X POST "$LOGIN_URL" \
+  -H 'accept: application/json' \
+  -H 'content-type: application/json' \
+  --data "$(jq -nc --arg username "$USERNAME" --arg password "$PASSWORD" '{username:$username,password:$password}')")"
+
+JWT_SESSION="$(printf '%s' "$RESPONSE" | jq -r '.jwtSession // .data.jwtSession // .token // empty')"
+
+if [[ -z "$JWT_SESSION" || "$JWT_SESSION" == "null" ]]; then
+  echo "Login succeeded but no jwtSession was found in the response" >&2
+  echo "$RESPONSE" >&2
+  exit 2
+fi
+
+case "$OUT_MODE" in
+  env)
+    printf 'export VALKYR_API_BASE="%s"\n' "$BASE"
+    printf 'export VALKYR_JWT_SESSION="%s"\n' "$JWT_SESSION"
+    ;;
+  token)
+    printf '%s\n' "$JWT_SESSION"
+    ;;
+  keychain)
+    if ! command -v security >/dev/null 2>&1; then
+      echo "macOS security CLI not available for keychain mode" >&2
+      exit 3
+    fi
+    security add-generic-password -U -a default -s openclaw-valkyrai-admin-jwtSession -w "$JWT_SESSION" >/dev/null
+    echo "Stored jwtSession in macOS Keychain as openclaw-valkyrai-admin-jwtSession" >&2
+    ;;
+  *)
+    echo "Usage: gm-login [env|token|keychain]" >&2
+    exit 1
+    ;;
+esac

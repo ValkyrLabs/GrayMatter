@@ -11,6 +11,7 @@ REQUIRED = [
     'scripts/gm-query',
     'scripts/gm-graph',
     'scripts/gm-write',
+    'scripts/gm-login',
     'scripts/gm-install-check',
     'scripts/gm-smoke',
     'scripts/graymatter_api.sh',

@@ -62,25 +62,25 @@ Auth sources:
 Base URL default:
 - `https://api-0.valkyrlabs.com/v1`
 
-## Customer-ready setup recipe
+## OpenClaw setup
 
-If you want a second OpenClaw instance, bot, or customer deployment to use GrayMatter, **making this repo public is not enough by itself**. Public repo access shares the code, not the credentials or runtime wiring.
+GrayMatter is designed to be consumed primarily by OpenClaw operators and agent instances that need durable shared memory.
 
-A working GrayMatter setup requires all of the following:
+A working GrayMatter deployment requires:
 
-1. **Install the GrayMatter skill/repo** on the target machine
-2. **Provide valid auth** for the GrayMatter backend
-3. **Ensure network access** to the GrayMatter API
-4. **Tell the agent to use GrayMatter** for durable memory and handoffs
-5. **Verify read/write success** with a smoke test
+1. the skill or repo files available on the machine
+2. valid auth for the GrayMatter backend
+3. network access to the GrayMatter API
+4. agent instructions that treat GrayMatter as the durable memory layer
+5. a successful readiness check and smoke test before production use
 
-### Minimum requirements
+### Requirements
 
-The target machine needs:
+The machine needs:
 - `bash`
 - `curl`
 - `jq`
-- access to this repo/skill
+- access to this repo or packaged skill
 - access to the GrayMatter backend, usually `https://api-0.valkyrlabs.com/v1`
 - a valid JWT session token for ValkyrAI/api-0
 
@@ -89,8 +89,6 @@ The core scripts in this repo are thin wrappers around authenticated API calls:
 - `scripts/gm-write`
 - `scripts/gm-query`
 - `scripts/gm-graph`
-
-If auth is missing, `graymatter_api.sh` fails immediately.
 
 ### Auth configuration
 
@@ -109,75 +107,54 @@ export VALKYR_API_BASE="https://api-0.valkyrlabs.com/v1"
 export VALKYR_JWT_SESSION="<your-jwt-session-token>"
 ```
 
-### 5-minute setup for a second OpenClaw instance
+### 5-minute install flow
 
-1. **Clone or install GrayMatter** on the new machine
-2. **Install dependencies** if missing:
+1. Clone the repo or import the packaged skill
+2. Install dependencies if needed:
    ```bash
    brew install jq
    ```
-   (`curl` is usually already present)
-3. **Set credentials**:
+3. Set credentials:
    - export `VALKYR_JWT_SESSION`, or
    - store the token in macOS Keychain under `openclaw-valkyrai-admin-jwtSession`
-4. **Run the install/readiness check**:
+4. Run the readiness check:
    ```bash
    scripts/gm-install-check
    ```
-5. **Run the one-command smoke test**:
+5. Run the smoke test:
    ```bash
    scripts/gm-smoke
    ```
-6. **Update the agent instructions** so the OpenClaw instance knows to use GrayMatter as its durable shared memory layer
+6. Add agent instructions that tell OpenClaw to use GrayMatter for durable decisions, todos, context, artifacts, and handoffs
 
-### OpenClaw operator checklist
-
-For a new OpenClaw instance named `valor`, the repeatable recipe is:
+### Operator checklist
 
 - install OpenClaw
-- install or copy in the GrayMatter skill/repo
+- install or import GrayMatter
 - configure `VALKYR_JWT_SESSION`
 - optionally configure `VALKYR_API_BASE`
-- make sure the instance can reach api-0
-- give the agent an instruction such as:
-  - "Use GrayMatter as the primary durable memory and shared handoff layer"
-- verify with `gm-install-check` and `gm-smoke`
+- verify API reachability
+- run `scripts/gm-install-check`
+- run `scripts/gm-smoke`
+- instruct the agent to use GrayMatter as the primary durable memory and handoff layer
 
-### What is not enough
+### Multi-agent guidance
 
-These steps **alone** are not enough:
-- making the repo public
-- telling another agent to "install the skill"
-- inviting another Discord bot into the same server
-
-Those steps distribute code or presence, but they do **not** provide:
-- backend credentials
-- API connectivity
-- memory conventions
-- successful read/write verification
-
-### Recommended customer handoff language
-
-Use this wording when giving the setup to another operator or customer:
-
-> Install the GrayMatter skill, set `VALKYR_JWT_SESSION`, confirm access to `VALKYR_API_BASE`, then run `scripts/gm-install-check` and `scripts/gm-smoke` to verify the instance can use durable memory successfully. Repo access alone is not sufficient.
-
-### Multi-agent note
-
-If multiple OpenClaw instances share the same GrayMatter backend, they can coordinate through shared durable memory without needing direct bot-to-bot Discord chatter.
+If multiple OpenClaw agents share the same GrayMatter backend, coordinate through GrayMatter instead of relying on bot-to-bot chat.
 
 Recommended practice:
 - give each agent a distinct identity
 - write durable decisions and handoffs to GrayMatter
-- use Discord for human interaction, not as the primary machine memory layer
+- use Discord and other chat surfaces for human interaction, not as the primary machine memory layer
+- follow `references/multi-agent-conventions.md` for naming and write-style conventions
 
 ## Installation paths
 
 GrayMatter can be delivered in two practical ways:
 
-### Sample customer OpenClaw config snippet
+### Sample OpenClaw config snippet
 
-Use this as a minimal environment-oriented pattern for a customer or second instance:
+Use this as a minimal environment-oriented pattern for an OpenClaw deployment:
 
 ```yaml
 # example only, adapt to your OpenClaw config layout
@@ -230,8 +207,8 @@ Use `graymatter.skill` when you want the minimal distributable AgentSkill payloa
 
 Important:
 - the packaged skill contains the agent instructions and helper scripts
-- it does not contain your credentials
-- importing the skill is still not enough unless auth and API access are configured
+- credentials remain external to the skill package
+- auth and API access must be configured on the deployment machine
 
 ## Troubleshooting
 
@@ -276,15 +253,15 @@ Fix:
 - standardize durable write style
 - follow `references/multi-agent-conventions.md`
 
-## Drop-in skill improvements included now
+## Production-ready skill improvements
 
-This repo now includes a few practical quality-of-life upgrades for repeatable deployment:
+This repo includes a practical release baseline for public OpenClaw use:
 - `scripts/gm-install-check` for dependency and auth readiness checks
 - `scripts/gm-smoke` for a single-command live readiness test
 - `scripts/package_graymatter.py` for deterministic validation and packaging
 - automatic fallback in `scripts/gm-write` when tagged writes fail because of the known backend tag persistence issue
-- customer-ready setup instructions in this README
-- clearer operator guidance in `SKILL.md`
+- operator-first setup instructions in this README
+- clearer execution guidance in `SKILL.md`
 - reference docs for public release and multi-agent conventions
 
 ### Light mode

@@ -18,6 +18,16 @@ REQUIRED = [
     'references/multi-agent-conventions.md',
 ]
 
+OPTIONAL_REPO_ONLY = [
+    'scripts/gm-light-smoke',
+    'examples/memoryentry-basic.json',
+    'examples/memoryentry-decision.json',
+    'examples/memoryentry-todo.json',
+    'examples/memoryentry-artifact.json',
+    'examples/graymatter-light-memoryentry.yaml',
+    'examples/graymatter-light-thorapi-bundle.yaml',
+]
+
 missing = [rel for rel in REQUIRED if not (ROOT / rel).is_file()]
 if missing:
     print('Missing required files:', file=sys.stderr)
@@ -54,3 +64,13 @@ print(f'Packaged {OUT}')
 print('Archive contents verified:')
 for name in packaged:
     print(f'  - {name}')
+
+missing_optional = [rel for rel in OPTIONAL_REPO_ONLY if not (ROOT / rel).exists()]
+if missing_optional:
+    print('Optional repo assets missing:', file=sys.stderr)
+    for rel in missing_optional:
+        print(f'  - {rel}', file=sys.stderr)
+else:
+    print('Optional repo assets present:')
+    for rel in OPTIONAL_REPO_ONLY:
+        print(f'  - {rel}')

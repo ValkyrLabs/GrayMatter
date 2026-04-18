@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+STORE_PATH="${1:-${ROOT_DIR}/tmp/gm-light-store.json}"
+mkdir -p "$(dirname "$STORE_PATH")"
+
+python3 - "$STORE_PATH" <<'PY'
+import json, os, sys, uuid, datetime
+store_path = sys.argv[1]
+if os.path.exists(store_path):
+    with open(store_path, 'r', encoding='utf-8') as f:
+        store = json.load(f)
+else:
+    store = []
+now = datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0).isoformat().replace('+00:00', 'Z')
+text = f"GrayMatter Light smoke test {now}"
+entry = {
+    'id': str(uuid.uuid4()),
+    'type': 'context',
+    'text': text,
+    'sourceChannel': 'graymatter-light',
+    'createdDate': now,
+    'modifiedDate': now,
+}
+store.append(entry)
+with open(store_path, 'w', encoding='utf-8') as f:
+    json.dump(store, f, indent=2)
+results = [item for item in store if text.lower() in item.get('text', '').lower()]
+if not results:
+    print('GrayMatter Light smoke test failed', file=sys.stderr)
+    sys.exit(1)
+print(json.dumps({'store': store_path, 'entry': entry, 'results': results}, indent=2))
+PY

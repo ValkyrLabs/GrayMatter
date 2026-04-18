@@ -40,7 +40,11 @@ The goal is not chat history. The goal is durable operating memory.
 - `docs/thorapi-integration.md` — how GrayMatter connects to ThorAPI
 - `docs/graymatter-light.md` — offline/local light-mode plan
 - `examples/memoryentry-basic.json` — minimal production payload example
+- `examples/memoryentry-decision.json` — decision example
+- `examples/memoryentry-todo.json` — todo example
+- `examples/memoryentry-artifact.json` — artifact example
 - `examples/graymatter-light-memoryentry.yaml` — starter ThorAPI bundle sketch for local mode
+- `examples/graymatter-light-thorapi-bundle.yaml` — tiny runnable-style Light-mode bundle surface
 - `graymatter.skill` — packaged distributable AgentSkill
 
 ## Quickstart
@@ -205,6 +209,13 @@ Use this when you want the full repo, docs, examples, and scripts.
 
 Use `graymatter.skill` when you want the minimal distributable AgentSkill payload.
 
+Install notes for OpenClaw environments:
+- place or import `graymatter.skill` into the target OpenClaw skills location
+- ensure the installed skill resolves to the `graymatter/` folder name
+- configure `VALKYR_JWT_SESSION` and optional `VALKYR_API_BASE` on the deployment machine
+- run `scripts/gm-install-check`
+- run `scripts/gm-smoke`
+
 Important:
 - the packaged skill contains the agent instructions and helper scripts
 - credentials remain external to the skill package
@@ -253,12 +264,36 @@ Fix:
 - standardize durable write style
 - follow `references/multi-agent-conventions.md`
 
+## Local GrayMatter Light sample
+
+GrayMatter Light is the local/offline track for demos, development, and fallback workflows.
+
+Included now:
+- `examples/graymatter-light-thorapi-bundle.yaml` as a tiny ThorAPI-shaped local bundle surface
+- `scripts/gm-light-smoke` as a runnable local write/query smoke test using a JSON store
+
+Run the local sample:
+
+```bash
+scripts/gm-light-smoke
+```
+
+This creates a tiny local store, writes a `MemoryEntry`, queries it back, and prints the result.
+
+## Richer MemoryEntry examples
+
+Use these examples as starting points for durable writes:
+- `examples/memoryentry-decision.json`
+- `examples/memoryentry-todo.json`
+- `examples/memoryentry-artifact.json`
+
 ## Production-ready skill improvements
 
 This repo includes a practical release baseline for public OpenClaw use:
 - `scripts/gm-install-check` for dependency and auth readiness checks
 - `scripts/gm-smoke` for a single-command live readiness test
 - `scripts/package_graymatter.py` for deterministic validation and packaging
+- `scripts/gm-light-smoke` for local write/query validation in GrayMatter Light mode
 - automatic fallback in `scripts/gm-write` when tagged writes fail because of the known backend tag persistence issue
 - operator-first setup instructions in this README
 - clearer execution guidance in `SKILL.md`

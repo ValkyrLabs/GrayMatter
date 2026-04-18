@@ -63,6 +63,7 @@ ThorAPI gives Light mode:
 Phase 1:
 - document the concept clearly
 - include a starter ThorAPI bundle/spec example
+- include a local JSON-store smoke-test script for write/query validation
 
 Phase 2:
 - provide a tiny runnable local service
@@ -79,6 +80,14 @@ A developer should be able to:
 3. write a decision or todo
 4. query it back
 5. later switch to Cloud mode with minimal changes to payload shape and workflow
+
+## Included starter assets
+
+This repo now includes:
+- `examples/graymatter-light-thorapi-bundle.yaml` as a minimal local bundle surface
+- `scripts/gm-light-smoke` as a runnable local write/query smoke test
+
+These assets are intentionally small. They are a proving ground, not a full local service.
 
 ## Recommendation
 

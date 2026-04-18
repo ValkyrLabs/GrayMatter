@@ -60,7 +60,9 @@ Run the local smoke test to exercise a minimal write/query loop backed by a JSON
 scripts/gm-light-smoke
 ```
 
-## OpenClaw installation
+## Agentic system installation
+
+GrayMatter is designed for agentic systems, especially OpenClaw deployments and Claude Code style coding-agent environments.
 
 GrayMatter can be used either from the full repository or from the packaged `graymatter.skill` artifact.
 
@@ -144,7 +146,7 @@ Expected result:
 Expected result:
 - the installed skill can complete dependency, auth, write, and query validation
 
-### Sample OpenClaw config snippet
+### OpenClaw config snippet
 
 ```yaml
 agent:
@@ -160,6 +162,24 @@ instructions: |
 ```
 
 If the deployment uses macOS Keychain instead of environment variables, omit `VALKYR_JWT_SESSION` from config and install the secret locally.
+
+### Claude Code and coding-agent instructions
+
+For Claude Code or similar coding-agent systems, provide the repository and these operating instructions:
+
+```text
+Use GrayMatter as the durable shared memory layer for this environment.
+Persist durable decisions, todos, reusable context, artifacts, and handoff state to GrayMatter.
+Before relying on GrayMatter, run scripts/gm-install-check and scripts/gm-smoke.
+If tagged writes fail, use scripts/gm-write and allow the automatic untagged fallback.
+Use chat or terminal output for ephemeral discussion, and GrayMatter for durable machine-readable memory.
+```
+
+Claude Code or similar agents also need:
+- access to the GrayMatter repo or installed skill files
+- `bash`, `curl`, and `jq`
+- `VALKYR_JWT_SESSION` or the macOS Keychain secret
+- network access to `VALKYR_API_BASE`
 
 ### Packaged skill notes
 

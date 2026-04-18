@@ -4,7 +4,7 @@ set -euo pipefail
 BASE="${VALKYR_API_BASE:-https://api-0.valkyrlabs.com/v1}"
 LOGIN_PATH="${GRAYMATTER_LOGIN_PATH:-/auth/login}"
 LOGIN_URL="${BASE%/}/${LOGIN_PATH#/}"
-OUT_MODE="${1:-env}"
+OUT_MODE="${1:-keychain}"
 
 if ! command -v jq >/dev/null 2>&1; then
   echo "jq is required" >&2
@@ -28,24 +28,29 @@ if [[ -z "$JWT_SESSION" || "$JWT_SESSION" == "null" ]]; then
   exit 2
 fi
 
+store_keychain() {
+  if ! command -v security >/dev/null 2>&1; then
+    echo "macOS security CLI not available for keychain mode" >&2
+    exit 3
+  fi
+  security add-generic-password -U -a default -s openclaw-valkyrai-admin-jwtSession -w "$JWT_SESSION" >/dev/null
+  echo "Stored GrayMatter session securely in macOS/iCloud Keychain as openclaw-valkyrai-admin-jwtSession" >&2
+}
+
 case "$OUT_MODE" in
+  keychain)
+    store_keychain
+    ;;
   env)
+    store_keychain
     printf 'export VALKYR_API_BASE="%s"\n' "$BASE"
     printf 'export VALKYR_JWT_SESSION="%s"\n' "$JWT_SESSION"
     ;;
   token)
     printf '%s\n' "$JWT_SESSION"
     ;;
-  keychain)
-    if ! command -v security >/dev/null 2>&1; then
-      echo "macOS security CLI not available for keychain mode" >&2
-      exit 3
-    fi
-    security add-generic-password -U -a default -s openclaw-valkyrai-admin-jwtSession -w "$JWT_SESSION" >/dev/null
-    echo "Stored jwtSession in macOS Keychain as openclaw-valkyrai-admin-jwtSession" >&2
-    ;;
   *)
-    echo "Usage: gm-login [env|token|keychain]" >&2
+    echo "Usage: gm-login [keychain|env|token]" >&2
     exit 1
     ;;
 esac

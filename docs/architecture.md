@@ -54,6 +54,15 @@ Use cloud mode when you need:
 - cross-agent coordination
 - graph-backed operational state
 - production auth and centralized persistence
+- live schema awareness across the organization's available business objects
+
+Default auth posture for Cloud mode:
+- prompt the user once for api-0 username/password
+- exchange for session
+- store the session securely in macOS/iCloud Keychain
+- reuse it automatically on later runs
+
+Manual JWT handling should not be the normal user path.
 
 ## Mode 2: GrayMatter Light
 

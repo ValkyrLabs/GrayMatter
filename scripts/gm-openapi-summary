@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+SPEC="${1:-${ROOT}/tmp/api-docs.json}"
+
+if [[ ! -f "$SPEC" ]]; then
+  "${SCRIPT_DIR}/gm-openapi-sync" "$SPEC" >/dev/null
+fi
+
+python3 - "$SPEC" <<'PY'
+import json, sys
+spec = sys.argv[1]
+with open(spec, 'r', encoding='utf-8') as f:
+    data = json.load(f)
+interesting = [
+    'GrayMatter','MemoryEntry','SwarmOps','Organization','Customer','Opportunity','Invoice',
+    'Product','Application','Workbook','Workflow','Task','Note','MediaObject','FileRecord',
+    'SalesActivity','SalesPipeline','Goal','StrategicPriority','KeyMetric','Agent','Space'
+]
+
+tags = {t.get('name'): t.get('description','') for t in data.get('tags', [])}
+print(f"OpenAPI: {data.get('info',{}).get('title','unknown')} v{data.get('info',{}).get('version','?')}")
+print(f"Tags: {len(data.get('tags', []))}")
+print(f"Paths: {len(data.get('paths', {}))}")
+print()
+print('Key domains:')
+for name in interesting:
+    if name in tags:
+        print(f"- {name}: {tags[name]}")
+print()
+print('Key endpoints:')
+for path, ops in sorted(data.get('paths', {}).items()):
+    low = path.lower()
+    if any(x.lower() in low for x in interesting):
+        methods = ','.join(sorted(k.upper() for k in ops.keys()))
+        print(f"- {methods} {path}")
+PY

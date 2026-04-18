@@ -5,6 +5,11 @@
 ThorAPI is the generator and schema engine.
 GrayMatter is the durable memory product/system.
 
+In the production OpenClaw flow, GrayMatter should also be the first-class authenticated context layer:
+- user signs in with api-0 username/password
+- OpenClaw stores the resulting session securely in macOS/iCloud Keychain
+- GrayMatter then loads live schema context from the OpenAPI and operates inside that environment
+
 In practice:
 - ValkyrAI production endpoints expose GrayMatter capabilities through api-0
 - ThorAPI provides the schema-driven path to generate and evolve a local/light version cleanly

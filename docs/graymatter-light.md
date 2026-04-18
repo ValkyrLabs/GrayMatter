@@ -10,6 +10,9 @@ It exists for:
 - resilient fallback
 - easy experimentation with durable memory before wiring into api-0
 
+Light mode is not the primary production experience.
+For real OpenClaw deployments, the default path is GrayMatter Cloud with interactive username/password login and secure Keychain-backed session reuse.
+
 ## Scope for v1
 
 Keep it intentionally small.

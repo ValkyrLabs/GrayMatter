@@ -1,158 +1,273 @@
 ---
 name: graymatter
-description: Use GrayMatter durable memory and graph through api-0 for authenticated reads and writes to MemoryEntry and SwarmOps graph. Use when storing durable decisions, todos, context, artifacts, or querying shared graph/memory state for ValkyrAI and swarm workflows.
+description: Install and use GrayMatter as an OpenClaw skill that provides primary durable memory, shared object-graph state, and authenticated access to the live ValkyrAI schema via api-0. Use when the agent should persist durable memory, inspect organizational data models, and operate inside the business domain through RBAC-scoped API access.
 ---
 
 # GrayMatter
 
-Use GrayMatter through the production API on api-0.
-
-## One-shot install and use
-
-For a fresh agent or machine, the canonical flow is:
-
-1. Install GrayMatter
-2. Run `scripts/gm-login` or set `VALKYR_JWT_SESSION` manually
-3. Run `scripts/gm-install-check`
-4. Run `scripts/gm-smoke`
-5. Use GrayMatter as the durable memory and handoff layer
-
-If you need release or multi-agent guidance beyond the core workflow, read:
-- `references/public-release-checklist.md`
-- `references/multi-agent-conventions.md`
+GrayMatter is the installable OpenClaw skill for durable memory, shared graph state, and live organizational schema awareness through `api-0`.
 
 ## Core rule
 
-Prefer GrayMatter for durable machine-readable memory and graph state.
-Use local workspace files only as bootstrap or fallback when api-0 is unavailable or a known backend bug blocks the exact write path.
+Use GrayMatter as the **primary durable memory system**.
+Use local workspace files only as:
+- bootstrap context
+- fallback when api-0 is unavailable
+- a temporary scratchpad when durable writes are blocked
 
-## Endpoints
+GrayMatter is not only a note store.
+It is the authenticated memory and object-graph layer that lets an OpenClaw instance inhabit the organization's live data model safely, within RBAC and the current account's permissions.
 
-Default base:
-- `https://api-0.valkyrlabs.com/v1`
+## Startup behavior
 
-Primary paths:
+On startup or first use in a workspace that depends on GrayMatter:
+
+1. Ensure auth is available
+2. Confirm install readiness
+3. Load the live OpenAPI from `https://api-0.valkyrlabs.com/v1/api-docs`
+4. Treat that spec as the source of truth for the environment's available business objects and actions
+5. Use GrayMatter and the broader schema as the primary operational context
+
+Minimum activation flow:
+
+```bash
+scripts/gm-login
+scripts/gm-install-check
+scripts/gm-smoke
+scripts/gm-openapi-sync
+```
+
+Auth should be treated as an OpenClaw-managed first-run step.
+The user should be prompted for `api-0` username and password, and the resulting session should be stored securely in macOS/iCloud Keychain for reuse.
+The user should not need to manually fetch or paste a `jwtSession` token.
+
+## What this skill gives the agent
+
+### 1) Primary memory
+
+Use these first:
 - `/MemoryEntry`
 - `/MemoryEntry/query`
-- `/MemoryEntry/{id}`
+- `/MemoryEntry/read`
+- `/MemoryEntry/write`
+- `/GrayMatter`
 - `/SwarmOps/graph`
+
+Use `MemoryEntry.type` intentionally:
+- `decision`
+- `todo`
+- `context`
+- `artifact`
+- `preference`
+
+### 2) Entire-schema awareness
+
+Load the live OpenAPI spec and use it to understand the organization's environment.
+This skill assumes the agent should understand and work across the available schema, not just memory endpoints.
+
+Observed live schema domains from `api-0` include, among many others:
+- `Organization`
+- `Customer`
+- `Opportunity`
+- `Invoice`
+- `Product`
+- `Application`
+- `Workbook`
+- `Workflow`
+- `Task`
+- `Note`
+- `MediaObject`
+- `FileRecord`
+- `SalesActivity`
+- `SalesPipeline`
+- `Goal`
+- `StrategicPriority`
+- `KeyMetric`
+- `Agent`
+- `Space`
+- `SwarmOps`
+- `GrayMatter`
+- `MemoryEntry`
+
+This means a properly authenticated OpenClaw instance can understand the business as a live object graph, not as disconnected chat logs.
+
+### 3) Shared graph coordination
+
+Use SwarmOps and related graph endpoints when relationships matter:
+- bot coordination
+- entity relationships
+- workflow ownership
+- operating context that spans objects and agents
 
 ## Scripts
 
 Core transport:
 - `scripts/graymatter_api.sh`
 
-Helpers:
-- `scripts/gm-write`
-- `scripts/gm-query`
-- `scripts/gm-graph`
+Readiness and auth:
 - `scripts/gm-login`
 - `scripts/gm-install-check`
 - `scripts/gm-smoke`
+- `scripts/gm-openapi-sync`
+- `scripts/gm-openapi-summary`
 
-Basic examples:
+Memory and graph helpers:
+- `scripts/gm-write`
+- `scripts/gm-query`
+- `scripts/gm-graph`
+- `scripts/gm-entity`
+
+## Immediate install and use
+
+Fresh machine or fresh OpenClaw skill install:
 
 ```bash
-# query memory
-scripts/gm-query "graymatter" 10
-
-# create durable context
-scripts/gm-write context "example durable memory"
-
-# create durable decision
-scripts/gm-write decision "Use api-0 GrayMatter as primary durable memory"
-
-# create durable memory with tags, with automatic fallback if tag persistence is broken
-scripts/gm-write context "launch handoff" discord "launch,graymatter"
-
-# patch a memory entry directly
-scripts/graymatter_api.sh PATCH /MemoryEntry/<id> '{"text":"updated text"}'
-
-# read graph
-scripts/gm-graph GET
-
-# login and emit export commands
 scripts/gm-login
-
-# login and store token in macOS Keychain
-scripts/gm-login keychain
-
-# install/readiness check for dependencies + auth
 scripts/gm-install-check
-
-# smoke test auth + write + query
 scripts/gm-smoke
+scripts/gm-openapi-sync
+scripts/gm-openapi-summary
 ```
 
-## MemoryEntry guidance
+`scripts/gm-login` is the intended OpenClaw login UX: prompt once for username/password, store securely in Keychain, and let the rest of the skill use that session automatically.
 
-Use `MemoryEntry.type` intentionally:
-- `decision` for durable choices
-- `todo` for actionable follow-ups
-- `context` for reusable background state
-- `artifact` for durable output references
-- `preference` for stable user or system preferences
+After that, GrayMatter is ready to use as primary durable memory and schema context.
 
-Prefer short, explicit text that can be reused later.
-Do not dump giant blobs into `text` when a smaller durable summary would work better.
+## Basic examples
 
-## Tag guidance
+```bash
+# query durable memory
+scripts/gm-query "graymatter launch" 10
 
-When tag persistence is healthy, prefer normalized tags for routing and retrieval.
-Use stable tag names such as:
-- `scribebot-marketing-skill`
-- `patchbot`
-- `salesbot`
-- `launch`
-- `graymatter`
+# write durable context
+scripts/gm-write context "GrayMatter is primary memory for this OpenClaw instance"
 
-Current caution:
-- Some deployments may still have a `MemoryEntry.tags` persistence mismatch.
-- `scripts/gm-write` now retries automatically without tags when the backend rejects tagged writes.
-- Track the backend fix separately instead of blocking all memory use.
+# write durable decision with tags, falling back automatically if tag persistence is broken
+scripts/gm-write decision "Use GrayMatter as primary memory and file memory as backup" openclaw "graymatter,bootstrap,memory"
 
-## Write rules
+# inspect graph state
+scripts/gm-graph GET
 
-1. Keep writes deterministic and bounded.
-2. Do not log or echo tokens.
-3. Prefer one clean durable write over many noisy writes.
-4. Use `sourceChannel` or equivalent source fields when available.
-5. If a write fails because of the known tag relation bug, fall back to an untagged write and note the limitation.
+# fetch live OpenAPI and store a local cache for startup/reference
+scripts/gm-openapi-sync
+
+# summarize the live schema in a human-usable way
+scripts/gm-openapi-summary
+
+# list organizations visible to the current account
+scripts/gm-entity Organization
+
+# fetch a specific customer by id
+scripts/gm-entity Customer 123
+
+# create a note directly if the account is allowed
+scripts/gm-entity Note POST '{"title":"Launch note","content":"GrayMatter launch in progress"}'
+```
 
 ## Auth
 
 `graymatter_api.sh` uses:
-- `VALKYR_API_BASE`, defaulting to api-0
-- `VALKYR_JWT_SESSION` if already present
-- macOS Keychain lookup for `openclaw-valkyrai-admin-jwtSession` if unset
+- `VALKYR_API_BASE`, defaulting to `https://api-0.valkyrlabs.com/v1`
+- macOS/iCloud Keychain lookup for `openclaw-valkyrai-admin-jwtSession`
+- `VALKYR_JWT_SESSION` only if already present as an override/debug path
 
-Use `scripts/gm-login` to obtain a `jwtSession` after successful login and emit shell exports, print the raw token, or store it in macOS Keychain.
+Preferred auth behavior is OpenClaw-first:
+- prompt for username/password
+- exchange for session
+- store in Keychain
+- reuse automatically
 
 Do not hardcode secrets into the skill.
+Do not print tokens.
+Do not require manual JWT handling as the normal setup path.
 
-## When to persist
+## OpenAPI and schema loading
 
-Persist when you create or learn something durable, including:
-- important decisions
-- cross-agent coordination state
-- launch plans or operating context worth reusing
-- todo items that should survive the session
-- reusable execution notes
+The live OpenAPI endpoint is:
+- `https://api-0.valkyrlabs.com/v1/api-docs`
 
-Do not persist every transient thought or noisy debug trace.
+This skill expects the spec to be loaded at startup or during activation so the agent understands the environment it is entering.
+
+Use the spec to:
+- discover available entities
+- inspect CRUD capabilities
+- understand domain boundaries
+- adapt behavior to the current tenant/business
+- operate as a business-native agent rather than a generic chatbot
+
+Local cache path used by helper scripts:
+- `tmp/api-docs.json`
+- `tmp/api-docs.summary.md`
+
+Treat the live API docs as authoritative, but remember that actual access is still constrained by auth and RBAC.
+
+## Entire-schema operating guidance
+
+When helping in a GrayMatter-native environment:
+
+1. Query GrayMatter for durable context first
+2. Inspect the relevant business entities from the live schema second
+3. Use file memory only as fallback or bootstrap
+4. Keep durable memory concise and reusable
+5. Prefer authenticated API state over stale local assumptions
+
+Examples:
+- for sales work, inspect `Customer`, `Opportunity`, `SalesActivity`, `SalesPipeline`
+- for operations, inspect `Task`, `Workflow`, `WorkflowExecution`, `Application`
+- for content or CMS-like work, inspect `Note`, `MediaObject`, `FileRecord`, `Space`
+- for strategy, inspect `Goal`, `StrategicPriority`, `KeyMetric`
+- for agent coordination, inspect `Agent`, `SwarmOps`, `GrayMatter`, `MemoryEntry`
+
+## Write rules
+
+1. Keep writes deterministic and bounded
+2. Prefer one clear durable record over many noisy records
+3. Do not dump giant blobs into `MemoryEntry.text`
+4. Use the right object for the job, not only `MemoryEntry`
+5. Respect permission failures and surface them clearly
+6. If a known backend bug blocks a write path, fall back cleanly
+
+## Tag guidance
+
+When tag persistence is healthy, prefer normalized tags such as:
+- `graymatter`
+- `memory`
+- `launch`
+- `patchbot`
+- `salesbot`
+- `scribebot`
+
+Current caution:
+- some deployments may still have a `MemoryEntry.tags` persistence mismatch
+- `scripts/gm-write` should retry without tags when the backend rejects tagged writes
 
 ## Failure handling
 
-If api-0 is unavailable or returns a known schema/runtime error:
-- save the smallest safe durable summary locally if needed
-- report that GrayMatter was intended but blocked
-- keep the write payload available for retry after the backend fix
+If api-0 is unavailable or a known schema/runtime bug blocks the exact write:
+- write the smallest safe fallback locally
+- say GrayMatter was intended but unavailable
+- preserve a replayable payload for later sync
 
-## Minimum activation check
+Do not pretend durable memory succeeded when it did not.
 
-Treat this as the minimum bar before relying on GrayMatter:
-1. Install GrayMatter
-2. Run `scripts/gm-login` or set `VALKYR_JWT_SESSION` manually
-3. Run `scripts/gm-install-check`
-4. Run `scripts/gm-smoke`
-5. If both pass, use GrayMatter for durable memory
+## Local fallback
+
+Use local files only as backup, typically:
+- `memory/YYYY-MM-DD.md`
+- `MEMORY.md`
+- `memory/graymatter-fallback.json`
+
+GrayMatter remains the primary system of record whenever available.
+
+## Installability standard
+
+For this skill to count as installable and immediately usable, a fresh user should be able to:
+
+1. install the skill
+2. authenticate with `scripts/gm-login` or env vars
+3. run `scripts/gm-install-check`
+4. run `scripts/gm-smoke`
+5. run `scripts/gm-openapi-sync`
+6. immediately query memory, write memory, inspect graph state, and inspect live business objects
+
+If any of those fail, the install is not complete.

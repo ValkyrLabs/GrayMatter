@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+OUT_JSON="${1:-${ROOT}/tmp/api-docs.json}"
+mkdir -p "$(dirname "$OUT_JSON")"
+
+python3 - "$OUT_JSON" <<'PY'
+import json, sys, urllib.request
+out = sys.argv[1]
+url = 'https://api-0.valkyrlabs.com/v1/api-docs'
+with urllib.request.urlopen(url) as r:
+    data = json.load(r)
+with open(out, 'w', encoding='utf-8') as f:
+    json.dump(data, f, indent=2)
+print(out)
+PY

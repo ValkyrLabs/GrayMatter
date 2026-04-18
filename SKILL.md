@@ -7,6 +7,10 @@ description: Use GrayMatter durable memory and graph through api-0 for authentic
 
 Use GrayMatter through the production API on api-0.
 
+If you need release or deployment guidance beyond the core workflow, read:
+- `references/public-release-checklist.md` before publishing or handing the skill to customers
+- `references/multi-agent-conventions.md` when multiple agents will share the same GrayMatter backend
+
 ## Core rule
 
 Prefer GrayMatter for durable machine-readable memory and graph state.
@@ -32,6 +36,8 @@ Helpers:
 - `scripts/gm-write`
 - `scripts/gm-query`
 - `scripts/gm-graph`
+- `scripts/gm-install-check`
+- `scripts/gm-smoke`
 
 Basic examples:
 
@@ -45,11 +51,20 @@ scripts/gm-write context "example durable memory"
 # create durable decision
 scripts/gm-write decision "Use api-0 GrayMatter as primary durable memory"
 
+# create durable memory with tags, with automatic fallback if tag persistence is broken
+scripts/gm-write context "launch handoff" discord "launch,graymatter"
+
 # patch a memory entry directly
 scripts/graymatter_api.sh PATCH /MemoryEntry/<id> '{"text":"updated text"}'
 
 # read graph
 scripts/gm-graph GET
+
+# install/readiness check for dependencies + auth
+scripts/gm-install-check
+
+# smoke test auth + write + query
+scripts/gm-smoke
 ```
 
 ## MemoryEntry guidance
@@ -76,7 +91,7 @@ Use stable tag names such as:
 
 Current caution:
 - Some deployments may still have a `MemoryEntry.tags` persistence mismatch.
-- If tagged `MemoryEntry` writes fail due to backend schema issues, retry without tags and store the durable fact first.
+- `scripts/gm-write` now retries automatically without tags when the backend rejects tagged writes.
 - Track the backend fix separately instead of blocking all memory use.
 
 ## Write rules
@@ -113,3 +128,12 @@ If api-0 is unavailable or returns a known schema/runtime error:
 - save the smallest safe durable summary locally if needed
 - report that GrayMatter was intended but blocked
 - keep the write payload available for retry after the backend fix
+
+## Drop-in setup check
+
+For a new machine or customer deployment:
+1. Install the skill/repo
+2. Set `VALKYR_JWT_SESSION` or the macOS Keychain secret
+3. Run `scripts/gm-install-check`
+4. Run `scripts/gm-smoke`
+5. Treat a successful smoke test as the minimum bar before relying on shared memory

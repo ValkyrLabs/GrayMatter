@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+have() {
+  command -v "$1" >/dev/null 2>&1
+}
+
+fail() {
+  printf 'FAIL: %s\n' "$1" >&2
+  exit 1
+}
+
+warn() {
+  printf 'WARN: %s\n' "$1" >&2
+}
+
+pass() {
+  printf 'OK: %s\n' "$1" >&2
+}
+
+have bash || fail 'bash is required'
+have curl || fail 'curl is required'
+have jq || fail 'jq is required'
+pass 'bash, curl, and jq are available'
+
+BASE="${VALKYR_API_BASE:-https://api-0.valkyrlabs.com/v1}"
+TOKEN="${VALKYR_JWT_SESSION:-}"
+
+if [[ -z "$TOKEN" ]] && have security; then
+  TOKEN="$(security find-generic-password -a default -s openclaw-valkyrai-admin-jwtSession -w 2>/dev/null || true)"
+fi
+
+if [[ -z "$TOKEN" ]]; then
+  fail 'No GrayMatter auth found. Set VALKYR_JWT_SESSION or add macOS Keychain secret openclaw-valkyrai-admin-jwtSession'
+fi
+pass 'GrayMatter auth source detected'
+
+if curl --silent --show-error --fail --max-time 10 "$BASE" >/dev/null 2>&1; then
+  pass "API base reachable: $BASE"
+else
+  warn "Could not verify base URL with unauthenticated GET: $BASE"
+  warn 'This may be normal if the base path does not support anonymous GET. Proceeding because auth is present.'
+fi
+
+printf 'GrayMatter install check passed\n'

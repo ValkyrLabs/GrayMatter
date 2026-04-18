@@ -4,11 +4,36 @@ set -euo pipefail
 TYPE="${1:-}"
 TEXT="${2:-}"
 SOURCE_CHANNEL="${3:-openclaw}"
+TAGS_RAW="${4:-}"
 
 if [[ -z "$TYPE" || -z "$TEXT" ]]; then
-  echo "Usage: gm-write <decision|todo|context|artifact|preference> <text> [sourceChannel]" >&2
+  echo "Usage: gm-write <decision|todo|context|artifact|preference> <text> [sourceChannel] [comma-separated-tags]" >&2
   exit 1
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-"${SCRIPT_DIR}/graymatter_api.sh" POST /MemoryEntry "$(jq -nc --arg type "$TYPE" --arg text "$TEXT" --arg sourceChannel "$SOURCE_CHANNEL" '{type:$type,text:$text,sourceChannel:$sourceChannel}')"
+
+if [[ -n "$TAGS_RAW" ]]; then
+  PAYLOAD="$(jq -nc --arg type "$TYPE" --arg text "$TEXT" --arg sourceChannel "$SOURCE_CHANNEL" --arg tagsRaw "$TAGS_RAW" '{type:$type,text:$text,sourceChannel:$sourceChannel,tags:($tagsRaw | split(",") | map(gsub("^\\s+|\\s+$";"")) | map(select(length > 0)))}')"
+else
+  PAYLOAD="$(jq -nc --arg type "$TYPE" --arg text "$TEXT" --arg sourceChannel "$SOURCE_CHANNEL" '{type:$type,text:$text,sourceChannel:$sourceChannel}')"
+fi
+
+set +e
+RESPONSE="$(${SCRIPT_DIR}/graymatter_api.sh POST /MemoryEntry "$PAYLOAD" 2>&1)"
+STATUS=$?
+set -e
+
+if [[ $STATUS -eq 0 ]]; then
+  printf '%s\n' "$RESPONSE"
+  exit 0
+fi
+
+if [[ -n "$TAGS_RAW" ]] && printf '%s' "$RESPONSE" | grep -Eqi 'tags|tag|relation'; then
+  echo "Tagged write failed, retrying without tags due to backend tag persistence issue" >&2
+  FALLBACK_PAYLOAD="$(jq -nc --arg type "$TYPE" --arg text "$TEXT" --arg sourceChannel "$SOURCE_CHANNEL" '{type:$type,text:$text,sourceChannel:$sourceChannel}')"
+  exec "${SCRIPT_DIR}/graymatter_api.sh" POST /MemoryEntry "$FALLBACK_PAYLOAD"
+fi
+
+printf '%s\n' "$RESPONSE" >&2
+exit $STATUS

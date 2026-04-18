@@ -1,0 +1,14 @@
+{
+  "slug": "graymatter",
+  "name": "GrayMatter",
+  "version": "0.1.0",
+  "tags": [
+    "memory",
+    "durable-memory",
+    "multi-agent",
+    "graph",
+    "valkyr",
+    "latest"
+  ],
+  "changelog": "Initial public release with install-check, smoke-test, tagged-write fallback, and multi-agent guidance"
+}

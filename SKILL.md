@@ -7,9 +7,19 @@ description: Use GrayMatter durable memory and graph through api-0 for authentic
 
 Use GrayMatter through the production API on api-0.
 
-If you need release or deployment guidance beyond the core workflow, read:
-- `references/public-release-checklist.md` before publishing or handing the skill to customers
-- `references/multi-agent-conventions.md` when multiple agents will share the same GrayMatter backend
+## One-shot install and use
+
+For a fresh agent or machine, the canonical flow is:
+
+1. Install GrayMatter
+2. Set `VALKYR_JWT_SESSION` or the macOS Keychain secret
+3. Run `scripts/gm-install-check`
+4. Run `scripts/gm-smoke`
+5. Use GrayMatter as the durable memory and handoff layer
+
+If you need release or multi-agent guidance beyond the core workflow, read:
+- `references/public-release-checklist.md`
+- `references/multi-agent-conventions.md`
 
 ## Core rule
 
@@ -129,11 +139,11 @@ If api-0 is unavailable or returns a known schema/runtime error:
 - report that GrayMatter was intended but blocked
 - keep the write payload available for retry after the backend fix
 
-## Drop-in setup check
+## Minimum activation check
 
-For a new machine or customer deployment:
-1. Install the skill/repo
+Treat this as the minimum bar before relying on GrayMatter:
+1. Install GrayMatter
 2. Set `VALKYR_JWT_SESSION` or the macOS Keychain secret
 3. Run `scripts/gm-install-check`
 4. Run `scripts/gm-smoke`
-5. Treat a successful smoke test as the minimum bar before relying on shared memory
+5. If both pass, use GrayMatter for durable memory

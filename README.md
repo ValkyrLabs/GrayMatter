@@ -35,6 +35,16 @@ GrayMatter is designed for OpenClaw operators and agent systems that need durabl
 
 ## Quick start
 
+### One-shot install and use
+
+If you want an OpenClaw instance or other agentic system to adopt GrayMatter, the canonical flow is:
+
+1. Install GrayMatter
+2. Set `VALKYR_JWT_SESSION` or the macOS Keychain secret
+3. Run `scripts/gm-install-check`
+4. Run `scripts/gm-smoke`
+5. Use GrayMatter as the durable memory and handoff layer
+
 ### Production mode
 
 Use api-0 for durable shared memory and graph operations.

@@ -24,14 +24,14 @@ have jq || fail 'jq is required'
 pass 'bash, curl, and jq are available'
 
 BASE="${VALKYR_API_BASE:-https://api-0.valkyrlabs.com/v1}"
-TOKEN="${VALKYR_AUTH_TOKEN:-}"
+TOKEN="${VALKYR_AUTH_TOKEN:-${VALKYR_JWT_SESSION:-}}"
 
 if [[ -z "$TOKEN" ]] && have security; then
-  TOKEN="$(security find-generic-password -a default -s openclaw-valkyrai-admin-authToken -w 2>/dev/null || true)"
+  TOKEN="$(security find-generic-password -a default -s VALKYR_AUTH -w 2>/dev/null || true)"
 fi
 
 if [[ -z "$TOKEN" ]]; then
-  fail 'No GrayMatter auth found. Set VALKYR_AUTH_TOKEN or add macOS Keychain secret openclaw-valkyrai-admin-authToken'
+  fail 'No GrayMatter auth found. Checked VALKYR_AUTH_TOKEN, VALKYR_JWT_SESSION, and macOS Keychain secret VALKYR_AUTH. Run scripts/gm-login if needed.'
 fi
 pass 'GrayMatter auth source detected'
 

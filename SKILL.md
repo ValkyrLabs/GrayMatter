@@ -216,14 +216,16 @@ scripts/gm-entity Note POST '{"title":"Launch note","content":"GrayMatter launch
 
 `graymatter_api.sh` uses:
 - `VALKYR_API_BASE`, defaulting to `https://api-0.valkyrlabs.com/v1`
-- macOS/iCloud Keychain lookup for `openclaw-valkyrai-admin-authToken`
+- macOS/iCloud Keychain lookup for `VALKYR_AUTH`
 - `VALKYR_AUTH_TOKEN` if already present as an override/debug path
+- `VALKYR_JWT_SESSION` as a compatible env fallback
 
 Preferred auth behavior is OpenClaw-first:
-- prompt for username/password
+- check Keychain for `VALKYR_AUTH` first
+- if present, reuse it automatically
+- otherwise prompt for username/password
 - exchange for a `VALKYR_AUTH` token
 - store it in Keychain
-- reuse automatically
 
 Do not hardcode secrets into the skill.
 Do not print tokens.

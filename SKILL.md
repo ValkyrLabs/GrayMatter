@@ -289,6 +289,10 @@ If login authenticates successfully but no token appears in the response body, u
 
 Do not pretend durable memory succeeded when it did not.
 
+Known operational note:
+- `/MemoryEntry/query` may require credits even when write/read paths succeed
+- new signups should receive an automatic 500-credit grant so GrayMatter query works immediately during activation
+
 ## Local fallback
 
 Use local files only as backup, typically:

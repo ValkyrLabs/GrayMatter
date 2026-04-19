@@ -13,12 +13,12 @@ fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [[ -n "$TYPE" && -n "$SOURCE_CHANNEL" ]]; then
-  BODY="$(jq -nc --arg q "$QUERY" --argjson max_results "$LIMIT" --arg type "$TYPE" --arg source "$SOURCE_CHANNEL" '{q:$q,max_results:$max_results,type:$type,source:$source}')"
+  BODY="$(jq -nc --arg q "$QUERY" --argjson maxResults "$LIMIT" --arg type "$TYPE" --arg source "$SOURCE_CHANNEL" '{q:$q,maxResults:$maxResults,type:$type,source:$source}')"
 elif [[ -n "$TYPE" ]]; then
-  BODY="$(jq -nc --arg q "$QUERY" --argjson max_results "$LIMIT" --arg type "$TYPE" '{q:$q,max_results:$max_results,type:$type}')"
+  BODY="$(jq -nc --arg q "$QUERY" --argjson maxResults "$LIMIT" --arg type "$TYPE" '{q:$q,maxResults:$maxResults,type:$type}')"
 elif [[ -n "$SOURCE_CHANNEL" ]]; then
-  BODY="$(jq -nc --arg q "$QUERY" --argjson max_results "$LIMIT" --arg source "$SOURCE_CHANNEL" '{q:$q,max_results:$max_results,source:$source}')"
+  BODY="$(jq -nc --arg q "$QUERY" --argjson maxResults "$LIMIT" --arg source "$SOURCE_CHANNEL" '{q:$q,maxResults:$maxResults,source:$source}')"
 else
-  BODY="$(jq -nc --arg q "$QUERY" --argjson max_results "$LIMIT" '{q:$q,max_results:$max_results}')"
+  BODY="$(jq -nc --arg q "$QUERY" --argjson maxResults "$LIMIT" '{q:$q,maxResults:$maxResults}')"
 fi
 "${SCRIPT_DIR}/graymatter_api.sh" POST /MemoryEntry/query "$BODY"

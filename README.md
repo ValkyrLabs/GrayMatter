@@ -343,6 +343,16 @@ Fix:
 - use `scripts/gm-write`
 - let it retry automatically without tags
 
+### Query fails with a credits or billing error
+
+If writes and reads succeed but `/MemoryEntry/query` fails with a credit error, that is usually an account billing configuration issue rather than a GrayMatter auth failure.
+
+Observed requirement:
+- query currently consumes credits
+- a fresh signup should auto-provision **500 credits** so GrayMatter query works immediately
+
+If a new account has `0.00` balance, activation may still succeed for write/read operations while query fails until credits are provisioned.
+
 ### Login succeeds but no session is found
 
 Some api-0 deployments return auth in headers or cookies rather than in the JSON response body.

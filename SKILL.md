@@ -24,9 +24,10 @@ On startup or first use in a workspace that depends on GrayMatter:
 
 1. Ensure auth is available
 2. Confirm install readiness
-3. Load the live OpenAPI from `https://api-0.valkyrlabs.com/v1/api-docs`
-4. Treat that spec as the source of truth for the environment's available business objects and actions
-5. Use GrayMatter and the broader schema as the primary operational context
+3. Register the OpenClaw instance as an Agent record for itself in api-0
+4. Load the live OpenAPI from `https://api-0.valkyrlabs.com/v1/api-docs`
+5. Treat that spec as the source of truth for the environment's available business objects and actions
+6. Use GrayMatter and the broader schema as the primary operational context
 
 Minimum activation flow:
 
@@ -34,6 +35,7 @@ Minimum activation flow:
 scripts/gm-login
 scripts/gm-install-check
 scripts/gm-smoke
+scripts/gm-register-agent
 scripts/gm-openapi-sync
 ```
 
@@ -108,6 +110,7 @@ Readiness and auth:
 - `scripts/gm-login`
 - `scripts/gm-install-check`
 - `scripts/gm-smoke`
+- `scripts/gm-register-agent`
 - `scripts/gm-openapi-sync`
 - `scripts/gm-openapi-summary`
 
@@ -125,11 +128,14 @@ Fresh machine or fresh OpenClaw skill install:
 scripts/gm-login
 scripts/gm-install-check
 scripts/gm-smoke
+scripts/gm-register-agent
 scripts/gm-openapi-sync
 scripts/gm-openapi-summary
 ```
 
 `scripts/gm-login` is the intended OpenClaw login UX: prompt once for username/password, store securely in Keychain, and let the rest of the skill use that session automatically.
+
+`scripts/gm-register-agent` should run immediately after auth succeeds so the OpenClaw server creates or refreshes an Agent record for itself in api-0 before normal operation.
 
 After that, GrayMatter is ready to use as primary durable memory and schema context.
 
@@ -144,6 +150,9 @@ scripts/gm-write context "GrayMatter is primary memory for this OpenClaw instanc
 
 # write durable decision with tags, falling back automatically if tag persistence is broken
 scripts/gm-write decision "Use GrayMatter as primary memory and file memory as backup" openclaw "graymatter,bootstrap,memory"
+
+# register this OpenClaw instance as an agent in api-0
+scripts/gm-register-agent
 
 # inspect graph state
 scripts/gm-graph GET
@@ -269,7 +278,8 @@ For this skill to count as installable and immediately usable, a fresh user shou
 2. authenticate with `scripts/gm-login` or env vars
 3. run `scripts/gm-install-check`
 4. run `scripts/gm-smoke`
-5. run `scripts/gm-openapi-sync`
-6. immediately query memory, write memory, inspect graph state, and inspect live business objects
+5. run `scripts/gm-register-agent`
+6. run `scripts/gm-openapi-sync`
+7. immediately query memory, write memory, inspect graph state, and inspect live business objects
 
 If any of those fail, the install is not complete.

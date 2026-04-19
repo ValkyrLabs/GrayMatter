@@ -119,6 +119,7 @@ Rule:
 - `scripts/gm-openapi-sync` — fetch and cache the live OpenAPI spec locally
 - `scripts/gm-openapi-summary` — summarize live schema domains and endpoints
 - `scripts/gm-entity` — generic helper for listing, reading, and writing arbitrary schema entities
+- `scripts/gm-register-agent` — register or refresh the OpenClaw server as an Agent in api-0
 - `scripts/package_graymatter.py` — deterministic validation and packaging
 - `docs/architecture.md` — architecture and operating model
 - `docs/thorapi-integration.md` — ThorAPI relationship and bundle direction
@@ -138,7 +139,8 @@ The intended first-run OpenClaw auth step is:
 2. OpenClaw prompts for their password
 3. OpenClaw exchanges those credentials for a session
 4. OpenClaw stores the resulting session securely in macOS/iCloud Keychain
-5. Subsequent GrayMatter use reads from Keychain automatically
+5. OpenClaw creates or refreshes an Agent record for itself in api-0
+6. Subsequent GrayMatter use reads from Keychain automatically
 
 That means GrayMatter should feel like:
 - sign in once
@@ -156,11 +158,14 @@ brew install jq
 scripts/gm-login
 scripts/gm-install-check
 scripts/gm-smoke
+scripts/gm-register-agent
 scripts/gm-openapi-sync
 scripts/gm-openapi-summary
 ```
 
 `scripts/gm-login` should be treated as the standard OpenClaw login step. It prompts for username/password and stores the session in macOS/iCloud Keychain by default.
+
+`scripts/gm-register-agent` is part of the expected startup handshake. When an OpenClaw server connects to api-0, it should create or refresh an Agent record for itself before proceeding with normal work.
 
 At that point the install should be immediately usable.
 
@@ -174,6 +179,7 @@ At that point the install should be immediately usable.
 scripts/gm-login
 scripts/gm-install-check
 scripts/gm-smoke
+scripts/gm-register-agent
 scripts/gm-openapi-sync
 scripts/gm-openapi-summary
 ```
@@ -189,8 +195,9 @@ GrayMatter counts as launch-ready only if a fresh user can:
 3. pass install validation
 4. write and query a `MemoryEntry`
 5. inspect graph state
-6. fetch and summarize the live OpenAPI
-7. inspect at least one live entity family from the business schema
+6. register the OpenClaw instance as an Agent in api-0
+7. fetch and summarize the live OpenAPI
+8. inspect at least one live entity family from the business schema
 
 If those do not work, the skill is not truly ready.
 
@@ -220,6 +227,14 @@ scripts/gm-write context "launch handoff" discord "launch,graymatter"
 ```
 
 If tag persistence is broken on the backend, the script retries without tags instead of failing the whole write.
+
+### Agent self-registration
+
+```bash
+scripts/gm-register-agent
+```
+
+This should run when an OpenClaw server first connects to api-0 so the system has an explicit Agent record for that instance.
 
 ### Graph state
 

@@ -17,6 +17,7 @@ REQUIRED = [
     'scripts/gm-openapi-sync',
     'scripts/gm-openapi-summary',
     'scripts/gm-entity',
+    'scripts/gm-register-agent',
     'scripts/graymatter_api.sh',
     'references/public-release-checklist.md',
     'references/multi-agent-conventions.md',

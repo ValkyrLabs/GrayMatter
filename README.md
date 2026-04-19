@@ -111,6 +111,7 @@ Rule:
 - `graymatter.skill` — packaged distributable AgentSkill
 - `scripts/graymatter_api.sh` — authenticated production API transport
 - `scripts/gm-login` — login helper
+- `scripts/gm-activate` — one-shot auth + install + agent registration + schema sync bootstrap
 - `scripts/gm-install-check` — dependency and auth readiness check
 - `scripts/gm-smoke` — production smoke test for write/query validation
 - `scripts/gm-query` — query `MemoryEntry`
@@ -155,13 +156,19 @@ Manual token handling is a fallback/debug path, not the primary user experience.
 git clone https://github.com/ValkyrLabs/GrayMatter.git
 cd GrayMatter
 brew install jq
-scripts/gm-login
-scripts/gm-install-check
-scripts/gm-smoke
-scripts/gm-register-agent
-scripts/gm-openapi-sync
-scripts/gm-openapi-summary
+scripts/gm-activate
 ```
+
+`scripts/gm-activate` is the intended one-shot bootstrap for OpenClaw installs. It can use:
+- interactive username/password prompts, or
+- credentials already present in environment variables
+
+Supported env inputs:
+- `GRAYMATTER_USERNAME` or `VALKYR_USERNAME`
+- `GRAYMATTER_PASSWORD` or `VALKYR_PASSWORD`
+- optional `OPENCLAW_INSTANCE_ID`
+- optional `OPENCLAW_AGENT_NAME`
+- optional `OPENCLAW_AGENT_ROLE`
 
 `scripts/gm-login` should be treated as the standard OpenClaw login step. It prompts for username/password and stores the session in macOS/iCloud Keychain by default.
 
@@ -176,12 +183,7 @@ At that point the install should be immediately usable.
 3. Run:
 
 ```bash
-scripts/gm-login
-scripts/gm-install-check
-scripts/gm-smoke
-scripts/gm-register-agent
-scripts/gm-openapi-sync
-scripts/gm-openapi-summary
+scripts/gm-activate
 ```
 
 If those pass, the skill is installable and usable.
@@ -227,6 +229,14 @@ scripts/gm-write context "launch handoff" discord "launch,graymatter"
 ```
 
 If tag persistence is broken on the backend, the script retries without tags instead of failing the whole write.
+
+### One-shot activation
+
+```bash
+scripts/gm-activate
+```
+
+This is the preferred OpenClaw install/bootstrap entrypoint.
 
 ### Agent self-registration
 

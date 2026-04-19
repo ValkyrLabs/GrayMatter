@@ -1,0 +1,88 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+BASE="${VALKYR_API_BASE:-https://api-0.valkyrlabs.com/v1}"
+USERNAME_ENV="${GRAYMATTER_USERNAME:-${VALKYR_USERNAME:-}}"
+PASSWORD_ENV="${GRAYMATTER_PASSWORD:-${VALKYR_PASSWORD:-}}"
+INSTANCE_ID="${OPENCLAW_INSTANCE_ID:-${HOSTNAME:-openclaw-instance}}"
+AGENT_NAME="${OPENCLAW_AGENT_NAME:-Valor}"
+ROLE_LABEL="${OPENCLAW_AGENT_ROLE:-openclaw-server}"
+
+have() {
+  command -v "$1" >/dev/null 2>&1
+}
+
+if ! have jq; then
+  echo "jq is required" >&2
+  exit 1
+fi
+
+export VALKYR_API_BASE="$BASE"
+
+if [[ -n "$USERNAME_ENV" && -n "$PASSWORD_ENV" ]]; then
+  COOKIE_JAR="$(mktemp -t graymatter-activate-cookie.XXXXXX)"
+  HEADERS_FILE="$(mktemp -t graymatter-activate-headers.XXXXXX)"
+  trap 'rm -f "$COOKIE_JAR" "$HEADERS_FILE"' EXIT
+
+  RESPONSE="$(curl --fail-with-body -sS -D "$HEADERS_FILE" -c "$COOKIE_JAR" -X POST "${BASE%/}/auth/login" \
+    -H 'accept: application/json' \
+    -H 'content-type: application/json' \
+    --data "$(jq -nc --arg username "$USERNAME_ENV" --arg password "$PASSWORD_ENV" '{username:$username,password:$password}')")"
+
+  extract_from_body() {
+    printf '%s' "$RESPONSE" | jq -r '.jwtSession // .data.jwtSession // .token // .session // .jwt // empty' 2>/dev/null || true
+  }
+
+  extract_from_headers() {
+    awk 'BEGIN{IGNORECASE=1}
+      /^jwtSession:/ {gsub(/\r/, "", $0); sub(/^[^:]+:[[:space:]]*/, "", $0); print; exit}
+      /^authorization:/ {gsub(/\r/, "", $0); sub(/^[^:]+:[[:space:]]*Bearer[[:space:]]+/, "", $0); print; exit}
+      /^set-cookie:/ {
+        line=$0
+        gsub(/\r/, "", line)
+        if (line ~ /jwtSession=/) {
+          sub(/^.*jwtSession=/, "", line)
+          sub(/;.*$/, "", line)
+          print line
+          exit
+        }
+      }
+    ' "$HEADERS_FILE"
+  }
+
+  extract_from_cookies() {
+    awk 'BEGIN{FS="\t"} $0 !~ /^#/ && $6 == "jwtSession" {print $7; exit}' "$COOKIE_JAR"
+  }
+
+  JWT_SESSION="$(extract_from_body)"
+  if [[ -z "$JWT_SESSION" || "$JWT_SESSION" == "null" ]]; then
+    JWT_SESSION="$(extract_from_headers)"
+  fi
+  if [[ -z "$JWT_SESSION" || "$JWT_SESSION" == "null" ]]; then
+    JWT_SESSION="$(extract_from_cookies)"
+  fi
+
+  if [[ -z "$JWT_SESSION" || "$JWT_SESSION" == "null" ]]; then
+    echo "Auth succeeded but no jwtSession could be extracted during activation" >&2
+    echo "$RESPONSE" >&2
+    exit 2
+  fi
+
+  if have security; then
+    security add-generic-password -U -a default -s openclaw-valkyrai-admin-jwtSession -w "$JWT_SESSION" >/dev/null
+    echo "Stored GrayMatter session in macOS/iCloud Keychain" >&2
+  fi
+  export VALKYR_JWT_SESSION="$JWT_SESSION"
+else
+  echo "No GrayMatter username/password found in environment, falling back to interactive login" >&2
+  eval "$(${SCRIPT_DIR}/gm-login env)"
+fi
+
+${SCRIPT_DIR}/gm-install-check
+${SCRIPT_DIR}/gm-smoke
+${SCRIPT_DIR}/gm-register-agent "$INSTANCE_ID" "$AGENT_NAME" "$ROLE_LABEL"
+${SCRIPT_DIR}/gm-openapi-sync >/dev/null
+${SCRIPT_DIR}/gm-openapi-summary
+
+echo "GrayMatter activation complete: auth ready, smoke test passed, agent registered, schema synced" >&2

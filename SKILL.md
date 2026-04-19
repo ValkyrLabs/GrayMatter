@@ -32,6 +32,12 @@ On startup or first use in a workspace that depends on GrayMatter:
 Minimum activation flow:
 
 ```bash
+scripts/gm-activate
+```
+
+Expanded manual flow:
+
+```bash
 scripts/gm-login
 scripts/gm-install-check
 scripts/gm-smoke
@@ -108,6 +114,7 @@ Core transport:
 
 Readiness and auth:
 - `scripts/gm-login`
+- `scripts/gm-activate`
 - `scripts/gm-install-check`
 - `scripts/gm-smoke`
 - `scripts/gm-register-agent`
@@ -123,6 +130,24 @@ Memory and graph helpers:
 ## Immediate install and use
 
 Fresh machine or fresh OpenClaw skill install:
+
+```bash
+scripts/gm-activate
+```
+
+`scripts/gm-activate` is the one-shot OpenClaw bootstrap script. It can either:
+- prompt the interactive user for username/password through the normal login flow, or
+- use credentials already present in environment variables
+
+Then it:
+- stores the session securely in Keychain
+- runs install validation
+- runs the smoke test
+- registers the OpenClaw server as an Agent
+- syncs the live OpenAPI
+- prints a schema summary
+
+Expanded manual flow if needed:
 
 ```bash
 scripts/gm-login
@@ -150,6 +175,9 @@ scripts/gm-write context "GrayMatter is primary memory for this OpenClaw instanc
 
 # write durable decision with tags, falling back automatically if tag persistence is broken
 scripts/gm-write decision "Use GrayMatter as primary memory and file memory as backup" openclaw "graymatter,bootstrap,memory"
+
+# one-shot activation for OpenClaw install or skill bootstrap
+scripts/gm-activate
 
 # register this OpenClaw instance as an agent in api-0
 scripts/gm-register-agent

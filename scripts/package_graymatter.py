@@ -12,6 +12,7 @@ REQUIRED = [
     'scripts/gm-graph',
     'scripts/gm-write',
     'scripts/gm-login',
+    'scripts/gm-activate',
     'scripts/gm-install-check',
     'scripts/gm-smoke',
     'scripts/gm-openapi-sync',

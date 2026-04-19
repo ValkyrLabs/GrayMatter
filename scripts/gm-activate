@@ -48,45 +48,30 @@ if [[ -n "$USERNAME_ENV" && -n "$PASSWORD_ENV" ]]; then
   }
 
   extract_from_headers() {
-    awk 'BEGIN{IGNORECASE=1}
-      /^VALKYR_AUTH:/ {
-        line=$0
-        gsub(/\r/, "", line)
-        sub(/^[^:]+:[[:space:]]*/, "", line)
-        print line
-        exit
-      }
-      /^authorization:/ {
-        line=$0
-        gsub(/\r/, "", line)
-        sub(/^[^:]+:[[:space:]]*Bearer[[:space:]]+/, "", line)
-        print line
-        exit
-      }
-      /^jwtSession:/ {
-        line=$0
-        gsub(/\r/, "", line)
-        sub(/^[^:]+:[[:space:]]*/, "", line)
-        print line
-        exit
-      }
-      /^set-cookie:/ {
-        line=$0
-        gsub(/\r/, "", line)
-        if (line ~ /VALKYR_AUTH=/) {
-          sub(/^.*VALKYR_AUTH=/, "", line)
-          sub(/;.*$/, "", line)
-          print line
-          exit
-        }
-        if (line ~ /jwtSession=/) {
-          sub(/^.*jwtSession=/, "", line)
-          sub(/;.*$/, "", line)
-          print line
-          exit
-        }
-      }
-    ' "$HEADERS_FILE"
+    local token
+    token="$(tr -d '\r' < "$HEADERS_FILE" | grep -i 'set-cookie: .*VALKYR_AUTH=' | sed -E 's/.*VALKYR_AUTH=([^;]+).*/\1/' | head -n 1 || true)"
+    if [[ -n "$token" ]]; then
+      printf '%s\n' "$token"
+      return 0
+    fi
+
+    token="$(tr -d '\r' < "$HEADERS_FILE" | grep -i '^VALKYR_AUTH:' | sed -E 's/^[^:]+:[[:space:]]*//' | head -n 1 || true)"
+    if [[ -n "$token" ]]; then
+      printf '%s\n' "$token"
+      return 0
+    fi
+
+    token="$(tr -d '\r' < "$HEADERS_FILE" | grep -i '^authorization:' | sed -E 's/^[^:]+:[[:space:]]*Bearer[[:space:]]+//' | head -n 1 || true)"
+    if [[ -n "$token" ]]; then
+      printf '%s\n' "$token"
+      return 0
+    fi
+
+    token="$(tr -d '\r' < "$HEADERS_FILE" | grep -i 'set-cookie: .*jwtSession=' | sed -E 's/.*jwtSession=([^;]+).*/\1/' | head -n 1 || true)"
+    if [[ -n "$token" ]]; then
+      printf '%s\n' "$token"
+      return 0
+    fi
   }
 
   extract_from_cookies() {

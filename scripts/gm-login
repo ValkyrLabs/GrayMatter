@@ -30,6 +30,8 @@ extract_from_body() {
     .token //
     .session //
     .jwt //
+    .VALKYR_AUTH //
+    .data.VALKYR_AUTH //
     empty
   ' 2>/dev/null || true
 }
@@ -37,6 +39,7 @@ extract_from_body() {
 extract_from_headers() {
   awk 'BEGIN{IGNORECASE=1}
     /^jwtSession:/ {gsub(/\r/, "", $0); sub(/^[^:]+:[[:space:]]*/, "", $0); print; exit}
+    /^VALKYR_AUTH:/ {gsub(/\r/, "", $0); sub(/^[^:]+:[[:space:]]*/, "", $0); print; exit}
     /^authorization:/ {gsub(/\r/, "", $0); sub(/^[^:]+:[[:space:]]*Bearer[[:space:]]+/, "", $0); print; exit}
     /^set-cookie:/ {
       line=$0
@@ -47,26 +50,32 @@ extract_from_headers() {
         print line
         exit
       }
+      if (line ~ /VALKYR_AUTH=/) {
+        sub(/^.*VALKYR_AUTH=/, "", line)
+        sub(/;.*$/, "", line)
+        print line
+        exit
+      }
     }
   ' "$HEADERS_FILE"
 }
 
 extract_from_cookies() {
   awk 'BEGIN{FS="\t"}
-    $0 !~ /^#/ && $6 == "jwtSession" {print $7; exit}
+    $0 !~ /^#/ && ($6 == "jwtSession" || $6 == "VALKYR_AUTH") {print $7; exit}
   ' "$COOKIE_JAR"
 }
 
-JWT_SESSION="$(extract_from_body)"
-if [[ -z "$JWT_SESSION" || "$JWT_SESSION" == "null" ]]; then
-  JWT_SESSION="$(extract_from_headers)"
+AUTH_TOKEN="$(extract_from_body)"
+if [[ -z "$AUTH_TOKEN" || "$AUTH_TOKEN" == "null" ]]; then
+  AUTH_TOKEN="$(extract_from_headers)"
 fi
-if [[ -z "$JWT_SESSION" || "$JWT_SESSION" == "null" ]]; then
-  JWT_SESSION="$(extract_from_cookies)"
+if [[ -z "$AUTH_TOKEN" || "$AUTH_TOKEN" == "null" ]]; then
+  AUTH_TOKEN="$(extract_from_cookies)"
 fi
 
-if [[ -z "$JWT_SESSION" || "$JWT_SESSION" == "null" ]]; then
-  echo "Login succeeded but no jwtSession could be extracted from body, headers, or cookies" >&2
+if [[ -z "$AUTH_TOKEN" || "$AUTH_TOKEN" == "null" ]]; then
+  echo "Login succeeded but no auth token could be extracted from body, headers, or cookies" >&2
   echo "Response body:" >&2
   echo "$RESPONSE" >&2
   echo "Response headers:" >&2
@@ -79,8 +88,9 @@ store_keychain() {
     echo "macOS security CLI not available for keychain mode" >&2
     exit 3
   fi
-  security add-generic-password -U -a default -s openclaw-valkyrai-admin-jwtSession -w "$JWT_SESSION" >/dev/null
-  echo "Stored GrayMatter session securely in macOS/iCloud Keychain as openclaw-valkyrai-admin-jwtSession" >&2
+  security add-generic-password -U -a default -s openclaw-valkyrai-admin-jwtSession -w "$AUTH_TOKEN" >/dev/null
+  security add-generic-password -U -a default -s openclaw-valkyrai-admin-authToken -w "$AUTH_TOKEN" >/dev/null
+  echo "Stored GrayMatter auth token securely in macOS/iCloud Keychain" >&2
 }
 
 case "$OUT_MODE" in
@@ -90,10 +100,11 @@ case "$OUT_MODE" in
   env)
     store_keychain
     printf 'export VALKYR_API_BASE="%s"\n' "$BASE"
-    printf 'export VALKYR_JWT_SESSION="%s"\n' "$JWT_SESSION"
+    printf 'export VALKYR_JWT_SESSION="%s"\n' "$AUTH_TOKEN"
+    printf 'export VALKYR_AUTH_TOKEN="%s"\n' "$AUTH_TOKEN"
     ;;
   token)
-    printf '%s\n' "$JWT_SESSION"
+    printf '%s\n' "$AUTH_TOKEN"
     ;;
   *)
     echo "Usage: gm-login [keychain|env|token]" >&2

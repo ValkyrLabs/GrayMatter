@@ -25,33 +25,33 @@ RESPONSE="$(curl --fail-with-body -sS -D "$HEADERS_FILE" -c "$COOKIE_JAR" -X POS
 
 extract_from_body() {
   printf '%s' "$RESPONSE" | jq -r '
-    .jwtSession //
-    .data.jwtSession //
+    .VALKYR_AUTH //
+    .data.VALKYR_AUTH //
     .token //
     .session //
     .jwt //
-    .VALKYR_AUTH //
-    .data.VALKYR_AUTH //
+    .jwtSession //
+    .data.jwtSession //
     empty
   ' 2>/dev/null || true
 }
 
 extract_from_headers() {
   awk 'BEGIN{IGNORECASE=1}
-    /^jwtSession:/ {gsub(/\r/, "", $0); sub(/^[^:]+:[[:space:]]*/, "", $0); print; exit}
     /^VALKYR_AUTH:/ {gsub(/\r/, "", $0); sub(/^[^:]+:[[:space:]]*/, "", $0); print; exit}
     /^authorization:/ {gsub(/\r/, "", $0); sub(/^[^:]+:[[:space:]]*Bearer[[:space:]]+/, "", $0); print; exit}
+    /^jwtSession:/ {gsub(/\r/, "", $0); sub(/^[^:]+:[[:space:]]*/, "", $0); print; exit}
     /^set-cookie:/ {
       line=$0
       gsub(/\r/, "", line)
-      if (line ~ /jwtSession=/) {
-        sub(/^.*jwtSession=/, "", line)
+      if (line ~ /VALKYR_AUTH=/) {
+        sub(/^.*VALKYR_AUTH=/, "", line)
         sub(/;.*$/, "", line)
         print line
         exit
       }
-      if (line ~ /VALKYR_AUTH=/) {
-        sub(/^.*VALKYR_AUTH=/, "", line)
+      if (line ~ /jwtSession=/) {
+        sub(/^.*jwtSession=/, "", line)
         sub(/;.*$/, "", line)
         print line
         exit
@@ -62,7 +62,7 @@ extract_from_headers() {
 
 extract_from_cookies() {
   awk 'BEGIN{FS="\t"}
-    $0 !~ /^#/ && ($6 == "jwtSession" || $6 == "VALKYR_AUTH") {print $7; exit}
+    $0 !~ /^#/ && ($6 == "VALKYR_AUTH" || $6 == "jwtSession") {print $7; exit}
   ' "$COOKIE_JAR"
 }
 
@@ -75,7 +75,7 @@ if [[ -z "$AUTH_TOKEN" || "$AUTH_TOKEN" == "null" ]]; then
 fi
 
 if [[ -z "$AUTH_TOKEN" || "$AUTH_TOKEN" == "null" ]]; then
-  echo "Login succeeded but no auth token could be extracted from body, headers, or cookies" >&2
+  echo "Login succeeded but no VALKYR_AUTH token could be extracted from body, headers, or cookies" >&2
   echo "Response body:" >&2
   echo "$RESPONSE" >&2
   echo "Response headers:" >&2
@@ -88,9 +88,8 @@ store_keychain() {
     echo "macOS security CLI not available for keychain mode" >&2
     exit 3
   fi
-  security add-generic-password -U -a default -s openclaw-valkyrai-admin-jwtSession -w "$AUTH_TOKEN" >/dev/null
   security add-generic-password -U -a default -s openclaw-valkyrai-admin-authToken -w "$AUTH_TOKEN" >/dev/null
-  echo "Stored GrayMatter auth token securely in macOS/iCloud Keychain" >&2
+  echo "Stored GrayMatter VALKYR_AUTH token securely in macOS/iCloud Keychain" >&2
 }
 
 case "$OUT_MODE" in
@@ -100,7 +99,6 @@ case "$OUT_MODE" in
   env)
     store_keychain
     printf 'export VALKYR_API_BASE="%s"\n' "$BASE"
-    printf 'export VALKYR_JWT_SESSION="%s"\n' "$AUTH_TOKEN"
     printf 'export VALKYR_AUTH_TOKEN="%s"\n' "$AUTH_TOKEN"
     ;;
   token)

@@ -11,17 +11,14 @@ if [[ -z "$METHOD" || -z "$PATH_PART" ]]; then
 fi
 
 BASE="${VALKYR_API_BASE:-https://api-0.valkyrlabs.com/v1}"
-TOKEN="${VALKYR_AUTH_TOKEN:-${VALKYR_JWT_SESSION:-}}"
+TOKEN="${VALKYR_AUTH_TOKEN:-}"
 
 if [[ -z "$TOKEN" ]] && command -v security >/dev/null 2>&1; then
   TOKEN="$(security find-generic-password -a default -s openclaw-valkyrai-admin-authToken -w 2>/dev/null || true)"
 fi
-if [[ -z "$TOKEN" ]] && command -v security >/dev/null 2>&1; then
-  TOKEN="$(security find-generic-password -a default -s openclaw-valkyrai-admin-jwtSession -w 2>/dev/null || true)"
-fi
 
 if [[ -z "$TOKEN" ]]; then
-  echo "VALKYR auth token is required" >&2
+  echo "VALKYR_AUTH token is required" >&2
   exit 2
 fi
 
@@ -31,7 +28,6 @@ METHOD_UPPER="$(echo "$METHOD" | tr '[:lower:]' '[:upper:]')"
 COMMON_HEADERS=(
   -H "accept: application/json"
   -H "Authorization: Bearer ${TOKEN}"
-  -H "jwtSession: ${TOKEN}"
   -H "VALKYR_AUTH: ${TOKEN}"
   -H "Cookie: VALKYR_AUTH=${TOKEN}"
 )

@@ -133,7 +133,7 @@ Rule:
 
 ## First-run auth, the intended OpenClaw flow
 
-The user should **not** have to manually acquire or paste a `jwtSession` token.
+The user should **not** have to manually acquire or paste a raw auth token.
 
 The intended first-run OpenClaw auth step is:
 1. OpenClaw prompts the user for their `api-0` username
@@ -166,6 +166,7 @@ scripts/gm-activate
 Supported env inputs:
 - `GRAYMATTER_USERNAME` or `VALKYR_USERNAME`
 - `GRAYMATTER_PASSWORD` or `VALKYR_PASSWORD`
+- optional `VALKYR_AUTH_TOKEN`
 - optional `OPENCLAW_INSTANCE_ID`
 - optional `OPENCLAW_AGENT_NAME`
 - optional `OPENCLAW_AGENT_ROLE`
@@ -276,18 +277,18 @@ scripts/gm-entity Note POST '{"title":"Launch","content":"GrayMatter launch work
 
 GrayMatter uses:
 - `VALKYR_API_BASE`, default `https://api-0.valkyrlabs.com/v1`
-- macOS/iCloud Keychain lookup for `openclaw-valkyrai-admin-jwtSession`
-- `VALKYR_JWT_SESSION` only as a secondary override/debug path
+- macOS/iCloud Keychain lookup for `openclaw-valkyrai-admin-authToken`
+- `VALKYR_AUTH_TOKEN` as the primary env override/debug path
 
 Preferred auth flow:
 - prompt for username and password once
-- exchange for session
-- store session securely in Keychain
+- exchange for a `VALKYR_AUTH` token
+- store that token securely in Keychain
 - reuse automatically on future runs
 
 Do not hardcode secrets into the repo or skill.
 Do not print tokens.
-Do not make manual JWT handling the normal user workflow.
+Do not make manual token handling the normal user workflow.
 
 ## OpenClaw operating guidance
 
@@ -315,14 +316,14 @@ Typical fallback files:
 
 ## Troubleshooting
 
-### `VALKYR_JWT_SESSION is required`
+### `VALKYR_AUTH_TOKEN is required`
 
 No env token is set and no matching macOS Keychain secret was found.
 
 Fix:
 - run `scripts/gm-login` and complete username/password sign-in, or
-- export `VALKYR_JWT_SESSION`, or
-- add Keychain secret `openclaw-valkyrai-admin-jwtSession`
+- export `VALKYR_AUTH_TOKEN`, or
+- add Keychain secret `openclaw-valkyrai-admin-authToken`
 
 ### `jq: command not found`
 
@@ -344,11 +345,12 @@ Fix:
 
 ### Login succeeds but no session is found
 
-Some api-0 deployments return the session token in headers or cookies rather than in the JSON response body.
+Some api-0 deployments return auth in headers or cookies rather than in the JSON response body.
 
 Fix:
 - use the latest `scripts/gm-login`
-- it now checks response body, headers, and cookies before failing
+- it now treats `VALKYR_AUTH` as the primary auth contract
+- downstream API calls send the recovered token back as bearer auth, `VALKYR_AUTH`, and cookie auth
 
 ### OpenAPI fetch fails
 

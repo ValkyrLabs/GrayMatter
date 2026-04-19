@@ -47,7 +47,7 @@ scripts/gm-openapi-sync
 
 Auth should be treated as an OpenClaw-managed first-run step.
 The user should be prompted for `api-0` username and password, and the resulting session should be stored securely in macOS/iCloud Keychain for reuse.
-The user should not need to manually fetch or paste a `jwtSession` token.
+The user should not need to manually fetch or paste a raw auth token.
 
 ## What this skill gives the agent
 
@@ -205,18 +205,18 @@ scripts/gm-entity Note POST '{"title":"Launch note","content":"GrayMatter launch
 
 `graymatter_api.sh` uses:
 - `VALKYR_API_BASE`, defaulting to `https://api-0.valkyrlabs.com/v1`
-- macOS/iCloud Keychain lookup for `openclaw-valkyrai-admin-jwtSession`
-- `VALKYR_JWT_SESSION` only if already present as an override/debug path
+- macOS/iCloud Keychain lookup for `openclaw-valkyrai-admin-authToken`
+- `VALKYR_AUTH_TOKEN` if already present as an override/debug path
 
 Preferred auth behavior is OpenClaw-first:
 - prompt for username/password
-- exchange for session
-- store in Keychain
+- exchange for a `VALKYR_AUTH` token
+- store it in Keychain
 - reuse automatically
 
 Do not hardcode secrets into the skill.
 Do not print tokens.
-Do not require manual JWT handling as the normal setup path.
+Do not require manual token handling as the normal setup path.
 
 ## OpenAPI and schema loading
 
@@ -285,7 +285,7 @@ If api-0 is unavailable or a known schema/runtime bug blocks the exact write:
 - say GrayMatter was intended but unavailable
 - preserve a replayable payload for later sync
 
-If login authenticates successfully but no token appears in the response body, use the latest `scripts/gm-login`, which now checks body, headers, and cookies for `jwtSession`.
+If login authenticates successfully but no token appears in the response body, use the latest `scripts/gm-login`, which now treats `VALKYR_AUTH` as the primary contract and checks body, headers, and cookies accordingly.
 
 Do not pretend durable memory succeeded when it did not.
 

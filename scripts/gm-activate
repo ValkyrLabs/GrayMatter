@@ -36,9 +36,27 @@ if [[ -n "$USERNAME_ENV" && -n "$PASSWORD_ENV" ]]; then
 
   extract_from_headers() {
     awk 'BEGIN{IGNORECASE=1}
-      /^VALKYR_AUTH:/ {gsub(/\r/, "", $0); sub(/^[^:]+:[[:space:]]*/, "", $0); print; exit}
-      /^authorization:/ {gsub(/\r/, "", $0); sub(/^[^:]+:[[:space:]]*Bearer[[:space:]]+/, "", $0); print; exit}
-      /^jwtSession:/ {gsub(/\r/, "", $0); sub(/^[^:]+:[[:space:]]*/, "", $0); print; exit}
+      /^VALKYR_AUTH:/ {
+        line=$0
+        gsub(/\r/, "", line)
+        sub(/^[^:]+:[[:space:]]*/, "", line)
+        print line
+        exit
+      }
+      /^authorization:/ {
+        line=$0
+        gsub(/\r/, "", line)
+        sub(/^[^:]+:[[:space:]]*Bearer[[:space:]]+/, "", line)
+        print line
+        exit
+      }
+      /^jwtSession:/ {
+        line=$0
+        gsub(/\r/, "", line)
+        sub(/^[^:]+:[[:space:]]*/, "", line)
+        print line
+        exit
+      }
       /^set-cookie:/ {
         line=$0
         gsub(/\r/, "", line)
@@ -73,6 +91,8 @@ if [[ -n "$USERNAME_ENV" && -n "$PASSWORD_ENV" ]]; then
   if [[ -z "$AUTH_TOKEN" || "$AUTH_TOKEN" == "null" ]]; then
     echo "Auth succeeded but no VALKYR_AUTH token could be extracted during activation" >&2
     echo "$RESPONSE" >&2
+    echo "Response headers:" >&2
+    cat "$HEADERS_FILE" >&2
     exit 2
   fi
 

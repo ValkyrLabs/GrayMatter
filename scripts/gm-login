@@ -38,9 +38,27 @@ extract_from_body() {
 
 extract_from_headers() {
   awk 'BEGIN{IGNORECASE=1}
-    /^VALKYR_AUTH:/ {gsub(/\r/, "", $0); sub(/^[^:]+:[[:space:]]*/, "", $0); print; exit}
-    /^authorization:/ {gsub(/\r/, "", $0); sub(/^[^:]+:[[:space:]]*Bearer[[:space:]]+/, "", $0); print; exit}
-    /^jwtSession:/ {gsub(/\r/, "", $0); sub(/^[^:]+:[[:space:]]*/, "", $0); print; exit}
+    /^VALKYR_AUTH:/ {
+      line=$0
+      gsub(/\r/, "", line)
+      sub(/^[^:]+:[[:space:]]*/, "", line)
+      print line
+      exit
+    }
+    /^authorization:/ {
+      line=$0
+      gsub(/\r/, "", line)
+      sub(/^[^:]+:[[:space:]]*Bearer[[:space:]]+/, "", line)
+      print line
+      exit
+    }
+    /^jwtSession:/ {
+      line=$0
+      gsub(/\r/, "", line)
+      sub(/^[^:]+:[[:space:]]*/, "", line)
+      print line
+      exit
+    }
     /^set-cookie:/ {
       line=$0
       gsub(/\r/, "", line)

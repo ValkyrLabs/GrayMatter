@@ -5,6 +5,9 @@ BASE="${VALKYR_API_BASE:-https://api-0.valkyrlabs.com/v1}"
 LOGIN_PATH="${GRAYMATTER_LOGIN_PATH:-/auth/login}"
 LOGIN_URL="${BASE%/}/${LOGIN_PATH#/}"
 OUT_MODE="${1:-keychain}"
+COOKIE_JAR="$(mktemp -t graymatter-login-cookie.XXXXXX)"
+HEADERS_FILE="$(mktemp -t graymatter-login-headers.XXXXXX)"
+trap 'rm -f "$COOKIE_JAR" "$HEADERS_FILE"' EXIT
 
 if ! command -v jq >/dev/null 2>&1; then
   echo "jq is required" >&2
@@ -15,16 +18,59 @@ read -r -p "GrayMatter username: " USERNAME
 read -r -s -p "GrayMatter password: " PASSWORD
 printf '\n' >&2
 
-RESPONSE="$(curl --fail-with-body -sS -X POST "$LOGIN_URL" \
+RESPONSE="$(curl --fail-with-body -sS -D "$HEADERS_FILE" -c "$COOKIE_JAR" -X POST "$LOGIN_URL" \
   -H 'accept: application/json' \
   -H 'content-type: application/json' \
   --data "$(jq -nc --arg username "$USERNAME" --arg password "$PASSWORD" '{username:$username,password:$password}')")"
 
-JWT_SESSION="$(printf '%s' "$RESPONSE" | jq -r '.jwtSession // .data.jwtSession // .token // empty')"
+extract_from_body() {
+  printf '%s' "$RESPONSE" | jq -r '
+    .jwtSession //
+    .data.jwtSession //
+    .token //
+    .session //
+    .jwt //
+    empty
+  ' 2>/dev/null || true
+}
+
+extract_from_headers() {
+  awk 'BEGIN{IGNORECASE=1}
+    /^jwtSession:/ {gsub(/\r/, "", $0); sub(/^[^:]+:[[:space:]]*/, "", $0); print; exit}
+    /^authorization:/ {gsub(/\r/, "", $0); sub(/^[^:]+:[[:space:]]*Bearer[[:space:]]+/, "", $0); print; exit}
+    /^set-cookie:/ {
+      line=$0
+      gsub(/\r/, "", line)
+      if (line ~ /jwtSession=/) {
+        sub(/^.*jwtSession=/, "", line)
+        sub(/;.*$/, "", line)
+        print line
+        exit
+      }
+    }
+  ' "$HEADERS_FILE"
+}
+
+extract_from_cookies() {
+  awk 'BEGIN{FS="\t"}
+    $0 !~ /^#/ && $6 == "jwtSession" {print $7; exit}
+  ' "$COOKIE_JAR"
+}
+
+JWT_SESSION="$(extract_from_body)"
+if [[ -z "$JWT_SESSION" || "$JWT_SESSION" == "null" ]]; then
+  JWT_SESSION="$(extract_from_headers)"
+fi
+if [[ -z "$JWT_SESSION" || "$JWT_SESSION" == "null" ]]; then
+  JWT_SESSION="$(extract_from_cookies)"
+fi
 
 if [[ -z "$JWT_SESSION" || "$JWT_SESSION" == "null" ]]; then
-  echo "Login succeeded but no jwtSession was found in the response" >&2
+  echo "Login succeeded but no jwtSession could be extracted from body, headers, or cookies" >&2
+  echo "Response body:" >&2
   echo "$RESPONSE" >&2
+  echo "Response headers:" >&2
+  cat "$HEADERS_FILE" >&2
   exit 2
 fi
 

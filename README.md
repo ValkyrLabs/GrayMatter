@@ -295,6 +295,7 @@ Typical fallback files:
 No env token is set and no matching macOS Keychain secret was found.
 
 Fix:
+- run `scripts/gm-login` and complete username/password sign-in, or
 - export `VALKYR_JWT_SESSION`, or
 - add Keychain secret `openclaw-valkyrai-admin-jwtSession`
 
@@ -315,6 +316,14 @@ Some deployments still have a `MemoryEntry.tags` persistence mismatch.
 Fix:
 - use `scripts/gm-write`
 - let it retry automatically without tags
+
+### Login succeeds but no session is found
+
+Some api-0 deployments return the session token in headers or cookies rather than in the JSON response body.
+
+Fix:
+- use the latest `scripts/gm-login`
+- it now checks response body, headers, and cookies before failing
 
 ### OpenAPI fetch fails
 

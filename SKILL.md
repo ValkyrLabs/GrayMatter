@@ -248,6 +248,8 @@ If api-0 is unavailable or a known schema/runtime bug blocks the exact write:
 - say GrayMatter was intended but unavailable
 - preserve a replayable payload for later sync
 
+If login authenticates successfully but no token appears in the response body, use the latest `scripts/gm-login`, which now checks body, headers, and cookies for `jwtSession`.
+
 Do not pretend durable memory succeeded when it did not.
 
 ## Local fallback

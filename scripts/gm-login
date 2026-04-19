@@ -104,7 +104,7 @@ store_keychain() {
     echo "macOS security CLI not available for keychain mode" >&2
     exit 3
   fi
-  security add-generic-password -U -a default -s openclaw-valkyrai-admin-authToken -w "$AUTH_TOKEN" >/dev/null
+  security add-generic-password -U -a default -s VALKYR_AUTH -w "$AUTH_TOKEN" >/dev/null
   echo "Stored GrayMatter VALKYR_AUTH token securely in macOS/iCloud Keychain" >&2
 }
 

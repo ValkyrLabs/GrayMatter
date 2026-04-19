@@ -288,14 +288,16 @@ scripts/gm-entity Note POST '{"title":"Launch","content":"GrayMatter launch work
 
 GrayMatter uses:
 - `VALKYR_API_BASE`, default `https://api-0.valkyrlabs.com/v1`
-- macOS/iCloud Keychain lookup for `openclaw-valkyrai-admin-authToken`
+- macOS/iCloud Keychain lookup for `VALKYR_AUTH`
 - `VALKYR_AUTH_TOKEN` as the primary env override/debug path
+- `VALKYR_JWT_SESSION` as a compatible env fallback for downstream tooling
 
 Preferred auth flow:
-- prompt for username and password once
+- check Keychain for `VALKYR_AUTH` first
+- if present, reuse it automatically
+- otherwise prompt for username and password once
 - exchange for a `VALKYR_AUTH` token
-- store that token securely in Keychain
-- reuse automatically on future runs
+- store that token securely in Keychain for future runs
 
 Do not hardcode secrets into the repo or skill.
 Do not print tokens.
@@ -334,7 +336,7 @@ No env token is set and no matching macOS Keychain secret was found.
 Fix:
 - run `scripts/gm-login` and complete username/password sign-in, or
 - export `VALKYR_AUTH_TOKEN`, or
-- add Keychain secret `openclaw-valkyrai-admin-authToken`
+- ensure Keychain secret `VALKYR_AUTH` exists
 
 ### `jq: command not found`
 

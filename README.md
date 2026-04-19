@@ -131,6 +131,17 @@ Rule:
 
 ## Install and use immediately
 
+## Account signup and credits
+
+For a new GrayMatter account, use:
+- Signup: <https://api-0.valkyrlabs.com/v1/auth/signup>
+- Credits and recharge: <https://api-0.valkyrlabs.com/v1/credits>
+
+Commercial model:
+- fresh signups should receive **500 starter credits** automatically
+- GrayMatter query and some higher-order operations consume credits
+- after the starter balance is exhausted, account recharge is required for full GrayMatter functionality
+
 ## First-run auth, the intended OpenClaw flow
 
 The user should **not** have to manually acquire or paste a raw auth token.
@@ -350,6 +361,11 @@ If writes and reads succeed but `/MemoryEntry/query` fails with a credit error, 
 Observed requirement:
 - query currently consumes credits
 - a fresh signup should auto-provision **500 credits** so GrayMatter query works immediately
+- after starter credits are exhausted, the user must recharge credits to continue full GrayMatter functionality
+
+Useful links:
+- signup: <https://api-0.valkyrlabs.com/v1/auth/signup>
+- credits and recharge: <https://api-0.valkyrlabs.com/v1/credits>
 
 If a new account has `0.00` balance, activation may still succeed for write/read operations while query fails until credits are provisioned.
 

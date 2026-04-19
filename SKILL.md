@@ -127,6 +127,17 @@ Memory and graph helpers:
 - `scripts/gm-graph`
 - `scripts/gm-entity`
 
+## Account signup and credits
+
+For a new GrayMatter account, use:
+- Signup: <https://api-0.valkyrlabs.com/v1/auth/signup>
+- Credits and recharge: <https://api-0.valkyrlabs.com/v1/credits>
+
+Commercial model:
+- fresh signups should receive **500 starter credits** automatically
+- GrayMatter query and some higher-order operations consume credits
+- after the starter balance is exhausted, account recharge is required for full GrayMatter functionality
+
 ## Immediate install and use
 
 Fresh machine or fresh OpenClaw skill install:
@@ -292,6 +303,9 @@ Do not pretend durable memory succeeded when it did not.
 Known operational note:
 - `/MemoryEntry/query` may require credits even when write/read paths succeed
 - new signups should receive an automatic 500-credit grant so GrayMatter query works immediately during activation
+- after starter credits are exhausted, recharge is required for full GrayMatter functionality
+- signup: <https://api-0.valkyrlabs.com/v1/auth/signup>
+- credits and recharge: <https://api-0.valkyrlabs.com/v1/credits>
 
 ## Local fallback
 

@@ -25,10 +25,23 @@ if [[ -n "$USERNAME_ENV" && -n "$PASSWORD_ENV" ]]; then
   HEADERS_FILE="$(mktemp -t graymatter-activate-headers.XXXXXX)"
   trap 'rm -f "$COOKIE_JAR" "$HEADERS_FILE"' EXIT
 
+  set +e
   RESPONSE="$(curl --fail-with-body -sS -D "$HEADERS_FILE" -c "$COOKIE_JAR" -X POST "${BASE%/}/auth/login" \
     -H 'accept: application/json' \
     -H 'content-type: application/json' \
-    --data "$(jq -nc --arg username "$USERNAME_ENV" --arg password "$PASSWORD_ENV" '{username:$username,password:$password}')")"
+    --data "$(jq -nc --arg username "$USERNAME_ENV" --arg password "$PASSWORD_ENV" '{username:$username,password:$password}')" 2>&1)"
+  CURL_STATUS=$?
+  set -e
+
+  if [[ $CURL_STATUS -ne 0 ]]; then
+    echo "GrayMatter activation login request failed" >&2
+    echo "$RESPONSE" >&2
+    if [[ -s "$HEADERS_FILE" ]]; then
+      echo "Response headers:" >&2
+      cat "$HEADERS_FILE" >&2
+    fi
+    exit $CURL_STATUS
+  fi
 
   extract_from_body() {
     printf '%s' "$RESPONSE" | jq -r '.VALKYR_AUTH // .data.VALKYR_AUTH // .token // .session // .jwt // .jwtSession // .data.jwtSession // empty' 2>/dev/null || true

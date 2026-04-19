@@ -18,10 +18,23 @@ read -r -p "GrayMatter username: " USERNAME
 read -r -s -p "GrayMatter password: " PASSWORD
 printf '\n' >&2
 
+set +e
 RESPONSE="$(curl --fail-with-body -sS -D "$HEADERS_FILE" -c "$COOKIE_JAR" -X POST "$LOGIN_URL" \
   -H 'accept: application/json' \
   -H 'content-type: application/json' \
-  --data "$(jq -nc --arg username "$USERNAME" --arg password "$PASSWORD" '{username:$username,password:$password}')")"
+  --data "$(jq -nc --arg username "$USERNAME" --arg password "$PASSWORD" '{username:$username,password:$password}')" 2>&1)"
+CURL_STATUS=$?
+set -e
+
+if [[ $CURL_STATUS -ne 0 ]]; then
+  echo "GrayMatter login request failed" >&2
+  echo "$RESPONSE" >&2
+  if [[ -s "$HEADERS_FILE" ]]; then
+    echo "Response headers:" >&2
+    cat "$HEADERS_FILE" >&2
+  fi
+  exit $CURL_STATUS
+fi
 
 extract_from_body() {
   printf '%s' "$RESPONSE" | jq -r '

@@ -371,6 +371,17 @@ Observed requirement:
 Useful links:
 - signup: <https://api-0.valkyrlabs.com/v1/auth/signup>
 - credits and recharge: <https://api-0.valkyrlabs.com/v1/credits>
+- buy credits: <https://valkyrlabs.com/buy-credits>
+- human signup form: <https://valkyrlabs.com/funnel/white-paper>
+
+CLI behavior on `INSUFFICIENT_FUNDS`:
+- prints both buy and signup links in stderr
+- attempts a popup prompt on macOS (`osascript`) and Windows (`powershell.exe`)
+- opens the buy-credits URL as a last-resort fallback when popup tooling is unavailable
+
+Optional overrides for custom deployments:
+- `VALKYR_BUY_CREDITS_URL`
+- `VALKYR_HUMAN_SIGNUP_URL`
 
 If a new account has `0.00` balance, activation may still succeed for write/read operations while query fails until credits are provisioned.
 

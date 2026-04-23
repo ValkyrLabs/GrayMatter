@@ -311,6 +311,10 @@ Known operational note:
 - after starter credits are exhausted, recharge is required for full GrayMatter functionality
 - signup: <https://api-0.valkyrlabs.com/v1/auth/signup>
 - credits and recharge: <https://api-0.valkyrlabs.com/v1/credits>
+- buy credits: <https://valkyrlabs.com/buy-credits>
+- human signup form: <https://valkyrlabs.com/funnel/white-paper>
+- `scripts/graymatter_api.sh` prints both links on `INSUFFICIENT_FUNDS` and attempts a popup prompt on macOS/Windows
+- optional overrides: `VALKYR_BUY_CREDITS_URL`, `VALKYR_HUMAN_SIGNUP_URL`
 
 ## Local fallback
 

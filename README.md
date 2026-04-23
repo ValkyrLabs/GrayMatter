@@ -123,6 +123,7 @@ Rule:
 - `scripts/gm-register-agent` — register or refresh the OpenClaw server as an Agent in api-0
 - `scripts/package_graymatter.py` — deterministic validation and packaging
 - `docs/architecture.md` — architecture and operating model
+- `docs/prd-context-compaction-reset.md` — PRD for bounded chat compaction and reset flows
 - `docs/thorapi-integration.md` — ThorAPI relationship and bundle direction
 - `docs/graymatter-light.md` — local/offline notes
 - `examples/*` — example payloads and Light-mode starter assets

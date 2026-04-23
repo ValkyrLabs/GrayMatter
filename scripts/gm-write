@@ -35,5 +35,10 @@ if [[ -n "$TAGS_RAW" ]] && printf '%s' "$RESPONSE" | grep -Eqi 'tags|tag|relatio
   exec "${SCRIPT_DIR}/graymatter_api.sh" POST /MemoryEntry "$FALLBACK_PAYLOAD"
 fi
 
+if [[ -x "${SCRIPT_DIR}/gm-fallback-append" ]]; then
+  "${SCRIPT_DIR}/gm-fallback-append" "$TYPE" "$TEXT" "$SOURCE_CHANNEL" "gm-write API failure" >/dev/null 2>&1 || true
+  echo "Write failed, queued fallback payload in memory/graymatter-fallback.json" >&2
+fi
+
 printf '%s\n' "$RESPONSE" >&2
 exit $STATUS

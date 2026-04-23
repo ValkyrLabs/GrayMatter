@@ -116,6 +116,7 @@ Rule:
 - `scripts/gm-smoke` — production smoke test for write/query validation
 - `scripts/gm-query` — query `MemoryEntry`
 - `scripts/gm-write` — write `MemoryEntry`, with tagged-write fallback behavior
+- `scripts/gm-fallback-append` — append failed writes to local replay queue at `memory/graymatter-fallback.json`
 - `scripts/gm-graph` — inspect Swarm graph endpoints
 - `scripts/gm-openapi-sync` — fetch and cache the live OpenAPI spec locally
 - `scripts/gm-openapi-summary` — summarize live schema domains and endpoints
@@ -244,6 +245,8 @@ scripts/gm-write context "launch handoff" discord "launch,graymatter"
 ```
 
 If tag persistence is broken on the backend, the script retries without tags instead of failing the whole write.
+
+If the API call still fails, `gm-write` appends the attempted write to `memory/graymatter-fallback.json` when `scripts/gm-fallback-append` is present.
 
 ### One-shot activation
 

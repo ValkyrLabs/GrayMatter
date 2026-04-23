@@ -216,6 +216,7 @@ scripts/gm-entity Note POST '{"title":"Launch note","content":"GrayMatter launch
 
 `graymatter_api.sh` uses:
 - `VALKYR_API_BASE`, defaulting to `https://api-0.valkyrlabs.com/v1`
+- `VALKYR_KEYCHAIN_SERVICE`, defaulting to `VALKYR_AUTH`
 - macOS/iCloud Keychain lookup for `VALKYR_AUTH`
 - `VALKYR_AUTH_TOKEN` if already present as an override/debug path
 - `VALKYR_JWT_SESSION` as a compatible env fallback
@@ -226,6 +227,8 @@ Preferred auth behavior is OpenClaw-first:
 - otherwise prompt for username/password
 - exchange for a `VALKYR_AUTH` token
 - store it in Keychain
+
+If activation can write/read by id and register the agent but semantic memory query is blocked by missing credits, treat that as a degraded startup state rather than total activation failure. Preserve auth, register the agent, sync the schema, and surface that query/list capability is limited until credits are available.
 
 Do not hardcode secrets into the skill.
 Do not print tokens.

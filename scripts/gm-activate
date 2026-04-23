@@ -8,6 +8,7 @@ PASSWORD_ENV="${GRAYMATTER_PASSWORD:-${VALKYR_PASSWORD:-}}"
 INSTANCE_ID="${OPENCLAW_INSTANCE_ID:-${HOSTNAME:-openclaw-instance}}"
 AGENT_NAME="${OPENCLAW_AGENT_NAME:-Valor}"
 ROLE_LABEL="${OPENCLAW_AGENT_ROLE:-openclaw-server}"
+KEYCHAIN_SERVICE="${VALKYR_KEYCHAIN_SERVICE:-VALKYR_AUTH}"
 
 have() {
   command -v "$1" >/dev/null 2>&1
@@ -95,8 +96,8 @@ if [[ -n "$USERNAME_ENV" && -n "$PASSWORD_ENV" ]]; then
   fi
 
   if have security; then
-    security add-generic-password -U -a default -s openclaw-valkyrai-admin-authToken -w "$AUTH_TOKEN" >/dev/null
-    echo "Stored GrayMatter VALKYR_AUTH token in macOS/iCloud Keychain" >&2
+    security add-generic-password -U -a default -s "$KEYCHAIN_SERVICE" -w "$AUTH_TOKEN" >/dev/null
+    echo "Stored GrayMatter VALKYR_AUTH token in macOS/iCloud Keychain service ${KEYCHAIN_SERVICE}" >&2
   fi
   export VALKYR_AUTH_TOKEN="$AUTH_TOKEN"
 else
@@ -105,9 +106,29 @@ else
 fi
 
 ${SCRIPT_DIR}/gm-install-check
-${SCRIPT_DIR}/gm-smoke
+SMOKE_DEGRADED=0
+set +e
+SMOKE_OUTPUT="$(${SCRIPT_DIR}/gm-smoke 2>&1)"
+SMOKE_STATUS=$?
+set -e
+if [[ $SMOKE_STATUS -eq 0 ]]; then
+  printf '%s\n' "$SMOKE_OUTPUT"
+else
+  printf '%s\n' "$SMOKE_OUTPUT" >&2
+  if [[ "$SMOKE_OUTPUT" == *"402"* || "$SMOKE_OUTPUT" == *"INSUFFICIENT_FUNDS"* || "$SMOKE_OUTPUT" == *"Payment Required"* ]]; then
+    echo "GrayMatter smoke query is credit-gated; continuing with limited memory query capability" >&2
+    SMOKE_DEGRADED=1
+  else
+    echo "GrayMatter smoke test failed" >&2
+    exit $SMOKE_STATUS
+  fi
+fi
 ${SCRIPT_DIR}/gm-register-agent "$INSTANCE_ID" "$AGENT_NAME" "$ROLE_LABEL"
 ${SCRIPT_DIR}/gm-openapi-sync >/dev/null
 ${SCRIPT_DIR}/gm-openapi-summary
 
-echo "GrayMatter activation complete: auth ready, smoke test passed, agent registered, schema synced" >&2
+if [[ $SMOKE_DEGRADED -eq 1 ]]; then
+  echo "GrayMatter activation complete with limited memory query capability: auth ready, agent registered, schema synced" >&2
+else
+  echo "GrayMatter activation complete: auth ready, smoke test passed, agent registered, schema synced" >&2
+fi

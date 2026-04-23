@@ -127,7 +127,7 @@ Rule:
 - `docs/thorapi-integration.md` — ThorAPI relationship and bundle direction
 - `docs/graymatter-light.md` — local/offline notes
 - `examples/*` — example payloads and Light-mode starter assets
-- `references/*` — release and multi-agent guidance
+- `references/*` — release and multi-agent guidance, including concurrency conventions
 - `clawhub.json` — publishing metadata
 
 ## Install and use immediately

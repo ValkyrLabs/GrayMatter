@@ -40,6 +40,10 @@ Examples:
 - entity relationships
 - operational state that links multiple objects
 
+Recommended concurrency split:
+- use `MemoryEntry` for compact facts, decisions, todos, artifacts, and handoffs
+- use graph state for ownership, dependencies, and multi-object workflow coordination
+
 ## Mode 1: GrayMatter Cloud
 
 Backed by production ValkyrAI/api-0 endpoints.

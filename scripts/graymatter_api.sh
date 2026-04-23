@@ -12,13 +12,14 @@ fi
 
 BASE="${VALKYR_API_BASE:-https://api-0.valkyrlabs.com/v1}"
 TOKEN="${VALKYR_AUTH_TOKEN:-${VALKYR_JWT_SESSION:-}}"
+KEYCHAIN_SERVICE="${VALKYR_KEYCHAIN_SERVICE:-VALKYR_AUTH}"
 
 if [[ -z "$TOKEN" ]] && command -v security >/dev/null 2>&1; then
-  TOKEN="$(security find-generic-password -a default -s VALKYR_AUTH -w 2>/dev/null || true)"
+  TOKEN="$(security find-generic-password -a default -s "$KEYCHAIN_SERVICE" -w 2>/dev/null || true)"
 fi
 
 if [[ -z "$TOKEN" ]]; then
-  echo "VALKYR_AUTH token is required. Checked VALKYR_AUTH_TOKEN, VALKYR_JWT_SESSION, and keychain VALKYR_AUTH." >&2
+  echo "VALKYR_AUTH token is required. Checked VALKYR_AUTH_TOKEN, VALKYR_JWT_SESSION, and keychain ${KEYCHAIN_SERVICE}." >&2
   exit 2
 fi
 

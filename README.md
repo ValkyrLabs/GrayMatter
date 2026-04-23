@@ -178,6 +178,7 @@ Supported env inputs:
 - `GRAYMATTER_USERNAME` or `VALKYR_USERNAME`
 - `GRAYMATTER_PASSWORD` or `VALKYR_PASSWORD`
 - optional `VALKYR_AUTH_TOKEN`
+- optional `VALKYR_KEYCHAIN_SERVICE` if a non-default macOS Keychain service name is required
 - optional `OPENCLAW_INSTANCE_ID`
 - optional `OPENCLAW_AGENT_NAME`
 - optional `OPENCLAW_AGENT_ROLE`
@@ -187,6 +188,8 @@ Supported env inputs:
 `scripts/gm-register-agent` is part of the expected startup handshake. When an OpenClaw server connects to api-0, it should create or refresh an Agent record for itself before proceeding with normal work.
 
 At that point the install should be immediately usable.
+
+If auth succeeds but memory query is temporarily credit-gated, `scripts/gm-activate` now continues in a degraded mode: auth is stored, the agent is registered, the OpenAPI is synced, and the script reports that memory query capability is limited until credits are available.
 
 ### Packaged-skill install
 

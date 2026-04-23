@@ -5,6 +5,7 @@ BASE="${VALKYR_API_BASE:-https://api-0.valkyrlabs.com/v1}"
 LOGIN_PATH="${GRAYMATTER_LOGIN_PATH:-/auth/login}"
 LOGIN_URL="${BASE%/}/${LOGIN_PATH#/}"
 OUT_MODE="${1:-keychain}"
+KEYCHAIN_SERVICE="${VALKYR_KEYCHAIN_SERVICE:-VALKYR_AUTH}"
 COOKIE_JAR="$(mktemp -t graymatter-login-cookie.XXXXXX)"
 HEADERS_FILE="$(mktemp -t graymatter-login-headers.XXXXXX)"
 trap 'rm -f "$COOKIE_JAR" "$HEADERS_FILE"' EXIT
@@ -104,8 +105,8 @@ store_keychain() {
     echo "macOS security CLI not available for keychain mode" >&2
     exit 3
   fi
-  security add-generic-password -U -a default -s VALKYR_AUTH -w "$AUTH_TOKEN" >/dev/null
-  echo "Stored GrayMatter VALKYR_AUTH token securely in macOS/iCloud Keychain" >&2
+  security add-generic-password -U -a default -s "$KEYCHAIN_SERVICE" -w "$AUTH_TOKEN" >/dev/null
+  echo "Stored GrayMatter VALKYR_AUTH token securely in macOS/iCloud Keychain service ${KEYCHAIN_SERVICE}" >&2
 }
 
 case "$OUT_MODE" in

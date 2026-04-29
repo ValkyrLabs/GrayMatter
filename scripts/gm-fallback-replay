@@ -10,14 +10,21 @@ from graymatter_fallback import load
 path = Path(os.getcwd()) / "memory" / "graymatter-fallback.json"
 data = load(path)
 items = data.get("items", [])
+json_mode = "--json" in sys.argv
 
 if not items:
-    print("no pending fallback items")
+    if json_mode:
+        print(json.dumps({"status": "empty", "count": 0, "items": []}))
+    else:
+        print("no pending fallback items")
     sys.exit(0)
 
-for idx, item in enumerate(items, start=1):
-    print(f"[{idx}] type={item.get('type','')} owner={item.get('owner','')} reason={item.get('reason','')}")
-    print(item.get("text", ""))
+if json_mode:
+    print(json.dumps({"status": data.get("status", "pending_replay"), "count": len(items), "items": items}))
+else:
+    for idx, item in enumerate(items, start=1):
+        print(f"[{idx}] type={item.get('type','')} owner={item.get('owner','')} reason={item.get('reason','')}")
+        print(item.get("text", ""))
 
 if "--drain" in sys.argv:
     data["items"] = []

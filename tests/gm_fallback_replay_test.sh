@@ -21,3 +21,7 @@ OUT="$(cd "$TMP" && $ROOT/scripts/gm-fallback-replay --drain 2>&1)"
 echo "$OUT" | grep -q "type=note"
 echo "$OUT" | grep -q "drained 1 fallback items"
 grep -q '"status": "replayed"' "$TMP/memory/graymatter-fallback.json"
+
+JSON_OUT="$(cd "$TMP" && $ROOT/scripts/gm-fallback-replay --json 2>&1)"
+echo "$JSON_OUT" | grep -q '"status": "empty"'
+echo "$JSON_OUT" | grep -q '"count": 0'

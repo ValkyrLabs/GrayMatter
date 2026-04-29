@@ -26,6 +26,11 @@ This is the core idea:
 
 ## Primary-memory model
 
+Boundary rule:
+This skill stays thin. It should teach usage intent, durable type selection, and operator ergonomics.
+Retry behavior, auth/session refresh, fallback queueing, and replay execution belong to shared GrayMatter infrastructure contracts.
+Keep this repository aligned with those contracts rather than re-implementing them.
+
 GrayMatter should be the **primary durable memory system**.
 
 Use local files only as:
@@ -123,6 +128,7 @@ Rule:
 - `scripts/gm-status` — quick health/status surface for auth source, fallback queue, and OpenAPI cache
 - `scripts/gm-entity` — generic helper for listing, reading, and writing arbitrary schema entities
 - `scripts/gm-register-agent` — register or refresh the OpenClaw server as an Agent in api-0
+- `scripts/gm-mcp-contract` — emit the portable MCP memory-tool contract schema used by agent/IDE adapters
 - `scripts/package_graymatter.py` — deterministic validation and packaging
 - `docs/architecture.md` — architecture and operating model
 - `docs/prd-context-compaction-reset.md` — PRD for bounded chat compaction and reset flows
@@ -130,6 +136,7 @@ Rule:
 - `docs/graymatter-light.md` — local/offline notes
 - `examples/*` — example payloads and Light-mode starter assets
 - `references/*` — release and multi-agent guidance, including concurrency conventions
+- `references/mcp/memory-tool-contract.v1.json` — stable v1 portable tool contract for memory and graph operations
 - `clawhub.json` — publishing metadata
 
 ## Install and use immediately

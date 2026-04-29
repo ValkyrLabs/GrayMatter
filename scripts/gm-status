@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT_DIR="${ROOT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 FALLBACK_FILE="$ROOT_DIR/memory/graymatter-fallback.json"
 OPENAPI_CACHE="$ROOT_DIR/tmp/openapi.json"
 
@@ -25,3 +26,39 @@ fi
 echo "graymatter_auth=$auth_state"
 echo "fallback_pending=$fallback_pending"
 echo "openapi_cache=$openapi_state"
+memory_layer="degraded"
+if [[ "$auth_state" != "missing" && "$fallback_pending" == "0" ]]; then
+  memory_layer="ready"
+fi
+
+graph_layer="unknown"
+strategic_layer="unknown"
+kpi_layer="unknown"
+
+if [[ "$openapi_state" == "cached" ]]; then
+  if jq -e '.paths["/SwarmOps/graph"] // .components.schemas.SwarmOps // empty' "$OPENAPI_CACHE" >/dev/null 2>&1; then
+    graph_layer="ready"
+  else
+    graph_layer="missing"
+  fi
+
+  if jq -e '.paths["/StrategicRecord"] // .components.schemas.StrategicRecord // empty' "$OPENAPI_CACHE" >/dev/null 2>&1; then
+    strategic_layer="ready"
+  else
+    strategic_layer="missing"
+  fi
+
+  if jq -e '.paths["/KPIRecord"] // .components.schemas.KPIRecord // empty' "$OPENAPI_CACHE" >/dev/null 2>&1; then
+    kpi_layer="ready"
+  else
+    kpi_layer="missing"
+  fi
+fi
+
+echo "graymatter_auth=$auth_state"
+echo "fallback_pending=$fallback_pending"
+echo "openapi_cache=$openapi_state"
+echo "memory_layer=$memory_layer"
+echo "graph_layer=$graph_layer"
+echo "strategic_layer=$strategic_layer"
+echo "kpi_layer=$kpi_layer"

@@ -50,7 +50,13 @@ else:
         print(item.get("text", ""))
 
 if "--drain" in sys.argv:
-    data["items"] = []
-    data["status"] = "replayed"
+    if start >= len(items):
+        drained = 0
+    else:
+        end = len(items) if limit is None else min(len(items), start + len(view_items))
+        del data["items"][start:end]
+        drained = end - start
+    if not data.get("items"):
+        data["status"] = "replayed"
     path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
-    print(f"drained {len(items)} fallback items")
+    print(f"drained {drained} fallback items")

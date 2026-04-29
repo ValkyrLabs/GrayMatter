@@ -29,9 +29,14 @@ echo "$OFFSET_JSON" | grep -q '"count": 1'
 echo "$OFFSET_JSON" | grep -q '"beta"'
 ! echo "$OFFSET_JSON" | grep -q '"alpha"'
 
-OUT="$(cd "$TMP" && $ROOT/scripts/gm-fallback-replay --drain 2>&1)"
-echo "$OUT" | grep -q "type=note"
-echo "$OUT" | grep -q "drained 2 fallback items"
+OUT="$(cd "$TMP" && $ROOT/scripts/gm-fallback-replay --offset 2 --limit 1 --drain 2>&1)"
+echo "$OUT" | grep -q "type=task"
+echo "$OUT" | grep -q "drained 1 fallback items"
+grep -q '"status": "pending_replay"' "$TMP/memory/graymatter-fallback.json"
+
+echo "$(cd "$TMP" && $ROOT/scripts/gm-fallback-replay --json 2>&1)" | grep -q '"total": 1'
+
+echo "$(cd "$TMP" && $ROOT/scripts/gm-fallback-replay --drain 2>&1)" | grep -q "drained 1 fallback items"
 grep -q '"status": "replayed"' "$TMP/memory/graymatter-fallback.json"
 
 JSON_OUT="$(cd "$TMP" && $ROOT/scripts/gm-fallback-replay --json 2>&1)"

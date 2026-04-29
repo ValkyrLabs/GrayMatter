@@ -14,12 +14,17 @@ Examples:
 EOF
 }
 
+if [[ ${1:-} == "-h" || ${1:-} == "--help" ]]; then
+  usage
+  exit 0
+fi
+
 if [[ $# -lt 2 ]]; then
   usage
   exit 1
 fi
 
-method="${1^^}"
+method="$(printf '%s' "$1" | tr '[:lower:]' '[:upper:]')"
 path="$2"
 body="${3:-}"
 
@@ -28,6 +33,7 @@ case "$method" in
     "$API_SCRIPT" "$method" "$path" "$body"
     ;;
   *)
+    echo "error: unsupported method '$1'" >&2
     usage
     exit 1
     ;;

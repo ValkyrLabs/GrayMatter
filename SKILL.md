@@ -9,6 +9,10 @@ GrayMatter is the installable OpenClaw skill for durable memory, shared graph st
 
 ## Core rule
 
+This skill is intentionally thin.
+It defines when to use GrayMatter, what to write, and how to choose durable types.
+Transport resilience, retries, token refresh, fallback queues, and replay behavior belong to shared infrastructure and plugin/client runtime, not this skill.
+
 Use GrayMatter as the **primary durable memory system**.
 Use local workspace files only as:
 - bootstrap context
@@ -127,6 +131,11 @@ Memory and graph helpers:
 - `scripts/gm-graph`
 - `scripts/gm-entity`
 
+Design boundary:
+- these scripts are ergonomic wrappers for operators and agents
+- they must not duplicate retry/auth refresh/fallback/replay logic that already exists in shared infrastructure
+- if resilience behavior changes, update shared client/plugin contracts first, then keep this skill aligned
+
 ## Account signup and credits
 
 For a new GrayMatter account, use:
@@ -184,7 +193,7 @@ scripts/gm-query "graymatter launch" 10
 # write durable context
 scripts/gm-write context "GrayMatter is primary memory for this OpenClaw instance"
 
-# write durable decision with tags, falling back automatically if tag persistence is broken
+# write durable decision with tags
 scripts/gm-write decision "Use GrayMatter as primary memory and file memory as backup" openclaw "graymatter,bootstrap,memory"
 
 # one-shot activation for OpenClaw install or skill bootstrap

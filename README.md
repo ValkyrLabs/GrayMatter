@@ -26,6 +26,11 @@ This is the core idea:
 
 ## Primary-memory model
 
+Boundary rule:
+This skill stays thin. It should teach usage intent, durable type selection, and operator ergonomics.
+Retry behavior, auth/session refresh, fallback queueing, and replay execution belong to shared GrayMatter infrastructure contracts.
+Keep this repository aligned with those contracts rather than re-implementing them.
+
 GrayMatter should be the **primary durable memory system**.
 
 Use local files only as:

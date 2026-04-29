@@ -11,6 +11,33 @@ path = Path(os.getcwd()) / "memory" / "graymatter-fallback.json"
 data = load(path)
 items = data.get("items", [])
 json_mode = "--json" in sys.argv
+compact_mode = "--compact" in sys.argv
+
+def compact_items(raw_items):
+    compacted = []
+    for item in raw_items:
+        if not isinstance(item, dict):
+            continue
+        if not (item.get("type") and item.get("text") and item.get("owner")):
+            continue
+        compacted.append(item)
+    return compacted
+
+if compact_mode:
+    compacted_items = compact_items(items)
+    removed = len(items) - len(compacted_items)
+    data["items"] = compacted_items
+    if not compacted_items:
+        data["status"] = "replayed"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    items = compacted_items
+    if json_mode:
+        print(json.dumps({"status": data.get("status", "pending_replay"), "compacted": True, "removed": removed, "count": len(items)}))
+    else:
+        print(f"compacted fallback queue, removed {removed} invalid items")
+    if "--drain" not in sys.argv:
+        sys.exit(0)
 
 def parse_positive_int_flag(argv, flag):
     if flag not in argv:

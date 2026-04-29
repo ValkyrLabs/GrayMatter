@@ -24,6 +24,11 @@ echo "$LIMIT_JSON" | grep -q '"total": 2'
 echo "$LIMIT_JSON" | grep -q '"alpha"'
 ! echo "$LIMIT_JSON" | grep -q '"beta"'
 
+OFFSET_JSON="$(cd "$TMP" && $ROOT/scripts/gm-fallback-replay --json --offset 2 --limit 1 2>&1)"
+echo "$OFFSET_JSON" | grep -q '"count": 1'
+echo "$OFFSET_JSON" | grep -q '"beta"'
+! echo "$OFFSET_JSON" | grep -q '"alpha"'
+
 OUT="$(cd "$TMP" && $ROOT/scripts/gm-fallback-replay --drain 2>&1)"
 echo "$OUT" | grep -q "type=note"
 echo "$OUT" | grep -q "drained 2 fallback items"

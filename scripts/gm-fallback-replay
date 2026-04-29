@@ -12,22 +12,28 @@ data = load(path)
 items = data.get("items", [])
 json_mode = "--json" in sys.argv
 
-def parse_limit(argv):
-    if "--limit" not in argv:
+def parse_positive_int_flag(argv, flag):
+    if flag not in argv:
         return None
-    idx = argv.index("--limit")
+    idx = argv.index(flag)
     if idx + 1 >= len(argv):
-        raise SystemExit("--limit requires a positive integer")
+        raise SystemExit(f"{flag} requires a positive integer")
     try:
         value = int(argv[idx + 1])
     except ValueError as exc:
-        raise SystemExit("--limit requires a positive integer") from exc
+        raise SystemExit(f"{flag} requires a positive integer") from exc
     if value <= 0:
-        raise SystemExit("--limit requires a positive integer")
+        raise SystemExit(f"{flag} requires a positive integer")
     return value
 
-limit = parse_limit(sys.argv)
-view_items = items if limit is None else items[:limit]
+limit = parse_positive_int_flag(sys.argv, "--limit")
+offset = parse_positive_int_flag(sys.argv, "--offset") or 1
+start = offset - 1
+if start >= len(items):
+    view_items = []
+else:
+    sliced = items[start:]
+    view_items = sliced if limit is None else sliced[:limit]
 
 if not items:
     if json_mode:

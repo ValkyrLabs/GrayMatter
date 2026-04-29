@@ -5,7 +5,23 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 LEGACY_CONTRACT_PATH="${ROOT_DIR}/references/mcp/memory-tool-contract.v1.json"
 PORTABLE_CONTRACT_PATH="${ROOT_DIR}/references/contracts/mcp/graymatter_mcp_tools_v1.json"
-mode="${1:-portable}"
+mode="portable"
+if [[ $# -gt 0 ]]; then
+  case "$1" in
+    portable|legacy)
+      mode="$1"
+      shift
+      ;;
+    --mode=portable)
+      mode="portable"
+      shift
+      ;;
+    --mode=legacy)
+      mode="legacy"
+      shift
+      ;;
+  esac
+fi
 
 case "${mode}" in
   portable)
@@ -23,6 +39,10 @@ esac
 if [[ ! -f "${CONTRACT_PATH}" ]]; then
   printf 'contract file missing: %s\n' "${CONTRACT_PATH}" >&2
   exit 1
+fi
+
+if [[ "${1:-}" == "--validate" ]]; then
+  python3 -m json.tool "${CONTRACT_PATH}" >/dev/null
 fi
 
 cat "${CONTRACT_PATH}"

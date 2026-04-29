@@ -14,6 +14,8 @@ for t in memory_query memory_get memory_put memory_put_batch memory_link memory_
 done
 
 jq -e '.tools | map(.name) | sort == ["memory_get","memory_health","memory_link","memory_put","memory_put_batch","memory_query","memory_replay_deferred"]' < <("${ROOT}/scripts/gm-mcp-contract") >/dev/null
+jq -e '.tools | length > 0' < <("${ROOT}/scripts/gm-mcp-contract" --mode=portable --validate) >/dev/null
 jq -e '.errors.AUTH_REQUIRED and .errors.UPSTREAM_UNAVAILABLE' < <("${ROOT}/scripts/gm-mcp-contract" legacy) >/dev/null
+jq -e '.errors.AUTH_REQUIRED and .errors.UPSTREAM_UNAVAILABLE' < <("${ROOT}/scripts/gm-mcp-contract" --mode=legacy --validate) >/dev/null
 
 echo "mcp_contract_test: ok"

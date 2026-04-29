@@ -6,6 +6,10 @@ LOGIN_PATH="${GRAYMATTER_LOGIN_PATH:-/auth/login}"
 LOGIN_URL="${BASE%/}/${LOGIN_PATH#/}"
 OUT_MODE="${1:-keychain}"
 KEYCHAIN_SERVICE="${VALKYR_KEYCHAIN_SERVICE:-VALKYR_AUTH}"
+USERNAME_SERVICE="${VALKYR_USERNAME_KEYCHAIN_SERVICE:-${KEYCHAIN_SERVICE}_USERNAME}"
+PASSWORD_SERVICE="${VALKYR_PASSWORD_KEYCHAIN_SERVICE:-${KEYCHAIN_SERVICE}_PASSWORD}"
+USERNAME="${GRAYMATTER_USERNAME:-${VALKYR_USERNAME:-}}"
+PASSWORD="${GRAYMATTER_PASSWORD:-${VALKYR_PASSWORD:-}}"
 COOKIE_JAR="$(mktemp -t graymatter-login-cookie.XXXXXX)"
 HEADERS_FILE="$(mktemp -t graymatter-login-headers.XXXXXX)"
 trap 'rm -f "$COOKIE_JAR" "$HEADERS_FILE"' EXIT
@@ -15,9 +19,27 @@ if ! command -v jq >/dev/null 2>&1; then
   exit 1
 fi
 
-read -r -p "GrayMatter username: " USERNAME
-read -r -s -p "GrayMatter password: " PASSWORD
-printf '\n' >&2
+if [[ -z "$USERNAME" ]]; then
+  read -r -p "GrayMatter username: " USERNAME
+fi
+
+prompt_password() {
+  if command -v osascript >/dev/null 2>&1; then
+    GRAYMATTER_PROMPT_USERNAME="$USERNAME" osascript <<'APPLESCRIPT'
+set userName to system attribute "GRAYMATTER_PROMPT_USERNAME"
+text returned of (display dialog "Enter the GrayMatter password for " & userName & ":" default answer "" with hidden answer buttons {"Cancel", "OK"} default button "OK" with title "GrayMatter Login")
+APPLESCRIPT
+    return
+  fi
+
+  read -r -s -p "GrayMatter password: " PASSWORD
+  printf '\n' >&2
+  printf '%s\n' "$PASSWORD"
+}
+
+if [[ -z "$PASSWORD" ]]; then
+  PASSWORD="$(prompt_password)"
+fi
 
 set +e
 RESPONSE="$(curl --fail-with-body -sS -D "$HEADERS_FILE" -c "$COOKIE_JAR" -X POST "$LOGIN_URL" \
@@ -105,8 +127,12 @@ store_keychain() {
     echo "macOS security CLI not available for keychain mode" >&2
     exit 3
   fi
+  security add-generic-password -U -a "$USERNAME" -s "$KEYCHAIN_SERVICE" -w "$AUTH_TOKEN" >/dev/null
   security add-generic-password -U -a default -s "$KEYCHAIN_SERVICE" -w "$AUTH_TOKEN" >/dev/null
+  security add-generic-password -U -a default -s "$USERNAME_SERVICE" -w "$USERNAME" >/dev/null
+  security add-generic-password -U -a "$USERNAME" -s "$PASSWORD_SERVICE" -w "$PASSWORD" >/dev/null
   echo "Stored GrayMatter VALKYR_AUTH token securely in macOS/iCloud Keychain service ${KEYCHAIN_SERVICE}" >&2
+  echo "Stored GrayMatter credentials securely in macOS/iCloud Keychain" >&2
 }
 
 case "$OUT_MODE" in

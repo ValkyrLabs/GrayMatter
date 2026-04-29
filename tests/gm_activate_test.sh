@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 GM_ACTIVATE_SRC="${ROOT}/scripts/gm-activate"
+GM_LOGIN_SRC="${ROOT}/scripts/gm-login"
 
 fail() {
   printf 'FAIL: %s\n' "$1" >&2
@@ -97,7 +98,9 @@ make_activation_fixture() {
 
   mkdir -p "${fixture_dir}"
   cp "${GM_ACTIVATE_SRC}" "${fixture_dir}/gm-activate"
+  cp "${GM_LOGIN_SRC}" "${fixture_dir}/gm-login"
   chmod +x "${fixture_dir}/gm-activate"
+  chmod +x "${fixture_dir}/gm-login"
 
   cat >"${fixture_dir}/gm-install-check" <<'EOF'
 #!/usr/bin/env bash

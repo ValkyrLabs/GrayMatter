@@ -20,90 +20,10 @@ if ! have jq; then
 fi
 
 export VALKYR_API_BASE="$BASE"
-
-if [[ -n "$USERNAME_ENV" && -n "$PASSWORD_ENV" ]]; then
-  COOKIE_JAR="$(mktemp -t graymatter-activate-cookie.XXXXXX)"
-  HEADERS_FILE="$(mktemp -t graymatter-activate-headers.XXXXXX)"
-  trap 'rm -f "$COOKIE_JAR" "$HEADERS_FILE"' EXIT
-
-  set +e
-  RESPONSE="$(curl --fail-with-body -sS -D "$HEADERS_FILE" -c "$COOKIE_JAR" -X POST "${BASE%/}/auth/login" \
-    -H 'accept: application/json' \
-    -H 'content-type: application/json' \
-    --data "$(jq -nc --arg username "$USERNAME_ENV" --arg password "$PASSWORD_ENV" '{username:$username,password:$password}')" 2>&1)"
-  CURL_STATUS=$?
-  set -e
-
-  if [[ $CURL_STATUS -ne 0 ]]; then
-    echo "GrayMatter activation login request failed" >&2
-    echo "$RESPONSE" >&2
-    if [[ -s "$HEADERS_FILE" ]]; then
-      echo "Response headers:" >&2
-      cat "$HEADERS_FILE" >&2
-    fi
-    exit $CURL_STATUS
-  fi
-
-  extract_from_body() {
-    printf '%s' "$RESPONSE" | jq -r '.VALKYR_AUTH // .data.VALKYR_AUTH // .token // .session // .jwt // .jwtSession // .data.jwtSession // empty' 2>/dev/null || true
-  }
-
-  extract_from_headers() {
-    local token
-    token="$(tr -d '\r' < "$HEADERS_FILE" | grep -i 'set-cookie: .*VALKYR_AUTH=' | sed -E 's/.*VALKYR_AUTH=([^;]+).*/\1/' | head -n 1 || true)"
-    if [[ -n "$token" ]]; then
-      printf '%s\n' "$token"
-      return 0
-    fi
-
-    token="$(tr -d '\r' < "$HEADERS_FILE" | grep -i '^VALKYR_AUTH:' | sed -E 's/^[^:]+:[[:space:]]*//' | head -n 1 || true)"
-    if [[ -n "$token" ]]; then
-      printf '%s\n' "$token"
-      return 0
-    fi
-
-    token="$(tr -d '\r' < "$HEADERS_FILE" | grep -i '^authorization:' | sed -E 's/^[^:]+:[[:space:]]*Bearer[[:space:]]+//' | head -n 1 || true)"
-    if [[ -n "$token" ]]; then
-      printf '%s\n' "$token"
-      return 0
-    fi
-
-    token="$(tr -d '\r' < "$HEADERS_FILE" | grep -i 'set-cookie: .*jwtSession=' | sed -E 's/.*jwtSession=([^;]+).*/\1/' | head -n 1 || true)"
-    if [[ -n "$token" ]]; then
-      printf '%s\n' "$token"
-      return 0
-    fi
-  }
-
-  extract_from_cookies() {
-    awk 'BEGIN{FS="\t"} $0 !~ /^#/ && ($6 == "VALKYR_AUTH" || $6 == "jwtSession") {print $7; exit}' "$COOKIE_JAR"
-  }
-
-  AUTH_TOKEN="$(extract_from_body)"
-  if [[ -z "$AUTH_TOKEN" || "$AUTH_TOKEN" == "null" ]]; then
-    AUTH_TOKEN="$(extract_from_headers)"
-  fi
-  if [[ -z "$AUTH_TOKEN" || "$AUTH_TOKEN" == "null" ]]; then
-    AUTH_TOKEN="$(extract_from_cookies)"
-  fi
-
-  if [[ -z "$AUTH_TOKEN" || "$AUTH_TOKEN" == "null" ]]; then
-    echo "Auth succeeded but no VALKYR_AUTH token could be extracted during activation" >&2
-    echo "$RESPONSE" >&2
-    echo "Response headers:" >&2
-    cat "$HEADERS_FILE" >&2
-    exit 2
-  fi
-
-  if have security; then
-    security add-generic-password -U -a default -s "$KEYCHAIN_SERVICE" -w "$AUTH_TOKEN" >/dev/null
-    echo "Stored GrayMatter VALKYR_AUTH token in macOS/iCloud Keychain service ${KEYCHAIN_SERVICE}" >&2
-  fi
-  export VALKYR_AUTH_TOKEN="$AUTH_TOKEN"
-else
+if [[ -z "$USERNAME_ENV" || -z "$PASSWORD_ENV" ]]; then
   echo "No GrayMatter username/password found in environment, falling back to interactive login" >&2
-  eval "$(${SCRIPT_DIR}/gm-login env)"
 fi
+eval "$(${SCRIPT_DIR}/gm-login env)"
 
 ${SCRIPT_DIR}/gm-install-check
 SMOKE_DEGRADED=0

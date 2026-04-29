@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ROOT_DIR="${ROOT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 FALLBACK_FILE="$ROOT_DIR/memory/graymatter-fallback.json"
 OPENAPI_CACHE="$ROOT_DIR/tmp/openapi.json"
@@ -22,6 +23,9 @@ if [[ -f "$OPENAPI_CACHE" ]]; then
   openapi_state="cached"
 fi
 
+echo "graymatter_auth=$auth_state"
+echo "fallback_pending=$fallback_pending"
+echo "openapi_cache=$openapi_state"
 memory_layer="degraded"
 if [[ "$auth_state" != "missing" && "$fallback_pending" == "0" ]]; then
   memory_layer="ready"

@@ -125,6 +125,7 @@ Rule:
 - `scripts/gm-graph` — inspect Swarm graph endpoints
 - `scripts/gm-openapi-sync` — fetch and cache the live OpenAPI spec locally
 - `scripts/gm-openapi-summary` — summarize live schema domains and endpoints
+- `scripts/gm-status` — quick health/status surface for auth source, fallback queue, and OpenAPI cache
 - `scripts/gm-entity` — generic helper for listing, reading, and writing arbitrary schema entities
 - `scripts/gm-register-agent` — register or refresh the OpenClaw server as an Agent in api-0
 - `scripts/gm-mcp-contract` — emit the portable MCP memory-tool contract schema used by agent/IDE adapters
@@ -283,6 +284,7 @@ scripts/gm-graph GET
 ```bash
 scripts/gm-openapi-sync
 scripts/gm-openapi-summary
+scripts/gm-status
 ```
 
 ### Arbitrary schema entity access

@@ -6,18 +6,40 @@ API_SCRIPT="$ROOT_DIR/scripts/graymatter_api.sh"
 
 usage() {
   cat <<'EOF'
-Usage: gm-client <get|post|put|patch|delete> <path> [json-body]
+Usage: gm-client [--body-file <path>] <get|post|put|patch|delete> <path> [json-body]
 
 Examples:
   gm-client get /memory-entries
   gm-client post /memory-entries '{"title":"Decision","kind":"decision"}'
+  gm-client --body-file ./payload.json post /memory-entries
 EOF
 }
 
-if [[ ${1:-} == "-h" || ${1:-} == "--help" ]]; then
-  usage
-  exit 0
-fi
+body_file=""
+while [[ $# -gt 0 ]]; do
+  case "${1:-}" in
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    --body-file)
+      body_file="${2:-}"
+      if [[ -z "$body_file" ]]; then
+        echo "error: --body-file requires a path" >&2
+        usage
+        exit 1
+      fi
+      shift 2
+      ;;
+    --)
+      shift
+      break
+      ;;
+    *)
+      break
+      ;;
+  esac
+done
 
 if [[ $# -lt 2 ]]; then
   usage
@@ -27,6 +49,18 @@ fi
 method="$(printf '%s' "$1" | tr '[:lower:]' '[:upper:]')"
 path="$2"
 body="${3:-}"
+
+if [[ -n "$body_file" ]]; then
+  if [[ -n "$body" ]]; then
+    echo "error: provide either [json-body] or --body-file, not both" >&2
+    exit 1
+  fi
+  if [[ ! -f "$body_file" ]]; then
+    echo "error: body file not found: $body_file" >&2
+    exit 1
+  fi
+  body="$(cat "$body_file")"
+fi
 
 case "$method" in
   GET|POST|PATCH|DELETE|PUT)

@@ -8,4 +8,5 @@ if "$ROOT_DIR/scripts/gm-client" >/tmp/gm-client.out 2>&1; then
 fi
 
 grep -q "Usage: gm-client" /tmp/gm-client.out
+grep -q "get|post|put|patch|delete" /tmp/gm-client.out
 echo "gm_client_test: ok"

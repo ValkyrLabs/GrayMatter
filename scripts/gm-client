@@ -6,7 +6,7 @@ API_SCRIPT="$ROOT_DIR/scripts/graymatter_api.sh"
 
 usage() {
   cat <<'EOF'
-Usage: gm-client <get|post|patch|delete> <path> [json-body]
+Usage: gm-client <get|post|put|patch|delete> <path> [json-body]
 
 Examples:
   gm-client get /memory-entries

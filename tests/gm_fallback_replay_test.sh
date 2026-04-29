@@ -12,14 +12,21 @@ cat > "$TMP/memory/graymatter-fallback.json" <<JSON
   "source": "chat",
   "status": "pending_replay",
   "items": [
-    {"type":"note","text":"alpha","owner":"ops","reason":"retry"}
+    {"type":"note","text":"alpha","owner":"ops","reason":"retry"},
+    {"type":"task","text":"beta","owner":"ops","reason":"retry"}
   ]
 }
 JSON
 
+LIMIT_JSON="$(cd "$TMP" && $ROOT/scripts/gm-fallback-replay --json --limit 1 2>&1)"
+echo "$LIMIT_JSON" | grep -q '"count": 1'
+echo "$LIMIT_JSON" | grep -q '"total": 2'
+echo "$LIMIT_JSON" | grep -q '"alpha"'
+! echo "$LIMIT_JSON" | grep -q '"beta"'
+
 OUT="$(cd "$TMP" && $ROOT/scripts/gm-fallback-replay --drain 2>&1)"
 echo "$OUT" | grep -q "type=note"
-echo "$OUT" | grep -q "drained 1 fallback items"
+echo "$OUT" | grep -q "drained 2 fallback items"
 grep -q '"status": "replayed"' "$TMP/memory/graymatter-fallback.json"
 
 JSON_OUT="$(cd "$TMP" && $ROOT/scripts/gm-fallback-replay --json 2>&1)"

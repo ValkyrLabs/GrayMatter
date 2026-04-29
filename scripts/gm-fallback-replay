@@ -12,6 +12,23 @@ data = load(path)
 items = data.get("items", [])
 json_mode = "--json" in sys.argv
 
+def parse_limit(argv):
+    if "--limit" not in argv:
+        return None
+    idx = argv.index("--limit")
+    if idx + 1 >= len(argv):
+        raise SystemExit("--limit requires a positive integer")
+    try:
+        value = int(argv[idx + 1])
+    except ValueError as exc:
+        raise SystemExit("--limit requires a positive integer") from exc
+    if value <= 0:
+        raise SystemExit("--limit requires a positive integer")
+    return value
+
+limit = parse_limit(sys.argv)
+view_items = items if limit is None else items[:limit]
+
 if not items:
     if json_mode:
         print(json.dumps({"status": "empty", "count": 0, "items": []}))
@@ -20,9 +37,9 @@ if not items:
     sys.exit(0)
 
 if json_mode:
-    print(json.dumps({"status": data.get("status", "pending_replay"), "count": len(items), "items": items}))
+    print(json.dumps({"status": data.get("status", "pending_replay"), "count": len(view_items), "total": len(items), "items": view_items}))
 else:
-    for idx, item in enumerate(items, start=1):
+    for idx, item in enumerate(view_items, start=1):
         print(f"[{idx}] type={item.get('type','')} owner={item.get('owner','')} reason={item.get('reason','')}")
         print(item.get("text", ""))
 

@@ -1,0 +1,26 @@
+#!/usr/bin/env python3
+import json
+import os
+import sys
+from pathlib import Path
+
+sys.path.insert(0, os.path.dirname(__file__))
+from graymatter_fallback import load
+
+path = Path(os.getcwd()) / "memory" / "graymatter-fallback.json"
+data = load(path)
+items = data.get("items", [])
+
+if not items:
+    print("no pending fallback items")
+    sys.exit(0)
+
+for idx, item in enumerate(items, start=1):
+    print(f"[{idx}] type={item.get('type','')} owner={item.get('owner','')} reason={item.get('reason','')}")
+    print(item.get("text", ""))
+
+if "--drain" in sys.argv:
+    data["items"] = []
+    data["status"] = "replayed"
+    path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    print(f"drained {len(items)} fallback items")

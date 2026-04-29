@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+FALLBACK_FILE="$ROOT_DIR/memory/graymatter-fallback.json"
+OPENAPI_CACHE="$ROOT_DIR/tmp/openapi.json"
+
+auth_state="missing"
+if [[ -n "${VALKYR_AUTH_TOKEN:-}" || -n "${VALKYR_AUTH:-}" || -n "${VALKYR_JWT_SESSION:-}" ]]; then
+  auth_state="env"
+elif command -v security >/dev/null 2>&1 && security find-generic-password -s "VALKYR_AUTH" -w >/dev/null 2>&1; then
+  auth_state="keychain"
+fi
+
+fallback_pending=0
+if [[ -f "$FALLBACK_FILE" ]]; then
+  fallback_pending="$(jq 'length' "$FALLBACK_FILE" 2>/dev/null || echo 0)"
+fi
+
+openapi_state="missing"
+if [[ -f "$OPENAPI_CACHE" ]]; then
+  openapi_state="cached"
+fi
+
+echo "graymatter_auth=$auth_state"
+echo "fallback_pending=$fallback_pending"
+echo "openapi_cache=$openapi_state"

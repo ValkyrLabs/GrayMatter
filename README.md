@@ -122,6 +122,7 @@ Rule:
 - `scripts/gm-openapi-summary` — summarize live schema domains and endpoints
 - `scripts/gm-entity` — generic helper for listing, reading, and writing arbitrary schema entities
 - `scripts/gm-register-agent` — register or refresh the OpenClaw server as an Agent in api-0
+- `scripts/gm-mcp-contract` — emit the portable MCP memory-tool contract schema used by agent/IDE adapters
 - `scripts/package_graymatter.py` — deterministic validation and packaging
 - `docs/architecture.md` — architecture and operating model
 - `docs/prd-context-compaction-reset.md` — PRD for bounded chat compaction and reset flows
@@ -129,6 +130,7 @@ Rule:
 - `docs/graymatter-light.md` — local/offline notes
 - `examples/*` — example payloads and Light-mode starter assets
 - `references/*` — release and multi-agent guidance, including concurrency conventions
+- `references/mcp/memory-tool-contract.v1.json` — stable v1 portable tool contract for memory and graph operations
 - `clawhub.json` — publishing metadata
 
 ## Install and use immediately

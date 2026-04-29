@@ -1,0 +1,78 @@
+#!/usr/bin/env python3
+"""Generate a self-contained minimal GrayMatter Light ThorAPI bundle."""
+from __future__ import annotations
+
+import argparse
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+EXAMPLE_SPEC = ROOT / "examples/graymatter-light-thorapi-bundle.yaml"
+
+DOCKER_COMPOSE = """services:
+  graymatter-light:
+    image: ghcr.io/valkyrlabs/thorapi:latest
+    container_name: graymatter-light
+    restart: unless-stopped
+    ports:
+      - \"8080:8080\"
+    volumes:
+      - ./api.hbs.yaml:/app/api.hbs.yaml:ro
+      - ./dashboard:/app/dashboard:ro
+      - ./data:/data
+    environment:
+      - SPRING_DATASOURCE_URL=jdbc:h2:file:/data/graymatter;MODE=PostgreSQL;AUTO_SERVER=TRUE
+      - SPRING_DATASOURCE_DRIVER_CLASS_NAME=org.h2.Driver
+      - SPRING_DATASOURCE_USERNAME=sa
+      - SPRING_DATASOURCE_PASSWORD=
+      - THORAPI_SPEC=/app/api.hbs.yaml
+"""
+
+DASHBOARD_HTML = """<!doctype html>
+<html>
+<head><meta charset=\"utf-8\"><title>GrayMatter Light</title></head>
+<body>
+  <h1>GrayMatter Light</h1>
+  <p>Local ThorAPI bundle is running.</p>
+  <ul>
+    <li>API docs: <a href=\"/swagger-ui/index.html\">/swagger-ui/index.html</a></li>
+    <li>Health: <a href=\"/actuator/health\">/actuator/health</a></li>
+  </ul>
+</body>
+</html>
+"""
+
+UPGRADE_NOTE = """# Upgrade to Full GrayMatter
+
+When ready for hosted GrayMatter:
+1. Run `gm-activate --token <token>`.
+2. Use your starter 1000 credits on https://valkyrlabs.com.
+3. Point clients to hosted API base URL after activation.
+"""
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Create a GrayMatter Light local bundle")
+    parser.add_argument("out_dir", nargs="?", default="graymatter-light-bundle")
+    args = parser.parse_args()
+
+    out_dir = Path(args.out_dir).resolve()
+    dashboard_dir = out_dir / "dashboard"
+    data_dir = out_dir / "data"
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    dashboard_dir.mkdir(parents=True, exist_ok=True)
+    data_dir.mkdir(parents=True, exist_ok=True)
+
+    spec = EXAMPLE_SPEC.read_text(encoding="utf-8")
+    (out_dir / "api.hbs.yaml").write_text(spec, encoding="utf-8")
+    (out_dir / "docker-compose.yaml").write_text(DOCKER_COMPOSE, encoding="utf-8")
+    (dashboard_dir / "index.html").write_text(DASHBOARD_HTML, encoding="utf-8")
+    (out_dir / "UPGRADE.md").write_text(UPGRADE_NOTE, encoding="utf-8")
+
+    print(f"Created GrayMatter Light bundle at {out_dir}")
+    print("Next: docker compose up -d")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

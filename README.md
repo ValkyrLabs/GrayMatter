@@ -122,7 +122,7 @@ Rule:
 - `scripts/gm-query` — query `MemoryEntry`
 - `scripts/gm-write` — write `MemoryEntry`, with tagged-write fallback behavior
 - `scripts/gm-fallback-append` — append failed writes to local replay queue at `memory/graymatter-fallback.json`
-- `scripts/gm-fallback-replay` — inspect pending fallback items and optionally mark them replayed with `--drain`
+- `scripts/gm-fallback-replay` — inspect pending fallback items, emit compact counts via `--summary`, and optionally mark them replayed with `--drain`
 - `scripts/gm-graph` — inspect Swarm graph endpoints
 - `scripts/gm-openapi-sync` — fetch and cache the live OpenAPI spec locally
 - `scripts/gm-openapi-summary` — summarize live schema domains and endpoints

@@ -12,6 +12,7 @@ data = load(path)
 items = data.get("items", [])
 json_mode = "--json" in sys.argv
 compact_mode = "--compact" in sys.argv
+summary_mode = "--summary" in sys.argv
 
 def compact_items(raw_items):
     compacted = []
@@ -70,11 +71,17 @@ if not items:
     sys.exit(0)
 
 if json_mode:
-    print(json.dumps({"status": data.get("status", "pending_replay"), "count": len(view_items), "total": len(items), "items": view_items}))
+    payload = {"status": data.get("status", "pending_replay"), "count": len(view_items), "total": len(items)}
+    if not summary_mode:
+        payload["items"] = view_items
+    print(json.dumps(payload))
 else:
-    for idx, item in enumerate(view_items, start=1):
-        print(f"[{idx}] type={item.get('type','')} owner={item.get('owner','')} reason={item.get('reason','')}")
-        print(item.get("text", ""))
+    if summary_mode:
+        print(f"status={data.get('status', 'pending_replay')} count={len(view_items)} total={len(items)}")
+    else:
+        for idx, item in enumerate(view_items, start=1):
+            print(f"[{idx}] type={item.get('type','')} owner={item.get('owner','')} reason={item.get('reason','')}")
+            print(item.get("text", ""))
 
 if "--drain" in sys.argv:
     if start >= len(items):

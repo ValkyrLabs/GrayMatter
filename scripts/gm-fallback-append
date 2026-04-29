@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
-import json
 import os
 import sys
-from datetime import datetime, timezone
+from pathlib import Path
+
+sys.path.insert(0, os.path.dirname(__file__))
+from graymatter_fallback import append
 
 if len(sys.argv) < 4:
     print("Usage: gm-fallback-append <type> <text> <owner> [reason]", file=sys.stderr)
@@ -10,36 +12,11 @@ if len(sys.argv) < 4:
 
 type_, text, owner = sys.argv[1], sys.argv[2], sys.argv[3]
 reason = sys.argv[4] if len(sys.argv) > 4 else "GrayMatter write fallback"
-path = os.path.join(os.getcwd(), "memory", "graymatter-fallback.json")
-os.makedirs(os.path.dirname(path), exist_ok=True)
 
-payload = {
-    "timestamp": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
-    "source": "chat",
-    "status": "pending_replay",
-    "items": []
-}
-
-if os.path.exists(path):
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            existing = json.load(f)
-        if isinstance(existing, dict):
-            payload.update({k: v for k, v in existing.items() if k != "items"})
-            if isinstance(existing.get("items"), list):
-                payload["items"] = existing["items"]
-    except Exception:
-        pass
-
-payload["timestamp"] = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
-payload["status"] = "pending_replay"
-payload["items"].append({
+path = Path(os.getcwd()) / "memory" / "graymatter-fallback.json"
+append(path, {
     "type": type_,
     "text": text,
     "owner": owner,
     "reason": reason,
 })
-
-with open(path, "w", encoding="utf-8") as f:
-    json.dump(payload, f, indent=2)
-    f.write("\n")

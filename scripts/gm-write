@@ -5,6 +5,7 @@ TYPE="${1:-}"
 TEXT="${2:-}"
 SOURCE_CHANNEL="${3:-openclaw}"
 TAGS_RAW="${4:-}"
+MAX_TEXT_LEN="${GM_WRITE_MAX_TEXT_LEN:-4000}"
 
 if [[ -z "$TYPE" || -z "$TEXT" ]]; then
   echo "Usage: gm-write <decision|todo|context|artifact|preference> <text> [sourceChannel] [comma-separated-tags]" >&2
@@ -12,6 +13,17 @@ if [[ -z "$TYPE" || -z "$TEXT" ]]; then
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+if ! [[ "$MAX_TEXT_LEN" =~ ^[0-9]+$ ]] || [[ "$MAX_TEXT_LEN" -le 0 ]]; then
+  echo "Invalid GM_WRITE_MAX_TEXT_LEN: $MAX_TEXT_LEN" >&2
+  exit 1
+fi
+
+if [[ ${#TEXT} -gt $MAX_TEXT_LEN ]]; then
+  ORIGINAL_LEN=${#TEXT}
+  TEXT="${TEXT:0:MAX_TEXT_LEN}"
+  echo "gm-write: input text truncated from ${ORIGINAL_LEN} to ${MAX_TEXT_LEN} chars (set GM_WRITE_MAX_TEXT_LEN to adjust)" >&2
+fi
 
 if [[ -n "$TAGS_RAW" ]]; then
   PAYLOAD="$(jq -nc --arg type "$TYPE" --arg text "$TEXT" --arg sourceChannel "$SOURCE_CHANNEL" --arg tagsRaw "$TAGS_RAW" '{type:$type,text:$text,sourceChannel:$sourceChannel,tags:($tagsRaw | split(",") | map(gsub("^\\s+|\\s+$";"")) | map(select(length > 0)))}')"

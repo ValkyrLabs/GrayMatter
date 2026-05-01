@@ -42,10 +42,15 @@ make_fake_bin() {
 set -euo pipefail
 
 out_file=""
+headers_file=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     -o)
       out_file="$2"
+      shift 2
+      ;;
+    -D)
+      headers_file="$2"
       shift 2
       ;;
     *)
@@ -62,11 +67,47 @@ fi
 case "${TEST_CURL_SCENARIO:-success}" in
   success)
     printf '{"ok":true}\n' >"${out_file}"
+    if [[ -n "$headers_file" ]]; then
+      printf 'HTTP/1.1 200 OK\n' >"${headers_file}"
+    fi
     printf '200'
     ;;
   insufficient-funds)
     printf '{"error":"INSUFFICIENT_FUNDS","insufficientFunds":true}\n' >"${out_file}"
     printf '402'
+    ;;
+    if [[ -n "$headers_file" ]]; then
+      printf 'HTTP/1.1 402 Payment Required\n' >"${headers_file}"
+    fi
+    printf '402'
+    ;;
+  unauthorized-then-refresh)
+    state_file="${TEST_CURL_STATE_FILE:?}"
+    count=0
+    if [[ -f "$state_file" ]]; then
+      count="$(cat "$state_file")"
+    fi
+
+    if [[ "$*" == *"/auth/login"* ]]; then
+      printf '{"token":"refreshed-token"}\n' >"${out_file}"
+      if [[ -n "$headers_file" ]]; then
+        printf 'HTTP/1.1 200 OK\nSet-Cookie: VALKYR_AUTH=refreshed-token; Path=/; HttpOnly\n' >"${headers_file}"
+      fi
+      printf '200'
+    elif [[ "$count" == "0" ]]; then
+      printf '{"error":"UNAUTHORIZED"}\n' >"${out_file}"
+      if [[ -n "$headers_file" ]]; then
+        printf 'HTTP/1.1 401 Unauthorized\n' >"${headers_file}"
+      fi
+      printf '1' >"$state_file"
+      printf '401'
+    else
+      printf '{"ok":true,"token":"refreshed-token"}\n' >"${out_file}"
+      if [[ -n "$headers_file" ]]; then
+        printf 'HTTP/1.1 200 OK\n' >"${headers_file}"
+      fi
+      printf '200'
+    fi
     ;;
   transport-fail)
     echo "curl transport failure" >&2
@@ -79,6 +120,80 @@ case "${TEST_CURL_SCENARIO:-success}" in
 esac
 EOF
   chmod +x "${dir}/curl"
+
+  cat >"${dir}/security" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+printf '%s\n' "$*" >>"${TEST_SECURITY_LOG}"
+
+cmd="${1:-}"
+shift || true
+
+case "$cmd" in
+  find-generic-password)
+    account=""
+    service=""
+    want_password=0
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        -a)
+          account="$2"
+          shift 2
+          ;;
+        -s)
+          service="$2"
+          shift 2
+          ;;
+        -w)
+          want_password=1
+          shift
+          ;;
+        *)
+          shift
+          ;;
+      esac
+    done
+
+    if [[ "$want_password" != "1" ]]; then
+      exit 1
+    fi
+
+    if [[ "${TEST_SECURITY_SCENARIO:-}" == "missing-token" ]]; then
+      exit 44
+    fi
+
+    if [[ "$service" == "VALKYR_AUTH" && "$account" == "valor" ]]; then
+      printf 'expired-token\n'
+      exit 0
+    fi
+
+    if [[ "$service" == "VALKYR_AUTH_USERNAME" && "$account" == "default" ]]; then
+      printf 'valor\n'
+      exit 0
+    fi
+
+    if [[ "$service" == "VALKYR_AUTH_PASSWORD" && "$account" == "valor" ]]; then
+      printf 'secret-password\n'
+      exit 0
+    fi
+
+    if [[ "$service" == "VALKYR_AUTH" && "$account" == "default" ]]; then
+      printf 'expired-token\n'
+      exit 0
+    fi
+
+    exit 44
+    ;;
+  add-generic-password)
+    exit 0
+    ;;
+  *)
+    exit 0
+    ;;
+esac
+EOF
+  chmod +x "${dir}/security"
 
   cat >"${dir}/osascript" <<'EOF'
 #!/usr/bin/env bash
@@ -120,6 +235,15 @@ printf 'cmd.exe %s\n' "$*" >>"${TEST_OPEN_LOG}"
 exit 0
 EOF
   chmod +x "${dir}/cmd.exe"
+
+  cat >"${dir}/gm-login" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+printf 'gm-login called\n' >>"${TEST_GM_LOGIN_LOG}"
+printf 'export VALKYR_API_BASE="https://api-0.valkyrlabs.com/v1"\n'
+printf 'export VALKYR_AUTH_TOKEN="login-token"\n'
+EOF
+  chmod +x "${dir}/gm-login"
 }
 
 run_api() {
@@ -159,7 +283,10 @@ with_fixture() {
   TEST_OSASCRIPT_LOG="${temp_root}/osascript.log"
   TEST_POWERSHELL_LOG="${temp_root}/powershell.log"
   TEST_OPEN_LOG="${temp_root}/open.log"
-  export TEST_OSASCRIPT_LOG TEST_POWERSHELL_LOG TEST_OPEN_LOG
+  TEST_SECURITY_LOG="${temp_root}/security.log"
+  TEST_CURL_STATE_FILE="${temp_root}/curl.state"
+  TEST_GM_LOGIN_LOG="${temp_root}/gm-login.log"
+  export TEST_OSASCRIPT_LOG TEST_POWERSHELL_LOG TEST_OPEN_LOG TEST_SECURITY_LOG TEST_CURL_STATE_FILE TEST_GM_LOGIN_LOG
 
   "${callback}" "${temp_root}" "${fake_bin}" "${script_copy}"
 }
@@ -233,5 +360,72 @@ test_insufficient_funds_falls_back_to_windows_prompt() {
 with_fixture test_success_passthrough
 with_fixture test_insufficient_funds_shows_links_and_uses_macos_prompt
 with_fixture test_insufficient_funds_falls_back_to_windows_prompt
+test_unauthorized_refreshes_token_from_keychain_credentials() {
+  local temp_root="$1"
+  local fake_bin="$2"
+  local script_copy="$3"
+
+  export TEST_CURL_SCENARIO="unauthorized-then-refresh"
+  unset VALKYR_AUTH_TOKEN
+  unset GRAYMATTER_USERNAME
+  unset GRAYMATTER_PASSWORD
+  unset VALKYR_USERNAME
+  unset VALKYR_PASSWORD
+
+  local result
+  local status
+  local output
+
+  result="$(
+    PATH="${fake_bin}:/usr/bin:/bin" \
+    "${script_copy}" GET /MemoryEntry/stats 2>&1
+  )"
+  status=$?
+  output="$(printf '%s\n' "${result}")"
+
+  [[ "${status}" == "0" ]] || fail "graymatter_api should recover from an expired token by refreshing it"
+  assert_contains "${output}" '{"ok":true,"token":"refreshed-token"}' "graymatter_api should retry the original request after refreshing the token"
+
+  local security_log
+  security_log="$(cat "${temp_root}/security.log")"
+  assert_contains "${security_log}" "find-generic-password -a default -s VALKYR_AUTH_USERNAME -w" "graymatter_api should load the remembered username from Keychain"
+  assert_contains "${security_log}" "find-generic-password -a valor -s VALKYR_AUTH_PASSWORD -w" "graymatter_api should load the remembered password from Keychain"
+  assert_contains "${security_log}" "add-generic-password -U -a valor -s VALKYR_AUTH -w refreshed-token" "graymatter_api should update the username-scoped token"
+}
+
+test_missing_token_runs_login_before_request() {
+  local temp_root="$1"
+  local fake_bin="$2"
+  local script_copy="$3"
+
+  export TEST_CURL_SCENARIO="success"
+  export TEST_SECURITY_SCENARIO="missing-token"
+  unset VALKYR_AUTH_TOKEN
+  unset GRAYMATTER_USERNAME
+  unset GRAYMATTER_PASSWORD
+  unset VALKYR_USERNAME
+  unset VALKYR_PASSWORD
+
+  local result
+  local status
+  local output
+
+  result="$(
+    PATH="${fake_bin}:/usr/bin:/bin" \
+    "${script_copy}" GET /MemoryEntry/stats 2>&1
+  )"
+  status=$?
+  output="$(printf '%s\n' "${result}")"
+
+  [[ "${status}" == "0" ]] || fail "graymatter_api should login when no token is available"
+  assert_contains "$(cat "${temp_root}/gm-login.log")" "gm-login called" "graymatter_api should invoke gm-login when no token is available"
+  assert_contains "${output}" '{"ok":true}' "graymatter_api should run the original request after login"
+}
+
+with_fixture test_success_passthrough
+with_fixture test_insufficient_funds_shows_links_and_uses_macos_prompt
+with_fixture test_insufficient_funds_falls_back_to_windows_prompt
+with_fixture test_unauthorized_refreshes_token_from_keychain_credentials
+with_fixture test_missing_token_runs_login_before_request
 
 printf 'PASS: graymatter_api_test.sh\n'

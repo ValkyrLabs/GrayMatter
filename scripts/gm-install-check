@@ -23,16 +23,54 @@ have curl || fail 'curl is required'
 have jq || fail 'jq is required'
 pass 'bash, curl, and jq are available'
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BASE="${VALKYR_API_BASE:-https://api-0.valkyrlabs.com/v1}"
 TOKEN="${VALKYR_AUTH_TOKEN:-${VALKYR_JWT_SESSION:-}}"
 KEYCHAIN_SERVICE="${VALKYR_KEYCHAIN_SERVICE:-VALKYR_AUTH}"
+USERNAME_SERVICE="${VALKYR_USERNAME_KEYCHAIN_SERVICE:-${KEYCHAIN_SERVICE}_USERNAME}"
+PASSWORD_SERVICE="${VALKYR_PASSWORD_KEYCHAIN_SERVICE:-${KEYCHAIN_SERVICE}_PASSWORD}"
+USERNAME="${GRAYMATTER_USERNAME:-${VALKYR_USERNAME:-}}"
+
+keychain_read() {
+  local account="$1"
+  local service="$2"
+  security find-generic-password -a "$account" -s "$service" -w 2>/dev/null || true
+}
+
+run_login() {
+  local login_cmd="${GRAYMATTER_LOGIN_COMMAND:-${SCRIPT_DIR}/gm-login}"
+  if [[ ! -x "$login_cmd" ]]; then
+    login_cmd="$(command -v gm-login 2>/dev/null || true)"
+  fi
+
+  if [[ -z "$login_cmd" || ! -x "$login_cmd" ]]; then
+    return 1
+  fi
+
+  eval "$("$login_cmd" env)"
+  TOKEN="${VALKYR_AUTH_TOKEN:-${VALKYR_JWT_SESSION:-}}"
+  if [[ -z "$USERNAME" ]] && have security; then
+    USERNAME="$(keychain_read default "$USERNAME_SERVICE")"
+  fi
+}
+
+if [[ -z "$USERNAME" ]] && have security; then
+  USERNAME="$(keychain_read default "$USERNAME_SERVICE")"
+fi
 
 if [[ -z "$TOKEN" ]] && have security; then
-  TOKEN="$(security find-generic-password -a default -s "$KEYCHAIN_SERVICE" -w 2>/dev/null || true)"
+  if [[ -n "$USERNAME" ]]; then
+    TOKEN="$(keychain_read "$USERNAME" "$KEYCHAIN_SERVICE")"
+  fi
+  if [[ -z "$TOKEN" ]]; then
+    TOKEN="$(keychain_read default "$KEYCHAIN_SERVICE")"
+  fi
 fi
 
 if [[ -z "$TOKEN" ]]; then
-  fail "No GrayMatter auth found. Checked VALKYR_AUTH_TOKEN, VALKYR_JWT_SESSION, and macOS Keychain secret ${KEYCHAIN_SERVICE}. Run scripts/gm-login if needed."
+  if ! run_login || [[ -z "$TOKEN" ]]; then
+    fail "No GrayMatter auth found. Checked VALKYR_AUTH_TOKEN, VALKYR_JWT_SESSION, macOS Keychain secret ${KEYCHAIN_SERVICE}, reusable credentials, and login did not produce a token."
+  fi
 fi
 pass 'GrayMatter auth source detected'
 

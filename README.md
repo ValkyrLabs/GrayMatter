@@ -26,6 +26,11 @@ This is the core idea:
 
 ## Primary-memory model
 
+Boundary rule:
+This skill stays thin. It should teach usage intent, durable type selection, and operator ergonomics.
+Retry behavior, auth/session refresh, fallback queueing, and replay execution belong to shared GrayMatter infrastructure contracts.
+Keep this repository aligned with those contracts rather than re-implementing them.
+
 GrayMatter should be the **primary durable memory system**.
 
 Use local files only as:
@@ -116,17 +121,23 @@ Rule:
 - `scripts/gm-smoke` — production smoke test for write/query validation
 - `scripts/gm-query` — query `MemoryEntry`
 - `scripts/gm-write` — write `MemoryEntry`, with tagged-write fallback behavior
+- `scripts/gm-fallback-append` — append failed writes to local replay queue at `memory/graymatter-fallback.json`
 - `scripts/gm-graph` — inspect Swarm graph endpoints
 - `scripts/gm-openapi-sync` — fetch and cache the live OpenAPI spec locally
 - `scripts/gm-openapi-summary` — summarize live schema domains and endpoints
+- `scripts/gm-status` — quick health/status surface for auth source, fallback queue, and OpenAPI cache
+- `scripts/gm-client` — generic REST wrapper for GET/POST/PUT/PATCH/DELETE against GrayMatter API paths
 - `scripts/gm-entity` — generic helper for listing, reading, and writing arbitrary schema entities
 - `scripts/gm-register-agent` — register or refresh the OpenClaw server as an Agent in api-0
+- `scripts/gm-mcp-contract` — emit the portable MCP memory-tool contract schema used by agent/IDE adapters
 - `scripts/package_graymatter.py` — deterministic validation and packaging
 - `docs/architecture.md` — architecture and operating model
+- `docs/prd-context-compaction-reset.md` — PRD for bounded chat compaction and reset flows
 - `docs/thorapi-integration.md` — ThorAPI relationship and bundle direction
 - `docs/graymatter-light.md` — local/offline notes
 - `examples/*` — example payloads and Light-mode starter assets
-- `references/*` — release and multi-agent guidance
+- `references/*` — release and multi-agent guidance, including concurrency conventions
+- `references/mcp/memory-tool-contract.v1.json` — stable v1 portable tool contract for memory and graph operations
 - `clawhub.json` — publishing metadata
 
 ## Install and use immediately
@@ -245,6 +256,8 @@ scripts/gm-write context "launch handoff" discord "launch,graymatter"
 
 If tag persistence is broken on the backend, the script retries without tags instead of failing the whole write.
 
+If the API call still fails, `gm-write` appends the attempted write to `memory/graymatter-fallback.json` when `scripts/gm-fallback-append` is present.
+
 ### One-shot activation
 
 ```bash
@@ -272,6 +285,7 @@ scripts/gm-graph GET
 ```bash
 scripts/gm-openapi-sync
 scripts/gm-openapi-summary
+scripts/gm-status
 ```
 
 ### Arbitrary schema entity access

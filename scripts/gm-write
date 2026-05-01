@@ -35,5 +35,15 @@ if [[ -n "$TAGS_RAW" ]] && printf '%s' "$RESPONSE" | grep -Eqi 'tags|tag|relatio
   exec "${SCRIPT_DIR}/graymatter_api.sh" POST /MemoryEntry "$FALLBACK_PAYLOAD"
 fi
 
+TEXT_LEN=${#TEXT}
+if printf '%s' "$RESPONSE" | grep -Eqi 'data too long|value too long|string or binary data would be truncated|max.?length|payload too large|413'; then
+  echo "gm-write rejected payload length (chars=${TEXT_LEN}). Consider splitting into smaller chunks before retrying." >&2
+fi
+
+if [[ -x "${SCRIPT_DIR}/gm-fallback-append" ]]; then
+  "${SCRIPT_DIR}/gm-fallback-append" "$TYPE" "$TEXT" "$SOURCE_CHANNEL" "gm-write API failure (chars=${TEXT_LEN})" >/dev/null 2>&1 || true
+  echo "Write failed, queued fallback payload in memory/graymatter-fallback.json (chars=${TEXT_LEN})" >&2
+fi
+
 printf '%s\n' "$RESPONSE" >&2
 exit $STATUS

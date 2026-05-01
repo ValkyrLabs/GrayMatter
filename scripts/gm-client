@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+API_SCRIPT="$ROOT_DIR/scripts/graymatter_api.sh"
+
+usage() {
+  cat <<'EOF'
+Usage: gm-client <get|post|put|patch|delete> <path> [json-body]
+
+Examples:
+  gm-client get /memory-entries
+  gm-client post /memory-entries '{"title":"Decision","kind":"decision"}'
+EOF
+}
+
+if [[ ${1:-} == "-h" || ${1:-} == "--help" ]]; then
+  usage
+  exit 0
+fi
+
+if [[ $# -lt 2 ]]; then
+  usage
+  exit 1
+fi
+
+method="$(printf '%s' "$1" | tr '[:lower:]' '[:upper:]')"
+path="$2"
+body="${3:-}"
+
+case "$method" in
+  GET|POST|PATCH|DELETE|PUT)
+    "$API_SCRIPT" "$method" "$path" "$body"
+    ;;
+  *)
+    echo "error: unsupported method '$1'" >&2
+    usage
+    exit 1
+    ;;
+esac

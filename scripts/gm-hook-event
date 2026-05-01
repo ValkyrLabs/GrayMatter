@@ -1,0 +1,41 @@
+#!/usr/bin/env python3
+import argparse
+import json
+import os
+import sys
+from pathlib import Path
+
+sys.path.insert(0, os.path.dirname(__file__))
+from graymatter_fallback import append
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Record an OpenClaw hook event into GrayMatter fallback spool"
+    )
+    parser.add_argument("event", help="Hook event name (for example: pre_tool or post_tool)")
+    parser.add_argument("text", help="Short event summary")
+    parser.add_argument("--owner", default=os.getenv("GRAYMATTER_OWNER", "valor"))
+    parser.add_argument("--session", default=os.getenv("OPENCLAW_SESSION_KEY", "unknown"))
+    parser.add_argument("--spool", default="memory/graymatter-fallback.json")
+    return parser.parse_args()
+
+
+def main() -> int:
+    args = parse_args()
+    spool = Path(os.getcwd()) / args.spool
+    payload = {
+        "type": "hookEvent",
+        "event": args.event,
+        "text": args.text,
+        "owner": args.owner,
+        "session": args.session,
+        "reason": "OpenClaw hook capture",
+    }
+    append(spool, payload)
+    print(json.dumps({"ok": True, "spool": str(spool), "event": args.event}))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

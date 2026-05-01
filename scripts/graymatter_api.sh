@@ -4,6 +4,7 @@ set -euo pipefail
 METHOD="${1:-}"
 PATH_PART="${2:-}"
 BODY="${3:-}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 if [[ -z "$METHOD" || -z "$PATH_PART" ]]; then
   echo "Usage: $0 <GET|POST|PUT|PATCH|DELETE> <path> [json-body]" >&2
@@ -13,16 +14,79 @@ fi
 BASE="${VALKYR_API_BASE:-https://api-0.valkyrlabs.com/v1}"
 TOKEN="${VALKYR_AUTH_TOKEN:-${VALKYR_JWT_SESSION:-}}"
 KEYCHAIN_SERVICE="${VALKYR_KEYCHAIN_SERVICE:-VALKYR_AUTH}"
+USERNAME_SERVICE="${VALKYR_USERNAME_KEYCHAIN_SERVICE:-${KEYCHAIN_SERVICE}_USERNAME}"
+PASSWORD_SERVICE="${VALKYR_PASSWORD_KEYCHAIN_SERVICE:-${KEYCHAIN_SERVICE}_PASSWORD}"
+USERNAME="${GRAYMATTER_USERNAME:-${VALKYR_USERNAME:-}}"
+PASSWORD="${GRAYMATTER_PASSWORD:-${VALKYR_PASSWORD:-}}"
 BUY_CREDITS_URL="${VALKYR_BUY_CREDITS_URL:-https://valkyrlabs.com/buy-credits}"
 HUMAN_SIGNUP_URL="${VALKYR_HUMAN_SIGNUP_URL:-https://valkyrlabs.com/funnel/white-paper}"
+LOGIN_PATH="${GRAYMATTER_LOGIN_PATH:-/auth/login}"
+
+keychain_read() {
+  local account="$1"
+  local service="$2"
+  security find-generic-password -a "$account" -s "$service" -w 2>/dev/null || true
+}
+
+store_token() {
+  local token="$1"
+  if [[ -z "$token" ]] || ! command -v security >/dev/null 2>&1; then
+    return 0
+  fi
+  if [[ -n "$USERNAME" ]]; then
+    security add-generic-password -U -a "$USERNAME" -s "$KEYCHAIN_SERVICE" -w "$token" >/dev/null
+  fi
+  security add-generic-password -U -a default -s "$KEYCHAIN_SERVICE" -w "$token" >/dev/null
+}
+
+run_login() {
+  local login_cmd="${GRAYMATTER_LOGIN_COMMAND:-${SCRIPT_DIR}/gm-login}"
+  if [[ ! -x "$login_cmd" ]]; then
+    login_cmd="$(command -v gm-login 2>/dev/null || true)"
+  fi
+
+  if [[ -z "$login_cmd" || ! -x "$login_cmd" ]]; then
+    return 1
+  fi
+
+  eval "$("$login_cmd" env)"
+  TOKEN="${VALKYR_AUTH_TOKEN:-${VALKYR_JWT_SESSION:-}}"
+  if [[ -z "$USERNAME" ]] && command -v security >/dev/null 2>&1; then
+    USERNAME="$(keychain_read default "$USERNAME_SERVICE")"
+  fi
+  if [[ -z "$PASSWORD" && -n "$USERNAME" ]] && command -v security >/dev/null 2>&1; then
+    PASSWORD="$(keychain_read "$USERNAME" "$PASSWORD_SERVICE")"
+  fi
+}
+
+if [[ -z "$USERNAME" ]] && command -v security >/dev/null 2>&1; then
+  USERNAME="$(keychain_read default "$USERNAME_SERVICE")"
+fi
+
+if [[ -z "$PASSWORD" && -n "$USERNAME" ]] && command -v security >/dev/null 2>&1; then
+  PASSWORD="$(keychain_read "$USERNAME" "$PASSWORD_SERVICE")"
+fi
 
 if [[ -z "$TOKEN" ]] && command -v security >/dev/null 2>&1; then
-  TOKEN="$(security find-generic-password -a default -s "$KEYCHAIN_SERVICE" -w 2>/dev/null || true)"
+  if [[ -n "$USERNAME" ]]; then
+    TOKEN="$(keychain_read "$USERNAME" "$KEYCHAIN_SERVICE")"
+  fi
+  if [[ -z "$TOKEN" ]]; then
+    TOKEN="$(keychain_read default "$KEYCHAIN_SERVICE")"
+  fi
+  if [[ -z "$TOKEN" ]]; then
+    TOKEN="$(keychain_read default openclaw-valkyrai-admin-jwtSession)"
+  fi
+  if [[ -z "$TOKEN" && "$KEYCHAIN_SERVICE" != "VALKYR_AUTH" ]]; then
+    TOKEN="$(keychain_read default VALKYR_AUTH)"
+  fi
 fi
 
 if [[ -z "$TOKEN" ]]; then
-  echo "VALKYR_AUTH token is required. Checked VALKYR_AUTH_TOKEN, VALKYR_JWT_SESSION, and keychain ${KEYCHAIN_SERVICE}." >&2
-  exit 2
+  if ! run_login || [[ -z "$TOKEN" ]]; then
+    echo "VALKYR_AUTH token is required. Checked VALKYR_AUTH_TOKEN, VALKYR_JWT_SESSION, keychain ${KEYCHAIN_SERVICE}, keychain openclaw-valkyrai-admin-jwtSession, and login did not produce a token." >&2
+    exit 2
+  fi
 fi
 
 URL="${BASE%/}/${PATH_PART#/}"
@@ -105,6 +169,124 @@ set +e
 HTTP_STATUS="$(curl "${CURL_ARGS[@]}")"
 CURL_STATUS=$?
 set -e
+
+RESPONSE_HEADERS="$(mktemp)"
+cleanup() {
+  rm -f "$RESPONSE_FILE"
+  rm -f "$RESPONSE_HEADERS"
+}
+trap cleanup EXIT
+
+extract_token_from_login_response() {
+  local body_file="$1"
+  local headers_file="$2"
+  local token=""
+
+  if command -v jq >/dev/null 2>&1; then
+    token="$(jq -r '.VALKYR_AUTH // .data.VALKYR_AUTH // .token // .session // .jwt // .jwtSession // .data.jwtSession // empty' "$body_file" 2>/dev/null || true)"
+  fi
+  if [[ -n "$token" && "$token" != "null" ]]; then
+    printf '%s\n' "$token"
+    return 0
+  fi
+
+  token="$(tr -d '\r' < "$headers_file" | grep -i 'set-cookie: .*VALKYR_AUTH=' | sed -E 's/.*VALKYR_AUTH=([^;]+).*/\1/' | head -n 1 || true)"
+  if [[ -n "$token" ]]; then
+    printf '%s\n' "$token"
+    return 0
+  fi
+
+  token="$(tr -d '\r' < "$headers_file" | grep -i '^VALKYR_AUTH:' | sed -E 's/^[^:]+:[[:space:]]*//' | head -n 1 || true)"
+  if [[ -n "$token" ]]; then
+    printf '%s\n' "$token"
+    return 0
+  fi
+
+  token="$(tr -d '\r' < "$headers_file" | grep -i '^authorization:' | sed -E 's/^[^:]+:[[:space:]]*Bearer[[:space:]]+//' | head -n 1 || true)"
+  if [[ -n "$token" ]]; then
+    printf '%s\n' "$token"
+    return 0
+  fi
+}
+
+refresh_token() {
+  if [[ -z "$USERNAME" || -z "$PASSWORD" ]]; then
+    return 1
+  fi
+
+  local login_body
+  local login_headers
+  local login_status
+  login_body="$(mktemp)"
+  login_headers="$(mktemp)"
+
+  set +e
+  login_status="$(
+    curl -sS -o "$login_body" -D "$login_headers" -w "%{http_code}" \
+      -X POST "${BASE%/}/${LOGIN_PATH#/}" \
+      -H "accept: application/json" \
+      -H "content-type: application/json" \
+      --data "$(jq -nc --arg username "$USERNAME" --arg password "$PASSWORD" '{username:$username,password:$password}')"
+  )"
+  local curl_status=$?
+  set -e
+
+  if (( curl_status != 0 )) || [[ ! "$login_status" =~ ^[0-9]{3}$ ]] || (( login_status >= 400 )); then
+    rm -f "$login_body" "$login_headers"
+    return 1
+  fi
+
+  local refreshed_token
+  refreshed_token="$(extract_token_from_login_response "$login_body" "$login_headers")"
+  rm -f "$login_body" "$login_headers"
+
+  if [[ -z "$refreshed_token" ]]; then
+    return 1
+  fi
+
+  TOKEN="$refreshed_token"
+  store_token "$TOKEN"
+  return 0
+}
+
+perform_request() {
+  COMMON_HEADERS=(
+    -H "accept: application/json"
+    -H "Authorization: Bearer ${TOKEN}"
+    -H "VALKYR_AUTH: ${TOKEN}"
+    -H "Cookie: VALKYR_AUTH=${TOKEN}"
+  )
+
+  CURL_ARGS=(
+    -sS
+    -o "$RESPONSE_FILE"
+    -D "$RESPONSE_HEADERS"
+    -w "%{http_code}"
+    -X "$METHOD_UPPER"
+    "$URL"
+    "${COMMON_HEADERS[@]}"
+  )
+
+  if [[ -n "$BODY" ]]; then
+    CURL_ARGS+=(
+      -H "content-type: application/json"
+      --data "$BODY"
+    )
+  fi
+
+  set +e
+  HTTP_STATUS="$(curl "${CURL_ARGS[@]}")"
+  CURL_STATUS=$?
+  set -e
+}
+
+perform_request
+
+if [[ "$HTTP_STATUS" == "401" || "$HTTP_STATUS" == "403" ]]; then
+  if refresh_token; then
+    perform_request
+  fi
+fi
 
 if (( CURL_STATUS != 0 )); then
   if [[ -s "$RESPONSE_FILE" ]]; then

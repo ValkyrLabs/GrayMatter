@@ -1,0 +1,97 @@
+#!/usr/bin/env python3
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+sys.path.insert(0, os.path.dirname(__file__))
+try:
+    from graymatter_fallback import load
+except ModuleNotFoundError:
+    def load(path):
+        if not Path(path).exists():
+            return {"status": "absent", "items": []}
+        try:
+            with open(path, "r", encoding="utf-8") as fh:
+                data = json.load(fh)
+            if not isinstance(data, dict):
+                return {"status": "invalid", "items": []}
+            items = data.get("items", [])
+            if not isinstance(items, list):
+                items = []
+            return {"status": data.get("status", "present"), "items": items}
+        except Exception:
+            return {"status": "invalid", "items": []}
+
+root = Path(os.getenv("ROOT_DIR", os.getcwd()))
+fallback_path = root / "memory" / "graymatter-fallback.json"
+openapi_path = root / "tmp" / "openapi.json"
+
+payload = load(fallback_path)
+if isinstance(payload, list):
+    pending_writes = len(payload)
+    fallback_state = "present"
+elif isinstance(payload, dict):
+    pending_writes = len(payload.get("items", [])) if isinstance(payload.get("items"), list) else 0
+    fallback_state = payload.get("status", "present")
+    if fallback_state == "invalid":
+        try:
+            with open(fallback_path, "r", encoding="utf-8") as fh:
+                raw = json.load(fh)
+            if isinstance(raw, list):
+                pending_writes = len(raw)
+                fallback_state = "present"
+        except Exception:
+            pass
+else:
+    pending_writes = 0
+    fallback_state = "invalid"
+
+has_env_token = bool(os.getenv("VALKYR_AUTH_TOKEN"))
+keychain_service = os.getenv("VALKYR_KEYCHAIN_SERVICE", "VALKYR_AUTH")
+keychain_token = False
+
+if not has_env_token:
+    try:
+        res = subprocess.run([
+            "security", "find-generic-password", "-a", "default", "-s", keychain_service, "-w"
+        ], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, check=False)
+        keychain_token = bool(res.stdout.strip())
+    except Exception:
+        keychain_token = False
+
+auth_state = "env_token" if has_env_token else ("keychain_token" if keychain_token else "missing")
+health = "error" if fallback_state == "invalid" else ("degraded" if auth_state == "missing" or pending_writes > 0 else "ok")
+
+if os.getenv("GM_STATUS_FORMAT", "kv") == "json":
+    print(json.dumps({
+        "graymatter": {
+            "health": health,
+            "auth": auth_state,
+            "fallback": {
+                "path": str(fallback_path),
+                "state": fallback_state,
+                "pendingWrites": pending_writes,
+            },
+        }
+    }, indent=2))
+else:
+    auth_kv = "env" if has_env_token else ("keychain" if keychain_token else "missing")
+    memory_layer = "ready" if fallback_state != "invalid" else "degraded"
+    graph_layer = strategic_layer = kpi_layer = "unknown"
+    try:
+        with open(openapi_path, "r", encoding="utf-8") as fh:
+            spec = json.load(fh)
+        paths = spec.get("paths", {}) if isinstance(spec, dict) else {}
+        graph_layer = "ready" if "/SwarmOps/graph" in paths else "missing"
+        strategic_layer = "ready" if "/StrategicRecord" in paths else "missing"
+        kpi_layer = "ready" if "/KPIRecord" in paths else "missing"
+    except Exception:
+        graph_layer = strategic_layer = kpi_layer = "missing"
+
+    print(f"graymatter_auth={auth_kv}")
+    print(f"memory_layer={memory_layer}")
+    print(f"graph_layer={graph_layer}")
+    print(f"strategic_layer={strategic_layer}")
+    print(f"kpi_layer={kpi_layer}")

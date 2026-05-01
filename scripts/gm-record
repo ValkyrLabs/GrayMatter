@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+API_SCRIPT="$ROOT_DIR/scripts/graymatter_api.sh"
+
+usage() {
+  cat <<'EOF'
+Usage:
+  gm-record strategic list
+  gm-record strategic create '{"title":"..."}'
+  gm-record strategic get <id>
+  gm-record kpi list
+  gm-record kpi create '{"name":"..."}'
+  gm-record kpi get <id>
+
+Aliases:
+  strategic: StrategicPriority
+  kpi: KeyMetric
+EOF
+}
+
+kind="${1:-}"
+action="${2:-}"
+value="${3:-}"
+
+if [[ -z "$kind" || "$kind" == "-h" || "$kind" == "--help" ]]; then
+  usage
+  exit 0
+fi
+
+case "$kind" in
+  strategic) endpoint="/StrategicPriority" ;;
+  kpi) endpoint="/KeyMetric" ;;
+  *)
+    echo "error: unsupported kind '$kind'" >&2
+    usage
+    exit 1
+    ;;
+esac
+
+case "$action" in
+  list)
+    exec "$API_SCRIPT" GET "$endpoint"
+    ;;
+  create)
+    if [[ -z "$value" ]]; then
+      echo "error: create requires JSON body" >&2
+      exit 1
+    fi
+    exec "$API_SCRIPT" POST "$endpoint" "$value"
+    ;;
+  get)
+    if [[ -z "$value" ]]; then
+      echo "error: get requires id" >&2
+      exit 1
+    fi
+    exec "$API_SCRIPT" GET "$endpoint/$value"
+    ;;
+  *)
+    echo "error: unsupported action '$action'" >&2
+    usage
+    exit 1
+    ;;
+esac

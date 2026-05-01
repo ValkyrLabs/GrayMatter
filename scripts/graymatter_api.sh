@@ -144,6 +144,32 @@ elseif ($result -eq "No") { Start-Process $signupUrl }
 }
 
 RESPONSE_FILE="$(mktemp)"
+cleanup() {
+  rm -f "$RESPONSE_FILE"
+}
+trap cleanup EXIT
+
+CURL_ARGS=(
+  -sS
+  -o "$RESPONSE_FILE"
+  -w "%{http_code}"
+  -X "$METHOD_UPPER"
+  "$URL"
+  "${COMMON_HEADERS[@]}"
+)
+
+if [[ -n "$BODY" ]]; then
+  CURL_ARGS+=(
+    -H "content-type: application/json"
+    --data "$BODY"
+  )
+fi
+
+set +e
+HTTP_STATUS="$(curl "${CURL_ARGS[@]}")"
+CURL_STATUS=$?
+set -e
+
 RESPONSE_HEADERS="$(mktemp)"
 cleanup() {
   rm -f "$RESPONSE_FILE"

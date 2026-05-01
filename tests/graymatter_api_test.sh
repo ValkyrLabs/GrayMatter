@@ -74,6 +74,8 @@ case "${TEST_CURL_SCENARIO:-success}" in
     ;;
   insufficient-funds)
     printf '{"error":"INSUFFICIENT_FUNDS","insufficientFunds":true}\n' >"${out_file}"
+    printf '402'
+    ;;
     if [[ -n "$headers_file" ]]; then
       printf 'HTTP/1.1 402 Payment Required\n' >"${headers_file}"
     fi
@@ -355,6 +357,9 @@ test_insufficient_funds_falls_back_to_windows_prompt() {
   assert_file_exists "${temp_root}/powershell.log" "graymatter_api should invoke Windows prompt fallback when macOS prompt fails"
 }
 
+with_fixture test_success_passthrough
+with_fixture test_insufficient_funds_shows_links_and_uses_macos_prompt
+with_fixture test_insufficient_funds_falls_back_to_windows_prompt
 test_unauthorized_refreshes_token_from_keychain_credentials() {
   local temp_root="$1"
   local fake_bin="$2"

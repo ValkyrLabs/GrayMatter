@@ -52,8 +52,23 @@ if 'name: graymatter' not in skill_md or 'description:' not in skill_md:
     print('SKILL.md is missing expected frontmatter fields', file=sys.stderr)
     sys.exit(1)
 
-with zipfile.ZipFile(OUT, 'w', zipfile.ZIP_DEFLATED) as zf:
+def add_file(zf: zipfile.ZipFile, rel: str) -> None:
+    src = ROOT / rel
+    arcname = str(Path('graymatter') / rel)
+    info = zipfile.ZipInfo.from_file(src, arcname=arcname)
+    info.compress_type = zipfile.ZIP_DEFLATED
+
+    # Ensure shell entrypoints remain executable after install/unzip.
+    if rel.startswith('scripts/'):
+        info.external_attr = (0o100755 << 16)
+
+    with src.open('rb') as fh:
+        zf.writestr(info, fh.read())
+
+
+with zipfile.ZipFile(OUT, 'w') as zf:
     for rel in REQUIRED:
+        add_file(zf, rel)
         source = ROOT / rel
         arcname = str(Path('graymatter') / rel)
         data = source.read_bytes()

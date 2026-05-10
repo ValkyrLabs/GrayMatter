@@ -21,6 +21,102 @@ PASSWORD="${GRAYMATTER_PASSWORD:-${VALKYR_PASSWORD:-}}"
 BUY_CREDITS_URL="${VALKYR_BUY_CREDITS_URL:-https://valkyrlabs.com/buy-credits}"
 HUMAN_SIGNUP_URL="${VALKYR_HUMAN_SIGNUP_URL:-https://valkyrlabs.com/funnel/white-paper}"
 LOGIN_PATH="${GRAYMATTER_LOGIN_PATH:-/auth/login}"
+FALLBACK_TMPDIR="${GRAYMATTER_TMPDIR:-${SCRIPT_DIR}/../tmp}"
+
+portable_mktemp() {
+  local template="${1:-graymatter.XXXXXX}"
+  local tmp_path=""
+
+  if tmp_path="$(mktemp -t "$template" 2>/dev/null)" || tmp_path="$(mktemp "${template}" 2>/dev/null)"; then
+    printf '%s\n' "$tmp_path"
+    return 0
+  fi
+
+  mkdir -p "$FALLBACK_TMPDIR"
+  if tmp_path="$(TMPDIR="$FALLBACK_TMPDIR" mktemp -t "$template" 2>/dev/null)" || tmp_path="$(mktemp "${FALLBACK_TMPDIR%/}/${template}" 2>/dev/null)"; then
+    printf '%s\n' "$tmp_path"
+    return 0
+  fi
+
+  echo "Unable to create temporary file for GrayMatter API transport" >&2
+  return 1
+}
+
+decode_base64_url() {
+  local value="${1:-}"
+  local padded="$value"
+  local remainder=$(( ${#padded} % 4 ))
+
+  case "$remainder" in
+    2) padded="${padded}==" ;;
+    3) padded="${padded}=" ;;
+    1) padded="${padded}===" ;;
+  esac
+
+  padded="$(printf '%s' "$padded" | tr '_-' '/+')"
+
+  if printf '%s' "$padded" | base64 --decode 2>/dev/null; then
+    return 0
+  fi
+
+  printf '%s' "$padded" | base64 -D 2>/dev/null
+}
+
+token_claims_json() {
+  local token="${1:-}"
+  local payload=""
+
+  [[ -n "$token" ]] || return 1
+  payload="$(printf '%s' "$token" | cut -d'.' -f2)"
+  [[ -n "$payload" && "$payload" != "$token" ]] || return 1
+
+  decode_base64_url "$payload"
+}
+
+token_is_clearly_read_only() {
+  local token="${1:-}"
+  local claims=""
+
+  command -v jq >/dev/null 2>&1 || return 1
+
+  claims="$(token_claims_json "$token" 2>/dev/null)" || return 1
+
+  jq -e '
+    def normalized_roles:
+      ((.roles // []) + (.roleList // []) + (.authorities // []) + (.authorityList // []))
+      | map(select(type == "string"))
+      | unique;
+    def non_trivial_roles:
+      normalized_roles
+      | map(select(. != "EVERYONE" and . != "FREE"));
+    def normalized_scopes:
+      (.scopes // [])
+      | map(select(type == "string"))
+      | unique;
+    def non_readonly_scopes:
+      normalized_scopes
+      | map(select(. != "SCOPE_schema.read"));
+
+    (non_trivial_roles | length) == 0 and (non_readonly_scopes | length) == 0
+  ' >/dev/null 2>&1 <<<"$claims"
+}
+
+method_requires_write_access() {
+  case "$METHOD_UPPER" in
+    POST|PUT|PATCH|DELETE)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+fail_read_only_token() {
+  local username_hint="${USERNAME:-unknown}"
+  printf '{"error":"READ_ONLY_TOKEN","message":"GrayMatter auth token is read-only for %s. The current ValkyrAI login only grants schema-read access, so mutating requests cannot succeed. Update the account roles/scopes or supply a write-capable VALKYR_AUTH token."}\n' "$username_hint"
+  exit 23
+}
 
 keychain_read() {
   local account="$1"
@@ -143,8 +239,13 @@ elseif ($result -eq "No") { Start-Process $signupUrl }
   fi
 }
 
-RESPONSE_FILE="$(mktemp)"
-RESPONSE_HEADERS="$(mktemp)"
+RESPONSE_FILE="$(portable_mktemp graymatter-response.XXXXXX)"
+cleanup() {
+  rm -f "$RESPONSE_FILE"
+}
+trap cleanup EXIT
+
+RESPONSE_HEADERS="$(portable_mktemp graymatter-headers.XXXXXX)"
 cleanup() {
   rm -f "$RESPONSE_FILE"
   rm -f "$RESPONSE_HEADERS"
@@ -191,8 +292,8 @@ refresh_token() {
   local login_body
   local login_headers
   local login_status
-  login_body="$(mktemp)"
-  login_headers="$(mktemp)"
+  login_body="$(portable_mktemp graymatter-login-body.XXXXXX)"
+  login_headers="$(portable_mktemp graymatter-login-headers.XXXXXX)"
 
   set +e
   login_status="$(
@@ -219,9 +320,20 @@ refresh_token() {
   fi
 
   TOKEN="$refreshed_token"
+  if token_is_clearly_read_only "$TOKEN"; then
+    return 0
+  fi
   store_token "$TOKEN"
   return 0
 }
+
+if method_requires_write_access && [[ -n "$TOKEN" ]] && token_is_clearly_read_only "$TOKEN"; then
+  if refresh_token && [[ -n "$TOKEN" ]] && ! token_is_clearly_read_only "$TOKEN"; then
+    :
+  else
+    fail_read_only_token
+  fi
+fi
 
 perform_request() {
   COMMON_HEADERS=(

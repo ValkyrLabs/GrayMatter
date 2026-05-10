@@ -69,6 +69,14 @@ def add_file(zf: zipfile.ZipFile, rel: str) -> None:
 with zipfile.ZipFile(OUT, 'w') as zf:
     for rel in REQUIRED:
         add_file(zf, rel)
+        source = ROOT / rel
+        arcname = str(Path('graymatter') / rel)
+        data = source.read_bytes()
+        info = zipfile.ZipInfo(arcname)
+        mode = 0o755 if rel.startswith('scripts/') else 0o644
+        info.external_attr = (mode & 0xFFFF) << 16
+        info.compress_type = zipfile.ZIP_DEFLATED
+        zf.writestr(info, data)
 
 with zipfile.ZipFile(OUT) as zf:
     packaged = sorted(zf.namelist())

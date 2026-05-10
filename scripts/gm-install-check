@@ -37,6 +37,63 @@ keychain_read() {
   security find-generic-password -a "$account" -s "$service" -w 2>/dev/null || true
 }
 
+decode_base64_url() {
+  local value="${1:-}"
+  local padded="$value"
+  local remainder=$(( ${#padded} % 4 ))
+
+  case "$remainder" in
+    2) padded="${padded}==" ;;
+    3) padded="${padded}=" ;;
+    1) padded="${padded}===" ;;
+  esac
+
+  padded="$(printf '%s' "$padded" | tr '_-' '/+')"
+
+  if printf '%s' "$padded" | base64 --decode 2>/dev/null; then
+    return 0
+  fi
+
+  printf '%s' "$padded" | base64 -D 2>/dev/null
+}
+
+token_claims_json() {
+  local token="${1:-}"
+  local payload=""
+
+  [[ -n "$token" ]] || return 1
+  payload="$(printf '%s' "$token" | cut -d'.' -f2)"
+  [[ -n "$payload" && "$payload" != "$token" ]] || return 1
+
+  decode_base64_url "$payload"
+}
+
+token_is_clearly_read_only() {
+  local token="${1:-}"
+  local claims=""
+
+  claims="$(token_claims_json "$token" 2>/dev/null)" || return 1
+
+  jq -e '
+    def normalized_roles:
+      ((.roles // []) + (.roleList // []) + (.authorities // []) + (.authorityList // []))
+      | map(select(type == "string"))
+      | unique;
+    def non_trivial_roles:
+      normalized_roles
+      | map(select(. != "EVERYONE" and . != "FREE"));
+    def normalized_scopes:
+      (.scopes // [])
+      | map(select(type == "string"))
+      | unique;
+    def non_readonly_scopes:
+      normalized_scopes
+      | map(select(. != "SCOPE_schema.read"));
+
+    (non_trivial_roles | length) == 0 and (non_readonly_scopes | length) == 0
+  ' >/dev/null 2>&1 <<<"$claims"
+}
+
 run_login() {
   local login_cmd="${GRAYMATTER_LOGIN_COMMAND:-${SCRIPT_DIR}/gm-login}"
   if [[ ! -x "$login_cmd" ]]; then
@@ -71,6 +128,10 @@ if [[ -z "$TOKEN" ]]; then
   if ! run_login || [[ -z "$TOKEN" ]]; then
     fail "No GrayMatter auth found. Checked VALKYR_AUTH_TOKEN, VALKYR_JWT_SESSION, macOS Keychain secret ${KEYCHAIN_SERVICE}, reusable credentials, and login did not produce a token."
   fi
+fi
+
+if token_is_clearly_read_only "$TOKEN"; then
+  fail "GrayMatter auth is read-only for ${USERNAME:-unknown}. Login succeeded, but the issued token only grants schema-read access, so writes will fail."
 fi
 pass 'GrayMatter auth source detected'
 

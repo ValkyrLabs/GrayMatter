@@ -37,12 +37,13 @@ assert_file_missing() {
 make_fake_bin() {
   local dir="$1"
 
-  cat >"${dir}/curl" <<'EOF'
+cat >"${dir}/curl" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 
 out_file=""
 headers_file=""
+all_args="$*"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     -o)
@@ -74,8 +75,6 @@ case "${TEST_CURL_SCENARIO:-success}" in
     ;;
   insufficient-funds)
     printf '{"error":"INSUFFICIENT_FUNDS","insufficientFunds":true}\n' >"${out_file}"
-    printf '402'
-    ;;
     if [[ -n "$headers_file" ]]; then
       printf 'HTTP/1.1 402 Payment Required\n' >"${headers_file}"
     fi
@@ -88,7 +87,7 @@ case "${TEST_CURL_SCENARIO:-success}" in
       count="$(cat "$state_file")"
     fi
 
-    if [[ "$*" == *"/auth/login"* ]]; then
+    if [[ "$all_args" == *"/auth/login"* ]]; then
       printf '{"token":"refreshed-token"}\n' >"${out_file}"
       if [[ -n "$headers_file" ]]; then
         printf 'HTTP/1.1 200 OK\nSet-Cookie: VALKYR_AUTH=refreshed-token; Path=/; HttpOnly\n' >"${headers_file}"
@@ -164,7 +163,11 @@ case "$cmd" in
     fi
 
     if [[ "$service" == "VALKYR_AUTH" && "$account" == "valor" ]]; then
-      printf 'expired-token\n'
+      if [[ "${TEST_SECURITY_SCENARIO:-}" == "readonly-token" ]]; then
+        printf 'eyJhbGciOiJub25lIn0.eyJyb2xlcyI6WyJFVkVSWU9ORSJdLCJzY29wZXMiOlsiU0NPUEVfc2NoZW1hLnJlYWQiXSwidXNlcm5hbWUiOiJ2YWxvciJ9.\n'
+      else
+        printf 'expired-token\n'
+      fi
       exit 0
     fi
 
@@ -179,7 +182,11 @@ case "$cmd" in
     fi
 
     if [[ "$service" == "VALKYR_AUTH" && "$account" == "default" ]]; then
-      printf 'expired-token\n'
+      if [[ "${TEST_SECURITY_SCENARIO:-}" == "readonly-token" ]]; then
+        printf 'eyJhbGciOiJub25lIn0.eyJyb2xlcyI6WyJFVkVSWU9ORSJdLCJzY29wZXMiOlsiU0NPUEVfc2NoZW1hLnJlYWQiXSwidXNlcm5hbWUiOiJ2YWxvciJ9.\n'
+      else
+        printf 'expired-token\n'
+      fi
       exit 0
     fi
 
@@ -241,20 +248,61 @@ EOF
 set -euo pipefail
 printf 'gm-login called\n' >>"${TEST_GM_LOGIN_LOG}"
 printf 'export VALKYR_API_BASE="https://api-0.valkyrlabs.com/v1"\n'
-printf 'export VALKYR_AUTH_TOKEN="login-token"\n'
+case "${TEST_GM_LOGIN_SCENARIO:-write-capable}" in
+  read-only)
+    printf 'export VALKYR_AUTH_TOKEN="eyJhbGciOiJub25lIn0.eyJyb2xlcyI6WyJFVkVSWU9ORSJdLCJzY29wZXMiOlsiU0NPUEVfc2NoZW1hLnJlYWQiXSwidXNlcm5hbWUiOiJ2YWxvciJ9."\n'
+    ;;
+  *)
+    printf 'export VALKYR_AUTH_TOKEN="eyJhbGciOiJub25lIn0.eyJyb2xlcyI6WyJFVkVSWU9ORSIsIkFETUlOIl0sInNjb3BlcyI6WyJTQ09QRV9zY2hlbWEucmVhZCIsIlNDT1BFX3NjaGVtYS53cml0ZSJdLCJ1c2VybmFtZSI6InZhbG9yIn0."\n'
+    ;;
+esac
 EOF
   chmod +x "${dir}/gm-login"
+
+  cat >"${dir}/mktemp" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+target_dir="${TMPDIR:-}"
+if [[ -z "${target_dir}" || "${target_dir}" == "/blocked-tmp" ]]; then
+  echo "mktemp: simulated default temp failure" >&2
+  exit 1
+fi
+
+mkdir -p "${target_dir}"
+
+if [[ "${1:-}" == "-d" ]]; then
+  template="${2:-tmpdir.XXXXXX}"
+  created_dir="${target_dir}/${template/XXXXXX/fixture}"
+  mkdir -p "${created_dir}"
+  printf '%s\n' "${created_dir}"
+  exit 0
+fi
+
+if [[ "${1:-}" == "-t" ]]; then
+  template="${2:-tmpfile.XXXXXX}"
+else
+  template="${1:-tmpfile.XXXXXX}"
+fi
+
+created_file="${target_dir}/${template/XXXXXX/fixture}"
+: >"${created_file}"
+printf '%s\n' "${created_file}"
+EOF
+  chmod +x "${dir}/mktemp"
 }
 
 run_api() {
   local bin_dir="$1"
   local script_path="$2"
+  local tmp_dir="${3:-/tmp}"
 
   local output
   local status=0
   set +e
   output="$(
     PATH="${bin_dir}:/usr/bin:/bin" \
+    TMPDIR="${tmp_dir}" \
     VALKYR_AUTH_TOKEN="test-token" \
     "${script_path}" GET /MemoryEntry/stats 2>&1
   )"
@@ -301,7 +349,7 @@ test_success_passthrough() {
   local status
   local output
 
-  result="$(run_api "${fake_bin}" "${script_copy}")"
+  result="$(run_api "${fake_bin}" "${script_copy}" "${_temp_root}")"
   status="$(printf '%s\n' "${result}" | sed -n '1p')"
   output="$(printf '%s\n' "${result}" | tail -n +2)"
 
@@ -324,7 +372,7 @@ test_insufficient_funds_shows_links_and_uses_macos_prompt() {
   local status
   local output
 
-  result="$(run_api "${fake_bin}" "${script_copy}")"
+  result="$(run_api "${fake_bin}" "${script_copy}" "${temp_root}")"
   status="$(printf '%s\n' "${result}" | sed -n '1p')"
   output="$(printf '%s\n' "${result}" | tail -n +2)"
 
@@ -349,7 +397,7 @@ test_insufficient_funds_falls_back_to_windows_prompt() {
   local result
   local status
 
-  result="$(run_api "${fake_bin}" "${script_copy}")"
+  result="$(run_api "${fake_bin}" "${script_copy}" "${temp_root}")"
   status="$(printf '%s\n' "${result}" | sed -n '1p')"
 
   [[ "${status}" == "22" ]] || fail "graymatter_api should still return 22 when insufficient funds occurs"
@@ -378,6 +426,7 @@ test_unauthorized_refreshes_token_from_keychain_credentials() {
 
   result="$(
     PATH="${fake_bin}:/usr/bin:/bin" \
+    TMPDIR="${temp_root}" \
     "${script_copy}" GET /MemoryEntry/stats 2>&1
   )"
   status=$?
@@ -412,6 +461,7 @@ test_missing_token_runs_login_before_request() {
 
   result="$(
     PATH="${fake_bin}:/usr/bin:/bin" \
+    TMPDIR="${temp_root}" \
     "${script_copy}" GET /MemoryEntry/stats 2>&1
   )"
   status=$?
@@ -422,10 +472,76 @@ test_missing_token_runs_login_before_request() {
   assert_contains "${output}" '{"ok":true}' "graymatter_api should run the original request after login"
 }
 
+test_success_uses_fallback_tempdir_when_default_tmp_fails() {
+  local _temp_root="$1"
+  local fake_bin="$2"
+  local script_copy="$3"
+
+  export TEST_CURL_SCENARIO="success"
+
+  local result
+  local status
+  local output
+
+  result="$(
+    PATH="${fake_bin}:/usr/bin:/bin" \
+    TMPDIR="/blocked-tmp" \
+    VALKYR_AUTH_TOKEN="test-token" \
+    "${script_copy}" GET /MemoryEntry/stats 2>&1
+  )"
+  status=$?
+  output="$(printf '%s\n' "${result}")"
+
+  [[ "${status}" == "0" ]] || fail "graymatter_api should recover when the default temp directory is unavailable"
+  assert_contains "${output}" '{"ok":true}' "graymatter_api should still complete successfully after temp fallback"
+}
+
+test_write_rejects_read_only_token_before_network_request() {
+  local temp_root
+  local fake_bin
+  local script_copy
+  local result
+  local status=0
+
+  temp_root="$(mktemp -d)"
+  fake_bin="${temp_root}/bin"
+  script_copy="${temp_root}/graymatter_api.sh"
+  mkdir -p "${fake_bin}"
+
+  cp "${API_SRC}" "${script_copy}"
+  chmod +x "${script_copy}"
+  make_fake_bin "${fake_bin}"
+
+  TEST_OSASCRIPT_LOG="${temp_root}/osascript.log"
+  TEST_POWERSHELL_LOG="${temp_root}/powershell.log"
+  TEST_OPEN_LOG="${temp_root}/open.log"
+  TEST_SECURITY_LOG="${temp_root}/security.log"
+  TEST_CURL_STATE_FILE="${temp_root}/curl.state"
+  TEST_GM_LOGIN_LOG="${temp_root}/gm-login.log"
+  export TEST_OSASCRIPT_LOG TEST_POWERSHELL_LOG TEST_OPEN_LOG TEST_SECURITY_LOG TEST_CURL_STATE_FILE TEST_GM_LOGIN_LOG
+  export TEST_CURL_SCENARIO="success"
+  export TEST_SECURITY_SCENARIO="readonly-token"
+  export TEST_GM_LOGIN_SCENARIO="read-only"
+
+  set +e
+  result="$(
+    PATH="${fake_bin}:/usr/bin:/bin" \
+    TMPDIR="${temp_root}" \
+    "${script_copy}" POST /MemoryEntry '{"type":"context","text":"x"}' 2>&1
+  )"
+  status=$?
+  set -e
+
+  [[ "${status}" != "0" ]] || fail "graymatter_api should reject a read-only token for write requests"
+  assert_contains "${result}" "read-only" "graymatter_api should explain that the token lacks write access"
+}
+
 with_fixture test_success_passthrough
 with_fixture test_insufficient_funds_shows_links_and_uses_macos_prompt
 with_fixture test_insufficient_funds_falls_back_to_windows_prompt
 with_fixture test_unauthorized_refreshes_token_from_keychain_credentials
 with_fixture test_missing_token_runs_login_before_request
+with_fixture test_success_uses_fallback_tempdir_when_default_tmp_fails
+test_write_rejects_read_only_token_before_network_request
 
 printf 'PASS: graymatter_api_test.sh\n'

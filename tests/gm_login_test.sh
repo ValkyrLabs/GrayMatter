@@ -27,7 +27,7 @@ set -euo pipefail
 if [[ "${1:-}" == "-nc" ]]; then
   printf '%s\n' '{"username":"valor","password":"secret-password"}'
 else
-  printf 'null\n'
+  /usr/bin/jq "$@"
 fi
 EOF
   chmod +x "${dir}/jq"

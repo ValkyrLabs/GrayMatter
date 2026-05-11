@@ -56,6 +56,7 @@ def add_file(zf: zipfile.ZipFile, rel: str) -> None:
     src = ROOT / rel
     arcname = str(Path('graymatter') / rel)
     info = zipfile.ZipInfo.from_file(src, arcname=arcname)
+    info.date_time = (1980, 1, 1, 0, 0, 0)
     info.compress_type = zipfile.ZIP_DEFLATED
 
     # Ensure shell entrypoints remain executable after install/unzip.

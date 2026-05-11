@@ -9,10 +9,10 @@ OUT_MODE="${1:-keychain}"
 KEYCHAIN_SERVICE="${VALKYR_KEYCHAIN_SERVICE:-VALKYR_AUTH}"
 USERNAME_SERVICE="${VALKYR_USERNAME_KEYCHAIN_SERVICE:-${KEYCHAIN_SERVICE}_USERNAME}"
 PASSWORD_SERVICE="${VALKYR_PASSWORD_KEYCHAIN_SERVICE:-${KEYCHAIN_SERVICE}_PASSWORD}"
-USERNAME="${GRAYMATTER_USERNAME:-${VALKYR_USERNAME:-}}"
-PASSWORD="${GRAYMATTER_PASSWORD:-${VALKYR_PASSWORD:-}}"
+USERNAME=${GRAYMATTER_USERNAME:-${VALKYR_USERNAME:-}}
+PASSWORD=${GRAYMATTER_PASSWORD:-${VALKYR_PASSWORD:-}}
 FALLBACK_TMPDIR="${GRAYMATTER_TMPDIR:-${SCRIPT_DIR}/../tmp}"
-ALLOW_READONLY_TOKEN="${GRAYMATTER_ALLOW_READONLY_TOKEN:-0}"
+ALLOW_READONLY_TOKEN=${GRAYMATTER_ALLOW_READONLY_TOKEN:-0}
 
 portable_mktemp() {
   local template="$1"
@@ -123,7 +123,7 @@ APPLESCRIPT
 }
 
 if [[ -z "$PASSWORD" ]]; then
-  PASSWORD="$(prompt_password)"
+  PASSWORD=$(prompt_password)
 fi
 
 set +e
@@ -190,12 +190,12 @@ extract_from_cookies() {
   ' "$COOKIE_JAR"
 }
 
-AUTH_TOKEN="$(extract_from_body)"
+AUTH_TOKEN=$(extract_from_body)
 if [[ -z "$AUTH_TOKEN" || "$AUTH_TOKEN" == "null" ]]; then
-  AUTH_TOKEN="$(extract_from_headers)"
+  AUTH_TOKEN=$(extract_from_headers)
 fi
 if [[ -z "$AUTH_TOKEN" || "$AUTH_TOKEN" == "null" ]]; then
-  AUTH_TOKEN="$(extract_from_cookies)"
+  AUTH_TOKEN=$(extract_from_cookies)
 fi
 
 if [[ -z "$AUTH_TOKEN" || "$AUTH_TOKEN" == "null" ]]; then

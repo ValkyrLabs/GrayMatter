@@ -12,12 +12,12 @@ if [[ -z "$METHOD" || -z "$PATH_PART" ]]; then
 fi
 
 BASE="${VALKYR_API_BASE:-https://api-0.valkyrlabs.com/v1}"
-TOKEN="${VALKYR_AUTH_TOKEN:-${VALKYR_JWT_SESSION:-}}"
+TOKEN=${VALKYR_AUTH_TOKEN:-${VALKYR_JWT_SESSION:-}}
 KEYCHAIN_SERVICE="${VALKYR_KEYCHAIN_SERVICE:-VALKYR_AUTH}"
 USERNAME_SERVICE="${VALKYR_USERNAME_KEYCHAIN_SERVICE:-${KEYCHAIN_SERVICE}_USERNAME}"
 PASSWORD_SERVICE="${VALKYR_PASSWORD_KEYCHAIN_SERVICE:-${KEYCHAIN_SERVICE}_PASSWORD}"
-USERNAME="${GRAYMATTER_USERNAME:-${VALKYR_USERNAME:-}}"
-PASSWORD="${GRAYMATTER_PASSWORD:-${VALKYR_PASSWORD:-}}"
+USERNAME=${GRAYMATTER_USERNAME:-${VALKYR_USERNAME:-}}
+PASSWORD=${GRAYMATTER_PASSWORD:-${VALKYR_PASSWORD:-}}
 BUY_CREDITS_URL="${VALKYR_BUY_CREDITS_URL:-https://valkyrlabs.com/buy-credits}"
 HUMAN_SIGNUP_URL="${VALKYR_HUMAN_SIGNUP_URL:-https://valkyrlabs.com/funnel/white-paper}"
 LOGIN_PATH="${GRAYMATTER_LOGIN_PATH:-/auth/login}"
@@ -146,35 +146,35 @@ run_login() {
   fi
 
   eval "$("$login_cmd" env)"
-  TOKEN="${VALKYR_AUTH_TOKEN:-${VALKYR_JWT_SESSION:-}}"
+  TOKEN=${VALKYR_AUTH_TOKEN:-${VALKYR_JWT_SESSION:-}}
   if [[ -z "$USERNAME" ]] && command -v security >/dev/null 2>&1; then
-    USERNAME="$(keychain_read default "$USERNAME_SERVICE")"
+    USERNAME=$(keychain_read default "$USERNAME_SERVICE")
   fi
   if [[ -z "$PASSWORD" && -n "$USERNAME" ]] && command -v security >/dev/null 2>&1; then
-    PASSWORD="$(keychain_read "$USERNAME" "$PASSWORD_SERVICE")"
+    PASSWORD=$(keychain_read "$USERNAME" "$PASSWORD_SERVICE")
   fi
 }
 
 if [[ -z "$USERNAME" ]] && command -v security >/dev/null 2>&1; then
-  USERNAME="$(keychain_read default "$USERNAME_SERVICE")"
+  USERNAME=$(keychain_read default "$USERNAME_SERVICE")
 fi
 
 if [[ -z "$PASSWORD" && -n "$USERNAME" ]] && command -v security >/dev/null 2>&1; then
-  PASSWORD="$(keychain_read "$USERNAME" "$PASSWORD_SERVICE")"
+  PASSWORD=$(keychain_read "$USERNAME" "$PASSWORD_SERVICE")
 fi
 
 if [[ -z "$TOKEN" ]] && command -v security >/dev/null 2>&1; then
   if [[ -n "$USERNAME" ]]; then
-    TOKEN="$(keychain_read "$USERNAME" "$KEYCHAIN_SERVICE")"
+    TOKEN=$(keychain_read "$USERNAME" "$KEYCHAIN_SERVICE")
   fi
   if [[ -z "$TOKEN" ]]; then
-    TOKEN="$(keychain_read default "$KEYCHAIN_SERVICE")"
+    TOKEN=$(keychain_read default "$KEYCHAIN_SERVICE")
   fi
   if [[ -z "$TOKEN" ]]; then
-    TOKEN="$(keychain_read default openclaw-valkyrai-admin-jwtSession)"
+    TOKEN=$(keychain_read default openclaw-valkyrai-admin-jwtSession)
   fi
   if [[ -z "$TOKEN" && "$KEYCHAIN_SERVICE" != "VALKYR_AUTH" ]]; then
-    TOKEN="$(keychain_read default VALKYR_AUTH)"
+    TOKEN=$(keychain_read default VALKYR_AUTH)
   fi
 fi
 
@@ -312,14 +312,14 @@ refresh_token() {
   fi
 
   local refreshed_token
-  refreshed_token="$(extract_token_from_login_response "$login_body" "$login_headers")"
+  refreshed_token=$(extract_token_from_login_response "$login_body" "$login_headers")
   rm -f "$login_body" "$login_headers"
 
   if [[ -z "$refreshed_token" ]]; then
     return 1
   fi
 
-  TOKEN="$refreshed_token"
+  TOKEN=$refreshed_token
   if token_is_clearly_read_only "$TOKEN"; then
     return 0
   fi

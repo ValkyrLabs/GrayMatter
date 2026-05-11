@@ -32,13 +32,18 @@
       "Write"
     ],
     "websiteURL": "https://github.com/ValkyrLabs/GrayMatter",
+    "privacyPolicyURL": "https://valkyrlabs.com/v1/Legal/privacy/",
     "termsOfServiceURL": "https://valkyrlabs.com/v1/docs/Legal/tos/",
+    "composerIcon": "./assets/composer-icon.svg",
+    "logo": "./assets/logo.svg",
     "defaultPrompt": [
       "Use GrayMatter to remember this decision",
       "Query GrayMatter for relevant context",
       "Inspect the ValkyrAI schema with GrayMatter"
     ],
     "brandColor": "#245B4A",
-    "screenshots": []
+    "screenshots": [
+      "./assets/screenshot.svg"
+    ]
   }
 }

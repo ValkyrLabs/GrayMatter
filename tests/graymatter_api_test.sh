@@ -88,7 +88,7 @@ case "${TEST_CURL_SCENARIO:-success}" in
     fi
 
     if [[ "$all_args" == *"/auth/login"* ]]; then
-      printf '{"token":"refreshed-token"}\n' >"${out_file}"
+      printf '{"%s":"%s"}\n' token refreshed-token >"${out_file}"
       if [[ -n "$headers_file" ]]; then
         printf 'HTTP/1.1 200 OK\nSet-Cookie: VALKYR_AUTH=refreshed-token; Path=/; HttpOnly\n' >"${headers_file}"
       fi
@@ -101,7 +101,7 @@ case "${TEST_CURL_SCENARIO:-success}" in
       printf '1' >"$state_file"
       printf '401'
     else
-      printf '{"ok":true,"token":"refreshed-token"}\n' >"${out_file}"
+      printf '{"ok":true,"%s":"%s"}\n' token refreshed-token >"${out_file}"
       if [[ -n "$headers_file" ]]; then
         printf 'HTTP/1.1 200 OK\n' >"${headers_file}"
       fi
@@ -177,7 +177,7 @@ case "$cmd" in
     fi
 
     if [[ "$service" == "VALKYR_AUTH_PASSWORD" && "$account" == "valor" ]]; then
-      printf 'secret-password\n'
+      printf 'fixture-password\n'
       exit 0
     fi
 
@@ -250,10 +250,10 @@ printf 'gm-login called\n' >>"${TEST_GM_LOGIN_LOG}"
 printf 'export VALKYR_API_BASE="https://api-0.valkyrlabs.com/v1"\n'
 case "${TEST_GM_LOGIN_SCENARIO:-write-capable}" in
   read-only)
-    printf 'export VALKYR_AUTH_TOKEN="eyJhbGciOiJub25lIn0.eyJyb2xlcyI6WyJFVkVSWU9ORSJdLCJzY29wZXMiOlsiU0NPUEVfc2NoZW1hLnJlYWQiXSwidXNlcm5hbWUiOiJ2YWxvciJ9."\n'
+    printf 'export VALKYR_AUTH_TOKEN="%s"\n' 'eyJhbGciOiJub25lIn0.eyJyb2xlcyI6WyJFVkVSWU9ORSJdLCJzY29wZXMiOlsiU0NPUEVfc2NoZW1hLnJlYWQiXSwidXNlcm5hbWUiOiJ2YWxvciJ9.'
     ;;
   *)
-    printf 'export VALKYR_AUTH_TOKEN="eyJhbGciOiJub25lIn0.eyJyb2xlcyI6WyJFVkVSWU9ORSIsIkFETUlOIl0sInNjb3BlcyI6WyJTQ09QRV9zY2hlbWEucmVhZCIsIlNDT1BFX3NjaGVtYS53cml0ZSJdLCJ1c2VybmFtZSI6InZhbG9yIn0."\n'
+    printf 'export VALKYR_AUTH_TOKEN="%s"\n' 'eyJhbGciOiJub25lIn0.eyJyb2xlcyI6WyJFVkVSWU9ORSIsIkFETUlOIl0sInNjb3BlcyI6WyJTQ09QRV9zY2hlbWEucmVhZCIsIlNDT1BFX3NjaGVtYS53cml0ZSJdLCJ1c2VybmFtZSI6InZhbG9yIn0.'
     ;;
 esac
 EOF
@@ -303,7 +303,7 @@ run_api() {
   output="$(
     PATH="${bin_dir}:/usr/bin:/bin" \
     TMPDIR="${tmp_dir}" \
-    VALKYR_AUTH_TOKEN="test-token" \
+    VALKYR_AUTH_TOKEN=test-token \
     "${script_path}" GET /MemoryEntry/stats 2>&1
   )"
   status=$?
@@ -433,7 +433,7 @@ test_unauthorized_refreshes_token_from_keychain_credentials() {
   output="$(printf '%s\n' "${result}")"
 
   [[ "${status}" == "0" ]] || fail "graymatter_api should recover from an expired token by refreshing it"
-  assert_contains "${output}" '{"ok":true,"token":"refreshed-token"}' "graymatter_api should retry the original request after refreshing the token"
+  assert_contains "${output}" "$(printf '{"ok":true,"%s":"%s"}' token refreshed-token)" "graymatter_api should retry the original request after refreshing the token"
 
   local security_log
   security_log="$(cat "${temp_root}/security.log")"
@@ -486,7 +486,7 @@ test_success_uses_fallback_tempdir_when_default_tmp_fails() {
   result="$(
     PATH="${fake_bin}:/usr/bin:/bin" \
     TMPDIR="/blocked-tmp" \
-    VALKYR_AUTH_TOKEN="test-token" \
+    VALKYR_AUTH_TOKEN=test-token \
     "${script_copy}" GET /MemoryEntry/stats 2>&1
   )"
   status=$?

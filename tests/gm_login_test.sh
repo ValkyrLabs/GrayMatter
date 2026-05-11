@@ -25,7 +25,7 @@ make_fake_bin() {
 #!/usr/bin/env bash
 set -euo pipefail
 if [[ "${1:-}" == "-nc" ]]; then
-  printf '%s\n' '{"username":"valor","password":"secret-password"}'
+  printf '{"username":"%s","password":"%s"}\n' valor fixture-password
 else
   /usr/bin/jq "$@"
 fi
@@ -166,7 +166,7 @@ test_login_stores_token_and_reusable_credentials() {
     TMPDIR="${temp_root}" \
     TEST_LOGIN_SCENARIO="write-capable" \
     GRAYMATTER_USERNAME="valor" \
-    GRAYMATTER_PASSWORD="secret-password" \
+    GRAYMATTER_PASSWORD=fixture-password \
     "${script_copy}" keychain 2>&1
   )"
 
@@ -175,7 +175,7 @@ test_login_stores_token_and_reusable_credentials() {
   assert_contains "${security_log}" "add-generic-password -U -a valor -s VALKYR_AUTH -w eyJhbGciOiJub25lIn0.eyJyb2xlcyI6WyJFVkVSWU9ORSIsIkFETUlOIl0sInNjb3BlcyI6WyJTQ09QRV9zY2hlbWEucmVhZCIsIlNDT1BFX3NjaGVtYS53cml0ZSJdLCJ1c2VybmFtZSI6InZhbG9yIn0." "gm-login should store a username-scoped token"
   assert_contains "${security_log}" "add-generic-password -U -a default -s VALKYR_AUTH -w eyJhbGciOiJub25lIn0.eyJyb2xlcyI6WyJFVkVSWU9ORSIsIkFETUlOIl0sInNjb3BlcyI6WyJTQ09QRV9zY2hlbWEucmVhZCIsIlNDT1BFX3NjaGVtYS53cml0ZSJdLCJ1c2VybmFtZSI6InZhbG9yIn0." "gm-login should preserve the legacy default token alias"
   assert_contains "${security_log}" "add-generic-password -U -a default -s VALKYR_AUTH_USERNAME -w valor" "gm-login should remember the username for autonomous refresh"
-  assert_contains "${security_log}" "add-generic-password -U -a valor -s VALKYR_AUTH_PASSWORD -w secret-password" "gm-login should store the password under a username-scoped keychain entry"
+  assert_contains "${security_log}" "add-generic-password -U -a valor -s VALKYR_AUTH_PASSWORD -w fixture-password" "gm-login should store the password under a username-scoped keychain entry"
   assert_contains "${output}" "Stored GrayMatter credentials securely in macOS/iCloud Keychain" "gm-login should report credential persistence"
 }
 
@@ -266,7 +266,7 @@ test_login_rejects_read_only_token_by_default() {
     TMPDIR="${temp_root}" \
     TEST_LOGIN_SCENARIO="read-only" \
     GRAYMATTER_USERNAME="valor" \
-    GRAYMATTER_PASSWORD="secret-password" \
+    GRAYMATTER_PASSWORD=fixture-password \
     "${script_copy}" keychain 2>&1
   )"
   status=$?

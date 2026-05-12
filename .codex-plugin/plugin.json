@@ -35,7 +35,7 @@
       "Write"
     ],
     "websiteURL": "https://github.com/ValkyrLabs/GrayMatter",
-    "privacyPolicyURL": "https://valkyrlabs.com/v1/Legal/privacy/",
+    "privacyPolicyURL": "https://github.com/ValkyrLabs/GrayMatter/blob/main/docs/privacy-policy.md",
     "termsOfServiceURL": "https://valkyrlabs.com/v1/docs/Legal/tos/",
     "composerIcon": "./assets/composer-icon.svg",
     "logo": "./assets/logo.svg",

@@ -13,6 +13,7 @@ fi
 
 BASE="${VALKYR_API_BASE:-https://api-0.valkyrlabs.com/v1}"
 TOKEN=${VALKYR_AUTH_TOKEN:-${VALKYR_JWT_SESSION:-}}
+LIGHT_MODE="${GRAYMATTER_LIGHT_MODE:-false}"
 KEYCHAIN_SERVICE="${VALKYR_KEYCHAIN_SERVICE:-VALKYR_AUTH}"
 USERNAME_SERVICE="${VALKYR_USERNAME_KEYCHAIN_SERVICE:-${KEYCHAIN_SERVICE}_USERNAME}"
 PASSWORD_SERVICE="${VALKYR_PASSWORD_KEYCHAIN_SERVICE:-${KEYCHAIN_SERVICE}_PASSWORD}"
@@ -178,7 +179,7 @@ if [[ -z "$TOKEN" ]] && command -v security >/dev/null 2>&1; then
   fi
 fi
 
-if [[ -z "$TOKEN" ]]; then
+if [[ -z "$TOKEN" && "$LIGHT_MODE" != "true" ]]; then
   if ! run_login || [[ -z "$TOKEN" ]]; then
     echo "VALKYR_AUTH token is required. Checked VALKYR_AUTH_TOKEN, VALKYR_JWT_SESSION, keychain ${KEYCHAIN_SERVICE}, keychain openclaw-valkyrai-admin-jwtSession, and login did not produce a token." >&2
     exit 2
@@ -190,10 +191,14 @@ METHOD_UPPER="$(echo "$METHOD" | tr '[:lower:]' '[:upper:]')"
 
 COMMON_HEADERS=(
   -H "accept: application/json"
-  -H "Authorization: Bearer ${TOKEN}"
-  -H "VALKYR_AUTH: ${TOKEN}"
-  -H "Cookie: VALKYR_AUTH=${TOKEN}"
 )
+if [[ -n "$TOKEN" ]]; then
+  COMMON_HEADERS+=(
+    -H "Authorization: Bearer ${TOKEN}"
+    -H "VALKYR_AUTH: ${TOKEN}"
+    -H "Cookie: VALKYR_AUTH=${TOKEN}"
+  )
+fi
 
 show_insufficient_funds_guidance() {
   echo "Insufficient credits. Buy credits: ${BUY_CREDITS_URL}" >&2
@@ -338,10 +343,14 @@ fi
 perform_request() {
   COMMON_HEADERS=(
     -H "accept: application/json"
-    -H "Authorization: Bearer ${TOKEN}"
-    -H "VALKYR_AUTH: ${TOKEN}"
-    -H "Cookie: VALKYR_AUTH=${TOKEN}"
   )
+  if [[ -n "$TOKEN" ]]; then
+    COMMON_HEADERS+=(
+      -H "Authorization: Bearer ${TOKEN}"
+      -H "VALKYR_AUTH: ${TOKEN}"
+      -H "Cookie: VALKYR_AUTH=${TOKEN}"
+    )
+  fi
 
   CURL_ARGS=(
     -sS

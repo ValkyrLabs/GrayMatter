@@ -1,0 +1,95 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+BUNDLE_DIR="${GRAYMATTER_LIGHT_BUNDLE_DIR:-${ROOT_DIR}/.graymatter-light}"
+PORT="${GRAYMATTER_LIGHT_PORT:-8080}"
+IMAGE="${THORAPI_IMAGE:-ghcr.io/valkyrlabs/thorapi:latest}"
+TIMEOUT_SECONDS=60
+
+usage() {
+  cat >&2 <<'EOF'
+Usage: gm-light-up [--bundle-dir DIR] [--port PORT] [--image IMAGE] [--timeout SECONDS]
+
+Generates the GrayMatter Light ThorAPI bundle, starts the ThorAPI Docker
+Compose service, waits for health, and writes .graymatter-light-env so the
+GrayMatter skill can connect to the running local instance.
+EOF
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --bundle-dir)
+      BUNDLE_DIR="$2"
+      shift 2
+      ;;
+    --port)
+      PORT="$2"
+      shift 2
+      ;;
+    --image)
+      IMAGE="$2"
+      shift 2
+      ;;
+    --timeout)
+      TIMEOUT_SECONDS="$2"
+      shift 2
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "Unknown option: $1" >&2
+      usage
+      exit 2
+      ;;
+  esac
+done
+
+if ! command -v docker >/dev/null 2>&1; then
+  echo "Docker is required to run GrayMatter Light ThorAPI." >&2
+  exit 1
+fi
+
+if ! docker info >/dev/null 2>&1; then
+  echo "Docker is installed, but the Docker daemon is not running." >&2
+  exit 1
+fi
+
+API_BASE="http://localhost:${PORT}"
+GRAYMATTER_LIGHT_PUBLIC_URL="$API_BASE" "${SCRIPT_DIR}/gm-light-bootstrap" "$BUNDLE_DIR" >/dev/null
+
+ENV_FILE="${BUNDLE_DIR%/}/.graymatter-light-env"
+cat >"$ENV_FILE" <<EOF
+export VALKYR_API_BASE='${API_BASE}'
+export GRAYMATTER_LIGHT_API_BASE='${API_BASE}'
+export GRAYMATTER_LIGHT_MODE='true'
+export GRAYMATTER_LIGHT_BUNDLE_DIR='${BUNDLE_DIR}'
+export THORAPI_IMAGE='${IMAGE}'
+EOF
+
+THORAPI_IMAGE="$IMAGE" GRAYMATTER_LIGHT_PORT="$PORT" docker compose -f "${BUNDLE_DIR%/}/docker-compose.yaml" up -d
+
+deadline=$((SECONDS + TIMEOUT_SECONDS))
+until curl -fsS "${API_BASE}/actuator/health" >/dev/null 2>&1; do
+  if (( SECONDS >= deadline )); then
+    echo "GrayMatter Light did not become healthy at ${API_BASE}/actuator/health within ${TIMEOUT_SECONDS}s." >&2
+    echo "Inspect with: docker compose -f '${BUNDLE_DIR%/}/docker-compose.yaml' logs" >&2
+    exit 1
+  fi
+  sleep 1
+done
+
+cat <<EOF
+GrayMatter Light ThorAPI is running.
+VALKYR_API_BASE=${API_BASE}
+Control panel: ${API_BASE}/dashboard/index.html
+API docs: ${API_BASE}/swagger-ui/index.html
+
+Connect the GrayMatter skill in this shell with:
+  source '${ENV_FILE}'
+or:
+  eval "\$(${SCRIPT_DIR}/gm-light-env --bundle-dir '${BUNDLE_DIR}')"
+EOF

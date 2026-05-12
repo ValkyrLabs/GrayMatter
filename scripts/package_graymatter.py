@@ -19,7 +19,10 @@ REQUIRED = [
     'scripts/gm-openapi-summary',
     'scripts/gm-entity',
     'scripts/gm-register-agent',
+    'scripts/gm-light-bootstrap',
+    'scripts/package-local-server',
     'scripts/graymatter_api.sh',
+    'examples/graymatter-light-thorapi-bundle.yaml',
     'references/public-release-checklist.md',
     'references/multi-agent-conventions.md',
 ]
@@ -31,7 +34,6 @@ OPTIONAL_REPO_ONLY = [
     'examples/memoryentry-todo.json',
     'examples/memoryentry-artifact.json',
     'examples/graymatter-light-memoryentry.yaml',
-    'examples/graymatter-light-thorapi-bundle.yaml',
 ]
 
 missing = [rel for rel in REQUIRED if not (ROOT / rel).is_file()]
@@ -52,9 +54,24 @@ if 'name: graymatter' not in skill_md or 'description:' not in skill_md:
     print('SKILL.md is missing expected frontmatter fields', file=sys.stderr)
     sys.exit(1)
 
-with zipfile.ZipFile(OUT, 'w', zipfile.ZIP_DEFLATED) as zf:
+def add_file(zf: zipfile.ZipFile, rel: str) -> None:
+    src = ROOT / rel
+    arcname = str(Path('graymatter') / rel)
+    info = zipfile.ZipInfo.from_file(src, arcname=arcname)
+    info.date_time = (1980, 1, 1, 0, 0, 0)
+    info.compress_type = zipfile.ZIP_DEFLATED
+
+    # Ensure shell entrypoints remain executable after install/unzip.
+    if rel.startswith('scripts/'):
+        info.external_attr = (0o100755 << 16)
+
+    with src.open('rb') as fh:
+        zf.writestr(info, fh.read())
+
+
+with zipfile.ZipFile(OUT, 'w') as zf:
     for rel in REQUIRED:
-        zf.write(ROOT / rel, arcname=str(Path('graymatter') / rel))
+        add_file(zf, rel)
 
 with zipfile.ZipFile(OUT) as zf:
     packaged = sorted(zf.namelist())

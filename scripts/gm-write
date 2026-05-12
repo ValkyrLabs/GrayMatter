@@ -36,8 +36,13 @@ if [[ -n "$TAGS_RAW" ]] && printf '%s' "$RESPONSE" | grep -Eqi 'tags|tag|relatio
 fi
 
 TEXT_LEN=${#TEXT}
-if printf '%s' "$RESPONSE" | grep -Eqi 'data too long|value too long|string or binary data would be truncated|max.?length|payload too large|413'; then
-  echo "gm-write rejected payload length (chars=${TEXT_LEN}). Consider splitting into smaller chunks before retrying." >&2
+if printf '%s' "$RESPONSE" | grep -Eqi 'data too long|value too long|string or binary data would be truncated|max.?length|payload too large|413|entity too large|request entity too large'; then
+  echo "gm-write rejected payload length (chars=${TEXT_LEN})." >&2
+  echo "Hint: split text into smaller entries or summarize before writing." >&2
+fi
+
+if [[ $STATUS -ne 0 ]]; then
+  echo "gm-write failed (type=${TYPE}, sourceChannel=${SOURCE_CHANNEL}, chars=${TEXT_LEN}, exit=${STATUS})." >&2
 fi
 
 if [[ -x "${SCRIPT_DIR}/gm-fallback-append" ]]; then

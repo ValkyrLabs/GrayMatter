@@ -1,0 +1,98 @@
+#!/usr/bin/env python3
+"""Package GrayMatter Local Server as a downloadable archive."""
+from __future__ import annotations
+
+import argparse
+import os
+import shutil
+import subprocess
+import tarfile
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+BOOTSTRAP = ROOT / "scripts/gm-light-bootstrap"
+ARCHIVE_NAME = "graymatter-local-server-latest.tar.gz"
+
+
+def run(command: list[str], cwd: Path | None = None) -> None:
+    subprocess.run(command, cwd=cwd, check=True)
+
+
+def copytree(source: Path, target: Path) -> None:
+    if target.exists():
+        shutil.rmtree(target)
+    shutil.copytree(source, target, symlinks=False)
+
+
+def build_jar(source_dir: Path, package_dir: Path) -> None:
+    if os.environ.get("GRAYMATTER_SKIP_SERVER_BUILD", "").lower() in {"1", "true", "yes"}:
+        return
+
+    if (source_dir / "mvnw").is_file():
+        run(["./mvnw", "-q", "-DskipTests", "package"], cwd=source_dir)
+    elif shutil.which("mvn"):
+        run(["mvn", "-q", "-DskipTests", "package"], cwd=source_dir)
+    else:
+        print("Maven unavailable; packaging source-only GrayMatter Local Server.")
+        return
+
+    jars = sorted(
+        jar for jar in (source_dir / "target").glob("graymatter-local-server-*.jar")
+        if "sources" not in jar.name and "javadoc" not in jar.name
+    )
+    if not jars:
+        raise SystemExit("Build completed but no graymatter-local-server jar was produced")
+
+    lib_dir = package_dir / "lib"
+    lib_dir.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(jars[-1], lib_dir / "graymatter-local-server.jar")
+
+
+def create_archive(package_dir: Path, target: Path) -> None:
+    with tarfile.open(target, "w:gz") as archive:
+        for path in sorted(package_dir.rglob("*")):
+            arcname = Path("graymatter-local-server") / path.relative_to(package_dir)
+            archive.add(path, arcname=str(arcname), recursive=False)
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Package GrayMatter Local Server")
+    parser.add_argument("--out-dir", default=str(ROOT / "dist"))
+    parser.add_argument("--work-dir", default=str(ROOT / ".tmp-local-server-package"))
+    args = parser.parse_args()
+
+    out_dir = Path(args.out_dir).resolve()
+    work_dir = Path(args.work_dir).resolve()
+    bundle_dir = work_dir / "bundle"
+    package_dir = work_dir / "graymatter-local-server"
+
+    if work_dir.exists():
+        shutil.rmtree(work_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    work_dir.mkdir(parents=True, exist_ok=True)
+
+    run([str(BOOTSTRAP), str(bundle_dir)])
+
+    package_dir.mkdir(parents=True, exist_ok=True)
+    copytree(bundle_dir / "local-server", package_dir / "source")
+    shutil.copy2(package_dir / "source/README.md", package_dir / "README.md")
+    shutil.copy2(package_dir / "source/manifest.json", package_dir / "manifest.json")
+    copytree(bundle_dir / "application-bundle", package_dir / "application-bundle")
+    copytree(package_dir / "source/bin", package_dir / "bin")
+
+    build_jar(package_dir / "source", package_dir)
+    source_target_dir = package_dir / "source/target"
+    if source_target_dir.exists():
+        shutil.rmtree(source_target_dir)
+
+    archive_path = out_dir / ARCHIVE_NAME
+    if archive_path.exists():
+        archive_path.unlink()
+    create_archive(package_dir, archive_path)
+
+    print(f"Packaged {archive_path}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

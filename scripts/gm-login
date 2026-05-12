@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BASE="${VALKYR_API_BASE:-https://api-0.valkyrlabs.com/v1}"
 LOGIN_PATH="${GRAYMATTER_LOGIN_PATH:-/auth/login}"
 LOGIN_URL="${BASE%/}/${LOGIN_PATH#/}"
@@ -8,10 +9,89 @@ OUT_MODE="${1:-keychain}"
 KEYCHAIN_SERVICE="${VALKYR_KEYCHAIN_SERVICE:-VALKYR_AUTH}"
 USERNAME_SERVICE="${VALKYR_USERNAME_KEYCHAIN_SERVICE:-${KEYCHAIN_SERVICE}_USERNAME}"
 PASSWORD_SERVICE="${VALKYR_PASSWORD_KEYCHAIN_SERVICE:-${KEYCHAIN_SERVICE}_PASSWORD}"
-USERNAME="${GRAYMATTER_USERNAME:-${VALKYR_USERNAME:-}}"
-PASSWORD="${GRAYMATTER_PASSWORD:-${VALKYR_PASSWORD:-}}"
-COOKIE_JAR="$(mktemp -t graymatter-login-cookie.XXXXXX)"
-HEADERS_FILE="$(mktemp -t graymatter-login-headers.XXXXXX)"
+USERNAME=${GRAYMATTER_USERNAME:-${VALKYR_USERNAME:-}}
+PASSWORD=${GRAYMATTER_PASSWORD:-${VALKYR_PASSWORD:-}}
+FALLBACK_TMPDIR="${GRAYMATTER_TMPDIR:-${SCRIPT_DIR}/../tmp}"
+ALLOW_READONLY_TOKEN=${GRAYMATTER_ALLOW_READONLY_TOKEN:-0}
+
+portable_mktemp() {
+  local template="$1"
+  local tmp_path=""
+
+  if tmp_path="$(mktemp -t "$template" 2>/dev/null)" || tmp_path="$(mktemp "${template}" 2>/dev/null)"; then
+    printf '%s\n' "$tmp_path"
+    return 0
+  fi
+
+  mkdir -p "$FALLBACK_TMPDIR"
+  if tmp_path="$(TMPDIR="$FALLBACK_TMPDIR" mktemp -t "$template" 2>/dev/null)" || tmp_path="$(mktemp "${FALLBACK_TMPDIR%/}/${template}" 2>/dev/null)"; then
+    printf '%s\n' "$tmp_path"
+    return 0
+  fi
+
+  echo "Unable to create temporary file for GrayMatter login" >&2
+  return 1
+}
+
+decode_base64_url() {
+  local value="${1:-}"
+  local padded="$value"
+  local remainder=$(( ${#padded} % 4 ))
+
+  case "$remainder" in
+    2) padded="${padded}==" ;;
+    3) padded="${padded}=" ;;
+    1) padded="${padded}===" ;;
+  esac
+
+  padded="$(printf '%s' "$padded" | tr '_-' '/+')"
+
+  if printf '%s' "$padded" | base64 --decode 2>/dev/null; then
+    return 0
+  fi
+
+  printf '%s' "$padded" | base64 -D 2>/dev/null
+}
+
+token_claims_json() {
+  local token="${1:-}"
+  local payload=""
+
+  [[ -n "$token" ]] || return 1
+  payload="$(printf '%s' "$token" | cut -d'.' -f2)"
+  [[ -n "$payload" && "$payload" != "$token" ]] || return 1
+
+  decode_base64_url "$payload"
+}
+
+token_is_clearly_read_only() {
+  local token="${1:-}"
+  local claims=""
+
+  claims="$(token_claims_json "$token" 2>/dev/null)" || return 1
+
+  jq -e '
+    def normalized_roles:
+      ((.roles // []) + (.roleList // []) + (.authorities // []) + (.authorityList // []))
+      | map(select(type == "string"))
+      | unique;
+    def non_trivial_roles:
+      normalized_roles
+      | map(select(. != "EVERYONE" and . != "FREE"));
+    def normalized_scopes:
+      (.scopes // [])
+      | map(select(type == "string"))
+      | unique;
+    def non_readonly_scopes:
+      normalized_scopes
+      | map(select(. != "SCOPE_schema.read"));
+
+    (non_trivial_roles | length) == 0 and (non_readonly_scopes | length) == 0
+  ' >/dev/null 2>&1 <<<"$claims"
+}
+
+COOKIE_JAR="$(portable_mktemp graymatter-login-cookie.XXXXXX)"
+HEADERS_FILE="$(portable_mktemp graymatter-login-headers.XXXXXX)"
 trap 'rm -f "$COOKIE_JAR" "$HEADERS_FILE"' EXIT
 
 if ! command -v jq >/dev/null 2>&1; then
@@ -47,12 +127,17 @@ if [[ -z "$USERNAME" ]]; then
 fi
 
 prompt_password() {
+  local popup_password=""
   if command -v osascript >/dev/null 2>&1; then
-    GRAYMATTER_PROMPT_USERNAME="$USERNAME" osascript <<'APPLESCRIPT'
+    if popup_password="$(
+      GRAYMATTER_PROMPT_USERNAME="$USERNAME" osascript 2>/dev/null <<'APPLESCRIPT'
 set userName to system attribute "GRAYMATTER_PROMPT_USERNAME"
 text returned of (display dialog "Enter the GrayMatter password for " & userName & ":" default answer "" with hidden answer buttons {"Cancel", "OK"} default button "OK" with title "GrayMatter Login")
 APPLESCRIPT
-    return
+    )" && [[ -n "$popup_password" ]]; then
+      printf '%s\n' "$popup_password"
+      return 0
+    fi
   fi
 
   read -r -s -p "GrayMatter password: " PASSWORD
@@ -133,12 +218,12 @@ extract_from_cookies() {
   ' "$COOKIE_JAR"
 }
 
-AUTH_TOKEN="$(extract_from_body)"
+AUTH_TOKEN=$(extract_from_body)
 if [[ -z "$AUTH_TOKEN" || "$AUTH_TOKEN" == "null" ]]; then
-  AUTH_TOKEN="$(extract_from_headers)"
+  AUTH_TOKEN=$(extract_from_headers)
 fi
 if [[ -z "$AUTH_TOKEN" || "$AUTH_TOKEN" == "null" ]]; then
-  AUTH_TOKEN="$(extract_from_cookies)"
+  AUTH_TOKEN=$(extract_from_cookies)
 fi
 
 if [[ -z "$AUTH_TOKEN" || "$AUTH_TOKEN" == "null" ]]; then
@@ -148,6 +233,13 @@ if [[ -z "$AUTH_TOKEN" || "$AUTH_TOKEN" == "null" ]]; then
   echo "Response headers:" >&2
   cat "$HEADERS_FILE" >&2
   exit 2
+fi
+
+if [[ "$ALLOW_READONLY_TOKEN" != "1" ]] && token_is_clearly_read_only "$AUTH_TOKEN"; then
+  echo "GrayMatter login produced a read-only token for ${USERNAME}." >&2
+  echo "The issued session only has schema-read access, so GrayMatter writes will fail." >&2
+  echo "Fix the ValkyrAI account roles/scopes or re-run with GRAYMATTER_ALLOW_READONLY_TOKEN=1 for read-only diagnostics." >&2
+  exit 4
 fi
 
 store_keychain() {

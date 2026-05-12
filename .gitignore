@@ -1,0 +1,6 @@
+.tmp-*/
+dist/
+memory/
+scripts/__pycache__/
+node_modules/
+*.pyc

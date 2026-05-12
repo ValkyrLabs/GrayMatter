@@ -130,7 +130,10 @@ Rule:
 - `scripts/gm-entity` — generic helper for listing, reading, and writing arbitrary schema entities
 - `scripts/gm-register-agent` — register or refresh the OpenClaw server as an Agent in api-0
 - `scripts/gm-mcp-contract` — emit the portable MCP memory-tool contract schema used by agent/IDE adapters
+- `scripts/gm-light-bootstrap` — generate the local GrayMatter app bundle and server source scaffold
+- `scripts/package-local-server` — package the standalone downloadable GrayMatter Local Server archive
 - `scripts/package_graymatter.py` — deterministic validation and packaging
+- `mcp-server/` — standalone HTTP/SSE MCP server for GrayMatter memory, graph, entity, and schema tools
 - `docs/architecture.md` — architecture and operating model
 - `docs/prd-context-compaction-reset.md` — PRD for bounded chat compaction and reset flows
 - `docs/thorapi-integration.md` — ThorAPI relationship and bundle direction
@@ -424,6 +427,35 @@ Rebuild the packaged skill with:
 ```bash
 python3 scripts/package_graymatter.py
 ```
+
+Build the standalone downloadable local server with:
+
+```bash
+scripts/package-local-server
+```
+
+That creates `dist/graymatter-local-server-latest.tar.gz`. The archive contains:
+- `application-bundle/` with the ValkyrAI app-factory template, ThorAPI FEBE OpenAPI contract, custom dashboard/workbench/promotion/swarm components, and built-in `rbac-core` / `data-workbooks` component references
+- `source/` with the generated Spring Boot local server
+- `bin/graymatter-local-server` launcher
+- `lib/graymatter-local-server.jar` when Maven is available during packaging
+
+The embedded dashboard includes Valkyr Labs branding, hides the local login panel after successful login, exposes `Promote / Synchronize` for the valkyrlabs.com mothership bridge, and reports the local `graymatter-swarm-v0.1` light-node status.
+
+## awesome-codex-plugins listing kit
+
+GrayMatter ships a ready-to-submit listing packet for `awesome-codex-plugins`.
+
+- Listing markdown block: `docs/awesome-codex-plugins.md`
+- Source metadata: `.codex-plugin/plugin.json`
+
+Quick copy flow:
+
+```bash
+cat docs/awesome-codex-plugins.md
+```
+
+Then open a PR against `hashgraph-online/awesome-codex-plugins` and paste the generated block into `README.md` using that repository's contribution format.
 
 ## Launch position
 

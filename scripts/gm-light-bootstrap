@@ -9,7 +9,6 @@ import stat
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-EXAMPLE_SPEC = ROOT / "examples/graymatter-light-thorapi-bundle.yaml"
 
 DOCKER_COMPOSE = """services:
   graymatter-light:
@@ -17,9 +16,10 @@ DOCKER_COMPOSE = """services:
     container_name: graymatter-light
     restart: unless-stopped
     ports:
-      - "8080:8080"
+      - "${GRAYMATTER_LIGHT_PORT:-8080}:8080"
     volumes:
       - ./api.hbs.yaml:/app/api.hbs.yaml:ro
+      - ./api.yaml:/app/api.yaml:ro
       - ./dashboard:/app/dashboard:ro
       - ./data:/data
     environment:
@@ -28,18 +28,88 @@ DOCKER_COMPOSE = """services:
       - SPRING_DATASOURCE_USERNAME=sa
       - SPRING_DATASOURCE_PASSWORD=
       - THORAPI_SPEC=/app/api.hbs.yaml
+      - THORAPI_RENDERED_SPEC=/app/api.yaml
+      - THORAPI_STATIC_DIR=/app/dashboard
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/actuator/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
 """
 
 DASHBOARD_HTML = """<!doctype html>
 <html>
-<head><meta charset="utf-8"><title>GrayMatter Light</title></head>
+<head>
+  <meta charset="utf-8">
+  <title>GrayMatter Light Control Panel</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 2rem; color: #172033; background: #f6f8fb; }
+    main { max-width: 980px; margin: 0 auto; }
+    section { background: white; border: 1px solid #d9e0ea; border-radius: 8px; padding: 1rem; margin: 1rem 0; }
+    label { display: block; font-weight: 650; margin-top: .75rem; }
+    input, textarea, button { font: inherit; }
+    input, textarea { width: 100%; box-sizing: border-box; padding: .65rem; border: 1px solid #bcc8d8; border-radius: 6px; }
+    button { margin-top: .75rem; padding: .65rem .9rem; border: 0; border-radius: 6px; background: #1d6f5f; color: white; cursor: pointer; }
+    pre { overflow: auto; background: #0f172a; color: #dbeafe; padding: 1rem; border-radius: 6px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; }
+  </style>
+</head>
 <body>
-  <h1>GrayMatter Light</h1>
-  <p>Local ThorAPI bundle is running.</p>
-  <ul>
-    <li>API docs: <a href="/swagger-ui/index.html">/swagger-ui/index.html</a></li>
-    <li>Health: <a href="/actuator/health">/actuator/health</a></li>
-  </ul>
+  <main>
+    <h1>GrayMatter Light Control Panel</h1>
+    <p>Local ThorAPI-backed memory is running against api.hbs.yaml with MemoryEntry, Principal, UserPreferences, and Workbook tables.</p>
+    <p><a href="/swagger-ui/index.html">API docs</a> · <a href="/actuator/health">Health</a></p>
+    <div class="grid">
+      <section>
+        <h2>Write MemoryEntry</h2>
+        <label for="type">Type</label>
+        <input id="type" value="context">
+        <label for="text">Text</label>
+        <textarea id="text">GrayMatter Light is ready.</textarea>
+        <button id="saveMemory" type="button">Save Memory</button>
+      </section>
+      <section>
+        <h2>Data Workbook</h2>
+        <label for="workbookName">Name</label>
+        <input id="workbookName" value="Light Workbook">
+        <button id="saveWorkbook" type="button">Create Workbook</button>
+      </section>
+    </div>
+    <section>
+      <h2>Live Response</h2>
+      <button id="refreshMemory" type="button">Refresh Memory</button>
+      <button id="refreshWorkbooks" type="button">Refresh Workbooks</button>
+      <pre id="output">Ready.</pre>
+    </section>
+  </main>
+  <script>
+    const output = document.getElementById("output");
+    const show = (data) => { output.textContent = typeof data === "string" ? data : JSON.stringify(data, null, 2); };
+    async function request(path, options = {}) {
+      const response = await fetch(path, {
+        ...options,
+        headers: { "content-type": "application/json", ...(options.headers || {}) }
+      });
+      const text = await response.text();
+      let body = text;
+      try { body = text ? JSON.parse(text) : null; } catch {}
+      if (!response.ok) throw new Error(`${response.status}: ${text}`);
+      show(body);
+    }
+    saveMemory.onclick = () => request("/MemoryEntry", {
+      method: "POST",
+      body: JSON.stringify({ type: type.value, text: text.value, sourceChannel: "graymatter-light-control-panel" })
+    }).catch((error) => show(error.message));
+    refreshMemory.onclick = () => request("/MemoryEntry/query", {
+      method: "POST",
+      body: JSON.stringify({ q: "", maxResults: 25 })
+    }).catch((error) => show(error.message));
+    saveWorkbook.onclick = () => request("/Workbook", {
+      method: "POST",
+      body: JSON.stringify({ name: workbookName.value, status: "WorkbookOpen" })
+    }).catch((error) => show(error.message));
+    refreshWorkbooks.onclick = () => request("/Workbook").catch((error) => show(error.message));
+  </script>
 </body>
 </html>
 """
@@ -2851,8 +2921,9 @@ def main() -> int:
     dashboard_dir.mkdir(parents=True, exist_ok=True)
     data_dir.mkdir(parents=True, exist_ok=True)
 
-    spec = EXAMPLE_SPEC.read_text(encoding="utf-8")
+    spec = json.dumps(graymatter_openapi_spec(), indent=2) + "\n"
     write_file(out_dir / "api.hbs.yaml", spec)
+    write_file(out_dir / "api.yaml", spec)
     write_file(out_dir / "docker-compose.yaml", DOCKER_COMPOSE)
     write_file(dashboard_dir / "index.html", DASHBOARD_HTML)
     write_file(out_dir / "UPGRADE.md", UPGRADE_NOTE)

@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-TMP_DIR="$ROOT/.tmp-test-local-server-runtime"
+TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/gm-local-server-runtime.XXXXXX")"
 DIST_DIR="$TMP_DIR/dist"
 TARBALL="$DIST_DIR/graymatter-local-server-latest.tar.gz"
 PORT="${GRAYMATTER_RUNTIME_TEST_PORT:-8790}"
@@ -15,6 +15,7 @@ cleanup() {
     kill "$SERVER_PID" >/dev/null 2>&1 || true
     wait "$SERVER_PID" >/dev/null 2>&1 || true
   fi
+  rm -rf "$TMP_DIR" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
 
@@ -30,7 +31,6 @@ wait_for_health() {
   return 1
 }
 
-rm -rf "$TMP_DIR"
 mkdir -p "$DIST_DIR"
 
 "$ROOT/scripts/package-local-server" \

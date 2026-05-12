@@ -2,7 +2,8 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-OUT="$ROOT/.tmp-test-light-bundle"
+OUT="$(mktemp -d "${TMPDIR:-/tmp}/gm-light-bundle.XXXXXX")"
+trap 'rm -rf "$OUT" >/dev/null 2>&1 || true' EXIT
 
 assert_file() {
   if [[ ! -f "$1" ]]; then
@@ -27,10 +28,10 @@ assert_contains() {
   fi
 }
 
-rm -rf "$OUT"
 "$ROOT/scripts/gm-light-bootstrap" "$OUT" >/dev/null
 
 assert_file "$OUT/api.hbs.yaml"
+assert_file "$OUT/api.yaml"
 assert_file "$OUT/docker-compose.yaml"
 assert_file "$OUT/dashboard/index.html"
 assert_file "$OUT/UPGRADE.md"
@@ -65,6 +66,17 @@ assert_file "$OUT/local-server/src/main/resources/static/index.html"
 
 assert_contains "graymatter-light" "$OUT/docker-compose.yaml"
 assert_contains "starter 500 credits" "$OUT/UPGRADE.md"
+assert_contains "\${GRAYMATTER_LIGHT_PORT:-8080}:8080" "$OUT/docker-compose.yaml"
+assert_contains "THORAPI_SPEC=/app/api.hbs.yaml" "$OUT/docker-compose.yaml"
+assert_contains "/api/graymatter/dashboard" "$OUT/api.hbs.yaml"
+assert_contains "/api/graymatter/dashboard" "$OUT/api.yaml"
+assert_contains "/Workbook" "$OUT/api.hbs.yaml"
+assert_contains "Principal" "$OUT/api.hbs.yaml"
+assert_contains "UserPreferences" "$OUT/api.hbs.yaml"
+assert_contains "MemoryEntry" "$OUT/api.hbs.yaml"
+assert_contains "GrayMatter Light Control Panel" "$OUT/dashboard/index.html"
+assert_contains "/MemoryEntry" "$OUT/dashboard/index.html"
+assert_contains "/Workbook" "$OUT/dashboard/index.html"
 assert_contains '"generationMode": "thorapi-febe"' "$OUT/local-server/manifest.json"
 assert_contains '"sourceTemplate": "graymatter-local"' "$OUT/local-server/manifest.json"
 assert_contains "MothershipPromotionBridge" "$OUT/local-server/manifest.json"

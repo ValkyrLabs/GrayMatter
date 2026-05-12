@@ -133,6 +133,8 @@ Memory and graph helpers:
 
 Local/server packaging:
 - `scripts/gm-light-bootstrap`
+- `scripts/gm-light-up`
+- `scripts/gm-light-env`
 - `scripts/package-local-server`
 
 Design boundary:

@@ -131,6 +131,8 @@ Rule:
 - `scripts/gm-register-agent` — register or refresh the OpenClaw server as an Agent in api-0
 - `scripts/gm-mcp-contract` — emit the portable MCP memory-tool contract schema used by agent/IDE adapters
 - `scripts/gm-light-bootstrap` — generate the local GrayMatter app bundle and server source scaffold
+- `scripts/gm-light-up` — generate and start the local ThorAPI-backed GrayMatter Light instance
+- `scripts/gm-light-env` — print the environment exports that point skill scripts at the running Light instance
 - `scripts/package-local-server` — package the standalone downloadable GrayMatter Local Server archive
 - `scripts/package_graymatter.py` — deterministic validation and packaging
 - `mcp-server/` — standalone HTTP/SSE MCP server for GrayMatter memory, graph, entity, and schema tools
@@ -427,6 +429,17 @@ Rebuild the packaged skill with:
 ```bash
 python3 scripts/package_graymatter.py
 ```
+
+Run an actual local ThorAPI-backed Light instance with:
+
+```bash
+scripts/gm-light-up
+source .graymatter-light/.graymatter-light-env
+scripts/gm-write context "GrayMatter Light is running" local-light
+scripts/gm-query "GrayMatter Light"
+```
+
+`gm-light-up` generates `.graymatter-light/api.hbs.yaml`, `.graymatter-light/api.yaml`, the Docker Compose file, and the Light control panel, then starts `ghcr.io/valkyrlabs/thorapi:latest` with `THORAPI_SPEC=/app/api.hbs.yaml`. The env file sets `VALKYR_API_BASE=http://localhost:8080` and `GRAYMATTER_LIGHT_MODE=true`, so the normal GrayMatter skill scripts connect to the running local instance without requiring hosted api-0 auth.
 
 Build the standalone downloadable local server with:
 

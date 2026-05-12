@@ -90,9 +90,13 @@ This repo now includes:
 - `examples/graymatter-light-thorapi-bundle.yaml` as a minimal local bundle surface
 - `scripts/gm-light-smoke` as a runnable local write/query smoke test
 - `scripts/gm-light-bootstrap` to generate the app-factory bundle and local server source
+- `scripts/gm-light-up` to start the actual ThorAPI-backed Light instance with Docker Compose
+- `scripts/gm-light-env` to point normal GrayMatter skill scripts at the running Light instance
 - `scripts/package-local-server` to produce `dist/graymatter-local-server-latest.tar.gz`
 
-The generated local server includes RBAC-backed login, `Principal`, `UserPreferences`, `MemoryEntry`, a minimal Data Workbooks `/Workbook` API, a Valkyr Labs-branded dashboard, a mothership promotion bridge, and a local GrayMatter SWARM v0.1 adapter. The generated `application-bundle/` records the ValkyrAI app-factory template, ThorAPI FEBE OpenAPI contract, custom components, and built-in `rbac-core` / `data-workbooks` references.
+`gm-light-up` creates `.graymatter-light/api.hbs.yaml`, a rendered `.graymatter-light/api.yaml`, `docker-compose.yaml`, and `dashboard/index.html`, then runs `ghcr.io/valkyrlabs/thorapi:latest` with `THORAPI_SPEC=/app/api.hbs.yaml`. The generated ThorAPI contract includes `Principal`, `UserPreferences`, `MemoryEntry`, and `Workbook` surfaces plus the Light control-panel endpoints. The `.graymatter-light/.graymatter-light-env` file sets `VALKYR_API_BASE` and `GRAYMATTER_LIGHT_MODE=true`, so `gm-write`, `gm-query`, and lower-level `graymatter_api.sh` connect to the running local instance instead of hosted api-0.
+
+The generated local server archive remains the downloadable Spring Boot path. It includes RBAC-backed login, `Principal`, `UserPreferences`, `MemoryEntry`, a minimal Data Workbooks `/Workbook` API, a Valkyr Labs-branded dashboard, a mothership promotion bridge, and a local GrayMatter SWARM v0.1 adapter. The generated `application-bundle/` records the ValkyrAI app-factory template, ThorAPI FEBE OpenAPI contract, custom components, and built-in `rbac-core` / `data-workbooks` references.
 
 ## Local-to-full bridge
 

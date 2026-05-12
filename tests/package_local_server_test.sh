@@ -2,9 +2,10 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-TMP_DIR="$ROOT/.tmp-test-local-server-package"
+TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/gm-local-server-package.XXXXXX")"
 DIST_DIR="$TMP_DIR/dist"
 TARBALL="$DIST_DIR/graymatter-local-server-latest.tar.gz"
+trap 'rm -rf "$TMP_DIR" >/dev/null 2>&1 || true' EXIT
 
 assert_file() {
   if [[ ! -f "$1" ]]; then
@@ -37,7 +38,6 @@ assert_manifest_entry() {
   fi
 }
 
-rm -rf "$TMP_DIR"
 mkdir -p "$DIST_DIR"
 
 GRAYMATTER_SKIP_SERVER_BUILD=true \

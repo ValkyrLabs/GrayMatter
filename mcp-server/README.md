@@ -14,6 +14,14 @@ npm start
 
 The server runs on `http://localhost:3333` by default.
 
+For Codex plugin-managed launch, use stdio:
+
+```bash
+npm run stdio
+```
+
+The repo-level `.mcp.json` points Codex at `node mcp-server/index.js --stdio`.
+
 ## Environment Variables
 
 | Variable | Required | Default | Description |
@@ -45,6 +53,8 @@ VALKYR_API_BASE=http://localhost:8080 GRAYMATTER_LIGHT_MODE=true npm start
 | `POST` | `/message` | JSON-RPC message endpoint paired with `/sse`. |
 | `POST` | `/` | Direct JSON-RPC endpoint for simpler clients and tests. |
 | `GET` | `/health` | Readiness check with configured API base and exposed tools. |
+
+Stdio mode exposes the same JSON-RPC methods over newline-delimited stdin/stdout and does not print startup text to stdout.
 
 ## Available Tools
 

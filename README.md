@@ -8,6 +8,14 @@ GrayMatter is an installable and immediately usable OpenClaw skill for:
 GrayMatter lets an OpenClaw instance move beyond file memory and isolated chat context.
 When properly authenticated, the agent can persist durable memory, inspect the live business schema, and operate inside the organization's RBAC-scoped data environment.
 
+## Ready-to-rock release surfaces
+
+GrayMatter ships as three related but independently usable surfaces:
+
+- **MCP service**: `mcp-server/` runs as an HTTP/SSE service for Claude.ai, Claude Code, Cursor, and any MCP-compatible host, and also supports `node mcp-server/index.js --stdio` for plugin-managed MCP launch.
+- **Codex plugin**: `.codex-plugin/plugin.json` exposes this repo as the `graymatter` plugin with the standalone skill plus `.mcp.json`, so Codex can discover both the instructions and the MCP server.
+- **Standalone OpenClaw skill**: `graymatter.skill` packages `SKILL.md` and the required scripts for OpenClaw install, activation, hosted api-0 use, and GrayMatter Light local mode.
+
 ## What GrayMatter is for
 
 GrayMatter is the memory and context layer for business-native agent systems.

@@ -335,6 +335,8 @@ refresh_token() {
 if method_requires_write_access && [[ -n "$TOKEN" ]] && token_is_clearly_read_only "$TOKEN"; then
   if refresh_token && [[ -n "$TOKEN" ]] && ! token_is_clearly_read_only "$TOKEN"; then
     :
+  elif run_login && [[ -n "$TOKEN" ]] && ! token_is_clearly_read_only "$TOKEN"; then
+    :
   else
     fail_read_only_token
   fi
@@ -379,6 +381,8 @@ perform_request
 
 if [[ "$HTTP_STATUS" == "401" || "$HTTP_STATUS" == "403" ]]; then
   if refresh_token; then
+    perform_request
+  elif run_login && [[ -n "$TOKEN" ]]; then
     perform_request
   fi
 fi

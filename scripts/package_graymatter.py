@@ -30,7 +30,7 @@ REQUIRED = [
 ]
 
 OPTIONAL_REPO_ONLY = [
-    'scripts/gm-light-smoke',
+    'scripts/gm-light-json-smoke',
     'examples/memoryentry-basic.json',
     'examples/memoryentry-decision.json',
     'examples/memoryentry-todo.json',

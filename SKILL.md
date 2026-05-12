@@ -135,7 +135,12 @@ Local/server packaging:
 - `scripts/gm-light-bootstrap`
 - `scripts/gm-light-up`
 - `scripts/gm-light-env`
+- `scripts/gm-light-json-smoke`
 - `scripts/package-local-server`
+
+MCP server:
+- `mcp-server/` exposes `memory_write`, `memory_read`, `memory_query`, `graph_get`, `entity_list`, `entity_get`, `entity_create`, and `schema_summary`
+- set `VALKYR_API_BASE` to hosted api-0 for Cloud mode or to the running GrayMatter Light base URL for local ThorAPI mode
 
 Design boundary:
 - these scripts are ergonomic wrappers for operators and agents

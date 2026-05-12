@@ -133,6 +133,7 @@ Rule:
 - `scripts/gm-light-bootstrap` — generate the local GrayMatter app bundle and server source scaffold
 - `scripts/gm-light-up` — generate and start the local ThorAPI-backed GrayMatter Light instance
 - `scripts/gm-light-env` — print the environment exports that point skill scripts at the running Light instance
+- `scripts/gm-light-json-smoke` — JSON-file fallback smoke test for Light payload shape without ThorAPI
 - `scripts/package-local-server` — package the standalone downloadable GrayMatter Local Server archive
 - `scripts/package_graymatter.py` — deterministic validation and packaging
 - `mcp-server/` — standalone HTTP/SSE MCP server for GrayMatter memory, graph, entity, and schema tools
@@ -439,7 +440,7 @@ scripts/gm-write context "GrayMatter Light is running" local-light
 scripts/gm-query "GrayMatter Light"
 ```
 
-`gm-light-up` generates `.graymatter-light/api.hbs.yaml`, `.graymatter-light/api.yaml`, the Docker Compose file, and the Light control panel, then starts `ghcr.io/valkyrlabs/thorapi:latest` with `THORAPI_SPEC=/app/api.hbs.yaml`. The env file sets `VALKYR_API_BASE=http://localhost:8080` and `GRAYMATTER_LIGHT_MODE=true`, so the normal GrayMatter skill scripts connect to the running local instance without requiring hosted api-0 auth.
+`gm-light-up` generates the api.hbs.yaml template at `.graymatter-light/api.hbs.yaml`, rendered api.yaml at `.graymatter-light/api.yaml`, the Docker Compose file, and the Light control panel, then starts the ThorAPI image with `THORAPI_TEMPLATE=/app/api.hbs.yaml` and `THORAPI_SPEC=/app/api.yaml`. The default image is `ghcr.io/valkyrlabs/thorapi:latest`; use `--image` or `THORAPI_IMAGE` when running a private, pinned, or locally built ThorAPI image. The rendered spec explicitly includes the MCP backing paths for `memory_write`, `memory_read`, `memory_query`, `graph_get`, entity tools, and `schema_summary`. The env file sets `VALKYR_API_BASE=http://localhost:8080` and `GRAYMATTER_LIGHT_MODE=true`, so the normal GrayMatter skill scripts and the standalone MCP server can connect to the running local instance without requiring hosted api-0 auth.
 
 Build the standalone downloadable local server with:
 

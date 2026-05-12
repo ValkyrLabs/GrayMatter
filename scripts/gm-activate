@@ -21,7 +21,7 @@ fi
 
 export VALKYR_API_BASE="$BASE"
 if [[ -z "$USERNAME_ENV" || -z "$PASSWORD_ENV" ]]; then
-  echo "No GrayMatter username/password found in environment, falling back to interactive login" >&2
+  echo "GrayMatter username/password not found in environment; gm-login will attempt keychain-based reauth before interactive fallback" >&2
 fi
 eval "$(${SCRIPT_DIR}/gm-login env)"
 

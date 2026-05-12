@@ -19,7 +19,10 @@ REQUIRED = [
     'scripts/gm-openapi-summary',
     'scripts/gm-entity',
     'scripts/gm-register-agent',
+    'scripts/gm-light-bootstrap',
+    'scripts/package-local-server',
     'scripts/graymatter_api.sh',
+    'examples/graymatter-light-thorapi-bundle.yaml',
     'references/public-release-checklist.md',
     'references/multi-agent-conventions.md',
 ]
@@ -31,7 +34,6 @@ OPTIONAL_REPO_ONLY = [
     'examples/memoryentry-todo.json',
     'examples/memoryentry-artifact.json',
     'examples/graymatter-light-memoryentry.yaml',
-    'examples/graymatter-light-thorapi-bundle.yaml',
 ]
 
 missing = [rel for rel in REQUIRED if not (ROOT / rel).is_file()]

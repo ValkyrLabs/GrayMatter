@@ -1,0 +1,393 @@
+const assert = require('node:assert/strict');
+const http = require('node:http');
+const test = require('node:test');
+
+const { createGrayMatterMcpServer } = require('../index.js');
+
+async function listen(server) {
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  return `http://127.0.0.1:${address.port}`;
+}
+
+async function readBody(req) {
+  const chunks = [];
+  for await (const chunk of req) {
+    chunks.push(chunk);
+  }
+  const raw = Buffer.concat(chunks).toString('utf8');
+  return raw ? JSON.parse(raw) : null;
+}
+
+function createFakeApi(handler) {
+  const requests = [];
+  const server = http.createServer(async (req, res) => {
+    const body = await readBody(req);
+    const record = {
+      method: req.method,
+      path: new URL(req.url, 'http://fake.local').pathname,
+      query: new URL(req.url, 'http://fake.local').searchParams,
+      headers: req.headers,
+      body
+    };
+    requests.push(record);
+    await handler(req, res, record);
+  });
+  return { server, requests };
+}
+
+async function postRpc(baseUrl, payload, headers = {}) {
+  const response = await fetch(`${baseUrl}/`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      ...headers
+    },
+    body: JSON.stringify(payload)
+  });
+  return {
+    status: response.status,
+    body: await response.json()
+  };
+}
+
+async function readSsePreamble(baseUrl) {
+  return new Promise((resolve, reject) => {
+    const req = http.get(`${baseUrl}/sse`, (res) => {
+      let raw = '';
+      res.on('data', (chunk) => {
+        raw += chunk.toString('utf8');
+        if (raw.includes('\n\n')) {
+          req.destroy();
+          resolve({ status: res.statusCode, body: raw });
+        }
+      });
+    });
+    req.on('error', (error) => {
+      if (error.code !== 'ECONNRESET') {
+        reject(error);
+      }
+    });
+    req.setTimeout(2000, () => {
+      req.destroy();
+      reject(new Error('SSE preamble timed out'));
+    });
+  });
+}
+
+test('health reports server readiness without api-0 auth', async () => {
+  const server = createGrayMatterMcpServer({ apiBase: 'https://api-0.example.test/v1' });
+  const baseUrl = await listen(server);
+
+  try {
+    const response = await fetch(`${baseUrl}/health`);
+    const body = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.equal(body.ok, true);
+    assert.equal(body.apiBase, 'https://api-0.example.test/v1');
+    assert.ok(body.tools.includes('memory_write'));
+    assert.ok(body.tools.includes('schema_summary'));
+  } finally {
+    server.close();
+  }
+});
+
+test('initialize works through the paired message endpoint', async () => {
+  const server = createGrayMatterMcpServer({ apiBase: 'https://api-0.example.test/v1' });
+  const baseUrl = await listen(server);
+
+  try {
+    const response = await fetch(`${baseUrl}/message`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 'init-1',
+        method: 'initialize'
+      })
+    });
+    const body = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.equal(body.id, 'init-1');
+    assert.equal(body.result.serverInfo.name, 'graymatter');
+    assert.deepEqual(body.result.capabilities, { tools: {} });
+  } finally {
+    server.close();
+  }
+});
+
+test('sse announces the paired message endpoint', async () => {
+  const server = createGrayMatterMcpServer({ apiBase: 'https://api-0.example.test/v1' });
+  const baseUrl = await listen(server);
+
+  try {
+    const response = await readSsePreamble(baseUrl);
+
+    assert.equal(response.status, 200);
+    assert.match(response.body, /event: endpoint/);
+    assert.match(response.body, /data: \/message/);
+  } finally {
+    server.close();
+  }
+});
+
+test('tools/list exposes the GrayMatter tool surface', async () => {
+  const server = createGrayMatterMcpServer({ apiBase: 'https://api-0.example.test/v1' });
+  const baseUrl = await listen(server);
+
+  try {
+    const result = await postRpc(baseUrl, {
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'tools/list'
+    });
+
+    assert.equal(result.status, 200);
+    assert.deepEqual(
+      result.body.result.tools.map((tool) => tool.name),
+      [
+        'memory_write',
+        'memory_read',
+        'memory_query',
+        'graph_get',
+        'entity_list',
+        'entity_get',
+        'entity_create',
+        'schema_summary'
+      ]
+    );
+  } finally {
+    server.close();
+  }
+});
+
+test('memory_read, memory_query, and graph_get route to api-0', async () => {
+  const fakeApi = createFakeApi(async (_req, res, record) => {
+    res.writeHead(200, { 'content-type': 'application/json' });
+    if (record.path === '/v1/MemoryEntry/mem-42') {
+      res.end(JSON.stringify({ id: 'mem-42', text: 'remembered' }));
+      return;
+    }
+    if (record.path === '/v1/MemoryEntry/query') {
+      assert.equal(record.method, 'POST');
+      assert.equal(record.body.query, 'remember');
+      res.end(JSON.stringify({ results: [{ id: 'mem-42' }] }));
+      return;
+    }
+    if (record.path === '/v1/SwarmOps/graph') {
+      res.end(JSON.stringify({ nodes: [], edges: [] }));
+      return;
+    }
+    throw new Error(`Unexpected path ${record.path}`);
+  });
+
+  const apiBase = await listen(fakeApi.server);
+  const server = createGrayMatterMcpServer({ apiBase: `${apiBase}/v1` });
+  const baseUrl = await listen(server);
+
+  try {
+    const readResult = await postRpc(baseUrl, {
+      jsonrpc: '2.0',
+      id: 'read',
+      method: 'tools/call',
+      params: { name: 'memory_read', arguments: { id: 'mem-42' } }
+    });
+    const queryResult = await postRpc(baseUrl, {
+      jsonrpc: '2.0',
+      id: 'query',
+      method: 'tools/call',
+      params: { name: 'memory_query', arguments: { query: 'remember', limit: 5 } }
+    });
+    const graphResult = await postRpc(baseUrl, {
+      jsonrpc: '2.0',
+      id: 'graph',
+      method: 'tools/call',
+      params: { name: 'graph_get', arguments: {} }
+    });
+
+    assert.deepEqual(JSON.parse(readResult.body.result.content[0].text), { id: 'mem-42', text: 'remembered' });
+    assert.deepEqual(JSON.parse(queryResult.body.result.content[0].text), { results: [{ id: 'mem-42' }] });
+    assert.deepEqual(JSON.parse(graphResult.body.result.content[0].text), { nodes: [], edges: [] });
+    assert.equal(fakeApi.requests.length, 3);
+  } finally {
+    server.close();
+    fakeApi.server.close();
+  }
+});
+
+test('memory_write forwards per-request auth to api-0 MemoryEntry', async () => {
+  const fakeApi = createFakeApi(async (_req, res, record) => {
+    assert.equal(record.method, 'POST');
+    assert.equal(record.path, '/v1/MemoryEntry');
+    assert.equal(record.headers.authorization, 'Bearer header-auth');
+    assert.equal(record.headers.valkyr_auth, 'header-auth');
+    assert.equal(record.headers.cookie, 'VALKYR_AUTH=header-auth');
+    assert.equal(record.body.type, 'decision');
+    assert.equal(record.body.text, 'ship the MCP server');
+
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ id: 'mem-1', ...record.body }));
+  });
+
+  const apiBase = await listen(fakeApi.server);
+  const server = createGrayMatterMcpServer({ apiBase: `${apiBase}/v1` });
+  const baseUrl = await listen(server);
+
+  try {
+    const result = await postRpc(
+      baseUrl,
+      {
+        jsonrpc: '2.0',
+        id: 2,
+        method: 'tools/call',
+        params: {
+          name: 'memory_write',
+          arguments: {
+            type: 'decision',
+            text: 'ship the MCP server',
+            tags: ['mcp', 'graymatter']
+          }
+        }
+      },
+      { 'X-Valkyr-Token': 'header-auth' }
+    );
+
+    assert.equal(result.status, 200);
+    assert.equal(result.body.result.content[0].type, 'text');
+    assert.deepEqual(JSON.parse(result.body.result.content[0].text), {
+      id: 'mem-1',
+      type: 'decision',
+      text: 'ship the MCP server',
+      tags: ['mcp', 'graymatter']
+    });
+    assert.equal(fakeApi.requests.length, 1);
+  } finally {
+    server.close();
+    fakeApi.server.close();
+  }
+});
+
+test('entity tools route list, get, and create calls with RBAC-scoped auth', async () => {
+  const fakeApi = createFakeApi(async (_req, res, record) => {
+    assert.equal(record.headers.authorization, 'Bearer entity-auth');
+    res.writeHead(200, { 'content-type': 'application/json' });
+    if (record.path === '/v1/Customer' && record.method === 'GET') {
+      assert.equal(record.query.get('limit'), '2');
+      res.end(JSON.stringify([{ id: 'cust-1' }]));
+      return;
+    }
+    if (record.path === '/v1/Customer/cust-1' && record.method === 'GET') {
+      res.end(JSON.stringify({ id: 'cust-1', name: 'Acme' }));
+      return;
+    }
+    if (record.path === '/v1/Task' && record.method === 'POST') {
+      assert.equal(record.body.title, 'Follow up');
+      res.end(JSON.stringify({ id: 'task-1', ...record.body }));
+      return;
+    }
+    throw new Error(`Unexpected ${record.method} ${record.path}`);
+  });
+
+  const apiBase = await listen(fakeApi.server);
+  const server = createGrayMatterMcpServer({ apiBase: `${apiBase}/v1` });
+  const baseUrl = await listen(server);
+  const headers = { 'X-Valkyr-Token': 'entity-auth' };
+
+  try {
+    const listResult = await postRpc(baseUrl, {
+      jsonrpc: '2.0',
+      id: 'entity-list',
+      method: 'tools/call',
+      params: { name: 'entity_list', arguments: { entityType: 'Customer', limit: 2 } }
+    }, headers);
+    const getResult = await postRpc(baseUrl, {
+      jsonrpc: '2.0',
+      id: 'entity-get',
+      method: 'tools/call',
+      params: { name: 'entity_get', arguments: { entityType: 'Customer', id: 'cust-1' } }
+    }, headers);
+    const createResult = await postRpc(baseUrl, {
+      jsonrpc: '2.0',
+      id: 'entity-create',
+      method: 'tools/call',
+      params: { name: 'entity_create', arguments: { entityType: 'Task', body: { title: 'Follow up' } } }
+    }, headers);
+
+    assert.deepEqual(JSON.parse(listResult.body.result.content[0].text), [{ id: 'cust-1' }]);
+    assert.deepEqual(JSON.parse(getResult.body.result.content[0].text), { id: 'cust-1', name: 'Acme' });
+    assert.deepEqual(JSON.parse(createResult.body.result.content[0].text), { id: 'task-1', title: 'Follow up' });
+    assert.equal(fakeApi.requests.length, 3);
+  } finally {
+    server.close();
+    fakeApi.server.close();
+  }
+});
+
+test('schema_summary fetches and summarizes live OpenAPI metadata', async () => {
+  const fakeApi = createFakeApi(async (_req, res, record) => {
+    assert.equal(record.method, 'GET');
+    assert.equal(record.path, '/v1/api-docs');
+
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({
+      info: { title: 'ValkyrAI API', version: '2026.05' },
+      tags: [{ name: 'Customer' }, { name: 'MemoryEntry' }],
+      paths: {
+        '/Customer': {},
+        '/Customer/{id}': {},
+        '/MemoryEntry': {},
+        '/SwarmOps/graph': {}
+      }
+    }));
+  });
+
+  const apiBase = await listen(fakeApi.server);
+  const server = createGrayMatterMcpServer({ apiBase: `${apiBase}/v1` });
+  const baseUrl = await listen(server);
+
+  try {
+    const result = await postRpc(baseUrl, {
+      jsonrpc: '2.0',
+      id: 3,
+      method: 'tools/call',
+      params: {
+        name: 'schema_summary',
+        arguments: {}
+      }
+    });
+
+    const summary = JSON.parse(result.body.result.content[0].text);
+    assert.equal(summary.title, 'ValkyrAI API');
+    assert.equal(summary.version, '2026.05');
+    assert.equal(summary.pathCount, 4);
+    assert.deepEqual(summary.entities, ['Customer', 'MemoryEntry', 'SwarmOps']);
+  } finally {
+    server.close();
+    fakeApi.server.close();
+  }
+});
+
+test('tool errors return JSON-RPC errors instead of HTTP failures', async () => {
+  const server = createGrayMatterMcpServer({ apiBase: 'https://api-0.example.test/v1' });
+  const baseUrl = await listen(server);
+
+  try {
+    const result = await postRpc(baseUrl, {
+      jsonrpc: '2.0',
+      id: 'bad-tool',
+      method: 'tools/call',
+      params: {
+        name: 'entity_get',
+        arguments: { entityType: '../Customer', id: 'cust-1' }
+      }
+    });
+
+    assert.equal(result.status, 200);
+    assert.equal(result.body.error.code, -32000);
+    assert.match(result.body.error.message, /entityType/);
+  } finally {
+    server.close();
+  }
+});

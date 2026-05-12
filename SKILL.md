@@ -131,6 +131,10 @@ Memory and graph helpers:
 - `scripts/gm-graph`
 - `scripts/gm-entity`
 
+Local/server packaging:
+- `scripts/gm-light-bootstrap`
+- `scripts/package-local-server`
+
 Design boundary:
 - these scripts are ergonomic wrappers for operators and agents
 - they must not duplicate retry/auth refresh/fallback/replay logic that already exists in shared infrastructure

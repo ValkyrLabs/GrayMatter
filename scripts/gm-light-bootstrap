@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
-"""Generate a self-contained minimal GrayMatter Light ThorAPI bundle."""
+"""Generate a self-contained GrayMatter Light bundle and local server scaffold."""
 from __future__ import annotations
 
 import argparse
+import json
+import os
+import stat
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -14,7 +17,7 @@ DOCKER_COMPOSE = """services:
     container_name: graymatter-light
     restart: unless-stopped
     ports:
-      - \"8080:8080\"
+      - "8080:8080"
     volumes:
       - ./api.hbs.yaml:/app/api.hbs.yaml:ro
       - ./dashboard:/app/dashboard:ro
@@ -29,13 +32,13 @@ DOCKER_COMPOSE = """services:
 
 DASHBOARD_HTML = """<!doctype html>
 <html>
-<head><meta charset=\"utf-8\"><title>GrayMatter Light</title></head>
+<head><meta charset="utf-8"><title>GrayMatter Light</title></head>
 <body>
   <h1>GrayMatter Light</h1>
   <p>Local ThorAPI bundle is running.</p>
   <ul>
-    <li>API docs: <a href=\"/swagger-ui/index.html\">/swagger-ui/index.html</a></li>
-    <li>Health: <a href=\"/actuator/health\">/actuator/health</a></li>
+    <li>API docs: <a href="/swagger-ui/index.html">/swagger-ui/index.html</a></li>
+    <li>Health: <a href="/actuator/health">/actuator/health</a></li>
   </ul>
 </body>
 </html>
@@ -45,9 +48,2794 @@ UPGRADE_NOTE = """# Upgrade to Full GrayMatter
 
 When ready for hosted GrayMatter:
 1. Run `gm-activate --token <token>`.
-2. Use your starter 1000 credits on https://valkyrlabs.com.
+2. Use your starter 500 credits on https://valkyrlabs.com.
 3. Point clients to hosted API base URL after activation.
 """
+
+THORAPI_BUNDLE_YAML = """id: graymatter-local
+version: 0.1.0
+name: GrayMatter Local Server
+description: Standalone GrayMatter application bundle generated from ValkyrAI app-factory inputs.
+generationMode: thorapi-febe
+specFragments:
+  - ./openapi.json
+components:
+  - ./components/graymatter-dashboard.yaml
+  - ./components/memory-workbench.yaml
+  - ./components/mothership-sync.yaml
+  - ./components/swarm-protocol.yaml
+  - ./components/live-telemetry.yaml
+builtInValkyrComponents:
+  - rbac-core
+  - data-workbooks
+dependsOn:
+  - rbac-core
+  - data-workbooks
+"""
+
+GRAYMATTER_DASHBOARD_COMPONENT = """id: graymatter-dashboard
+name: GrayMatterDashboard
+kind: frontend-component
+description: Local GrayMatter dashboard surface for RBAC, memory, and workbook state.
+source: static/index.html
+binds:
+  - GET /api/graymatter/dashboard
+  - GET /actuator/health
+  - GET /api/graymatter/sync/status
+  - GET /api/graymatter/swarm/protocol
+  - GET /api/graymatter/telemetry/status
+"""
+
+MEMORY_WORKBENCH_COMPONENT = """id: memory-entry-workbench
+name: MemoryEntryWorkbench
+kind: frontend-component
+description: MemoryEntry create and query workbench for local durable agent memory.
+source: static/index.html
+binds:
+  - GET /api/memory-entries
+  - POST /api/memory-entries
+"""
+
+MOTHERSHIP_SYNC_COMPONENT = """id: mothership-sync
+name: MothershipPromotionBridge
+kind: backend-component
+description: Promotion and synchronization bridge from local GrayMatter light bundles to valkyrlabs.com.
+source: controller/MothershipSyncController.java
+binds:
+  - GET /api/graymatter/sync/status
+  - POST /api/graymatter/sync/mothership
+target:
+  site: https://valkyrlabs.com
+  api: https://api-0.valkyrlabs.com/v1
+"""
+
+SWARM_PROTOCOL_COMPONENT = """id: swarm-protocol
+name: SwarmProtocolBridge
+kind: backend-component
+description: Local GrayMatter SWARM v0.1 adapter that exposes light-node identity, capabilities, and promotion endpoints.
+source: controller/SwarmProtocolController.java
+binds:
+  - GET /api/graymatter/swarm/protocol
+  - GET /api/graymatter/swarm/graph
+  - GET /api/v1/SwarmOps/graph
+exports:
+  - SwarmOps
+  - graymatter-swarm-v0.1
+"""
+
+LIVE_TELEMETRY_COMPONENT = """id: live-telemetry
+name: LiveTelemetryPanel
+kind: backend-component
+description: Authenticated local telemetry panel for admin-visible GrayMatter light runtime metrics.
+source: controller/LiveTelemetryController.java
+binds:
+  - GET /api/graymatter/telemetry/status
+exports:
+  - Live Telemetry
+  - System Equalizer
+  - Runtime Metrics
+"""
+
+RBAC_CORE_COMPONENT = """id: rbac-core
+name: RBAC Core Services
+description: Built-in Valkyr component for Principal identity, roles, and UserPreferences.
+exports:
+  - Principal
+  - UserPreferences
+  - RBAC
+"""
+
+DATA_WORKBOOKS_COMPONENT = """id: data-workbooks
+name: Data Workbooks
+description: Built-in Valkyr component for GridHeim-style local workbook data surfaces.
+exports:
+  - Workbook
+  - WorkbookStatus
+"""
+
+POM_XML = """<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-parent</artifactId>
+    <version>3.4.5</version>
+    <relativePath/>
+  </parent>
+
+  <groupId>com.valkyrlabs.graymatter</groupId>
+  <artifactId>graymatter-local-server</artifactId>
+  <version>0.1.0</version>
+  <name>GrayMatter Local Server</name>
+  <description>Local GrayMatter server with RBAC, Principal, UserPreferences, MemoryEntry, and Data Workbooks services.</description>
+
+  <properties>
+    <java.version>17</java.version>
+    <maven.compiler.release>17</maven.compiler.release>
+  </properties>
+
+  <dependencies>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-actuator</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-data-jpa</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-security</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-validation</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-web</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>com.h2database</groupId>
+      <artifactId>h2</artifactId>
+      <scope>runtime</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-test</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.security</groupId>
+      <artifactId>spring-security-test</artifactId>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-maven-plugin</artifactId>
+      </plugin>
+    </plugins>
+  </build>
+
+  <profiles>
+    <profile>
+      <id>native</id>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.graalvm.buildtools</groupId>
+            <artifactId>native-maven-plugin</artifactId>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+  </profiles>
+</project>
+"""
+
+APPLICATION_PROPERTIES = """server.port=${SERVER_PORT:8787}
+spring.application.name=graymatter-local-server
+spring.datasource.url=${GRAYMATTER_DB_URL:jdbc:h2:file:./data/graymatter;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;AUTO_SERVER=TRUE}
+spring.datasource.driver-class-name=org.h2.Driver
+spring.datasource.username=${GRAYMATTER_DB_USERNAME:sa}
+spring.datasource.password=${GRAYMATTER_DB_PASSWORD:}
+spring.jpa.hibernate.ddl-auto=update
+spring.jpa.open-in-view=false
+spring.jpa.hibernate.naming.physical-strategy=org.hibernate.boot.model.naming.CamelCaseToUnderscoresNamingStrategy
+spring.h2.console.enabled=false
+management.endpoints.web.exposure.include=health,info
+management.endpoint.health.probes.enabled=true
+graymatter.admin.username=${GRAYMATTER_ADMIN_USERNAME:admin}
+graymatter.admin.password=${GRAYMATTER_ADMIN_PASSWORD:}
+graymatter.admin.display-name=${GRAYMATTER_ADMIN_DISPLAY_NAME:GrayMatter Admin}
+"""
+
+APP_JAVA = """package com.valkyrlabs.graymatter.localserver;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+
+@SpringBootApplication
+public class GrayMatterLocalServerApplication {
+
+    public static void main(String[] args) {
+        SpringApplication.run(GrayMatterLocalServerApplication.class, args);
+    }
+}
+"""
+
+SECURITY_CONFIG = """package com.valkyrlabs.graymatter.localserver.config;
+
+import com.valkyrlabs.graymatter.localserver.model.PrincipalRecord;
+import com.valkyrlabs.graymatter.localserver.repository.PrincipalRecordRepository;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.security.config.Customizer;
+import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.core.userdetails.User;
+import org.springframework.security.core.userdetails.UserDetailsService;
+import org.springframework.security.core.userdetails.UsernameNotFoundException;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.web.SecurityFilterChain;
+
+@Configuration
+public class SecurityConfig {
+
+    @Bean
+    SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+        return http
+            .csrf(csrf -> csrf.disable())
+            .authorizeHttpRequests(auth -> auth
+                .requestMatchers("/", "/index.html", "/favicon.ico", "/assets/**", "/actuator/health", "/actuator/info").permitAll()
+                .requestMatchers("/api/**", "/MemoryEntry/**", "/Workbook/**").authenticated()
+                .anyRequest().permitAll())
+            .httpBasic(Customizer.withDefaults())
+            .formLogin(form -> form.disable())
+            .logout(logout -> logout.disable())
+            .build();
+    }
+
+    @Bean
+    UserDetailsService userDetailsService(PrincipalRecordRepository principalRecords) {
+        return username -> principalRecords.findByUsernameIgnoreCase(username)
+            .map(this::toUserDetails)
+            .orElseThrow(() -> new UsernameNotFoundException("Principal not found: " + username));
+    }
+
+    @Bean
+    PasswordEncoder passwordEncoder() {
+        return new BCryptPasswordEncoder();
+    }
+
+    private org.springframework.security.core.userdetails.UserDetails toUserDetails(PrincipalRecord principal) {
+        return User.withUsername(principal.getUsername())
+            .password(principal.getPasswordHash())
+            .disabled(!principal.isEnabled())
+            .authorities(principal.authorityArray())
+            .build();
+    }
+}
+"""
+
+ADMIN_BOOTSTRAP = """package com.valkyrlabs.graymatter.localserver.bootstrap;
+
+import com.valkyrlabs.graymatter.localserver.model.PrincipalRecord;
+import com.valkyrlabs.graymatter.localserver.model.UserPreferences;
+import com.valkyrlabs.graymatter.localserver.repository.PrincipalRecordRepository;
+import com.valkyrlabs.graymatter.localserver.repository.UserPreferencesRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.CommandLineRunner;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
+
+@Component
+public class AdminBootstrap implements CommandLineRunner {
+    private static final Logger log = LoggerFactory.getLogger(AdminBootstrap.class);
+
+    private final PrincipalRecordRepository principals;
+    private final UserPreferencesRepository preferences;
+    private final PasswordEncoder passwordEncoder;
+    private final String username;
+    private final String password;
+    private final String displayName;
+
+    public AdminBootstrap(
+        PrincipalRecordRepository principals,
+        UserPreferencesRepository preferences,
+        PasswordEncoder passwordEncoder,
+        @Value("${graymatter.admin.username}") String username,
+        @Value("${graymatter.admin.password}") String password,
+        @Value("${graymatter.admin.display-name}") String displayName) {
+        this.principals = principals;
+        this.preferences = preferences;
+        this.passwordEncoder = passwordEncoder;
+        this.username = username;
+        this.password = password;
+        this.displayName = displayName;
+    }
+
+    @Override
+    @Transactional
+    public void run(String... args) {
+        if (password == null || password.isBlank()) {
+            throw new IllegalStateException("Set GRAYMATTER_ADMIN_PASSWORD before starting GrayMatter Local Server.");
+        }
+
+        PrincipalRecord principal = principals.findByUsernameIgnoreCase(username)
+            .orElseGet(() -> principals.save(new PrincipalRecord(
+                username,
+                passwordEncoder.encode(password),
+                displayName,
+                "ROLE_ADMIN,ROLE_USER")));
+
+        preferences.findByPrincipalUsernameIgnoreCase(principal.getUsername())
+            .orElseGet(() -> preferences.save(new UserPreferences(principal, "dark", "local")));
+
+        log.info("GrayMatter Local Server admin principal ready: {}", username);
+    }
+}
+"""
+
+PRINCIPAL_RECORD = """package com.valkyrlabs.graymatter.localserver.model;
+
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.Table;
+import java.time.Instant;
+import java.util.Arrays;
+import java.util.UUID;
+
+@Entity
+@Table(name = "principal")
+public class PrincipalRecord {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.UUID)
+    private UUID id;
+
+    @Column(nullable = false, unique = true)
+    private String username;
+
+    @Column(nullable = false)
+    private String passwordHash;
+
+    @Column(nullable = false)
+    private String displayName;
+
+    @Column(nullable = false, length = 1024)
+    private String roles = "ROLE_USER";
+
+    @Column(nullable = false)
+    private boolean enabled = true;
+
+    @Column(nullable = false, updatable = false)
+    private Instant createdAt = Instant.now();
+
+    protected PrincipalRecord() {
+    }
+
+    public PrincipalRecord(String username, String passwordHash, String displayName, String roles) {
+        this.username = username;
+        this.passwordHash = passwordHash;
+        this.displayName = displayName;
+        this.roles = roles;
+    }
+
+    public UUID getId() {
+        return id;
+    }
+
+    public String getUsername() {
+        return username;
+    }
+
+    public String getPasswordHash() {
+        return passwordHash;
+    }
+
+    public String getDisplayName() {
+        return displayName;
+    }
+
+    public String getRoles() {
+        return roles;
+    }
+
+    public boolean isEnabled() {
+        return enabled;
+    }
+
+    public Instant getCreatedAt() {
+        return createdAt;
+    }
+
+    public String[] authorityArray() {
+        return Arrays.stream(roles.split(","))
+            .map(String::trim)
+            .filter(role -> !role.isBlank())
+            .toArray(String[]::new);
+    }
+}
+"""
+
+USER_PREFERENCES = """package com.valkyrlabs.graymatter.localserver.model;
+
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.FetchType;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.OneToOne;
+import jakarta.persistence.Table;
+import java.time.Instant;
+import java.util.UUID;
+
+@Entity
+@Table(name = "user_preferences")
+public class UserPreferences {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.UUID)
+    private UUID id;
+
+    @OneToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "principal_id", nullable = false, unique = true)
+    private PrincipalRecord principal;
+
+    @Column(nullable = false)
+    private String theme = "dark";
+
+    @Column(nullable = false)
+    private String defaultMemoryScope = "local";
+
+    @Column(nullable = false)
+    private Instant updatedAt = Instant.now();
+
+    protected UserPreferences() {
+    }
+
+    public UserPreferences(PrincipalRecord principal, String theme, String defaultMemoryScope) {
+        this.principal = principal;
+        this.theme = theme;
+        this.defaultMemoryScope = defaultMemoryScope;
+    }
+
+    public UUID getId() {
+        return id;
+    }
+
+    public PrincipalRecord getPrincipal() {
+        return principal;
+    }
+
+    public String getTheme() {
+        return theme;
+    }
+
+    public void setTheme(String theme) {
+        this.theme = theme;
+        this.updatedAt = Instant.now();
+    }
+
+    public String getDefaultMemoryScope() {
+        return defaultMemoryScope;
+    }
+
+    public void setDefaultMemoryScope(String defaultMemoryScope) {
+        this.defaultMemoryScope = defaultMemoryScope;
+        this.updatedAt = Instant.now();
+    }
+
+    public Instant getUpdatedAt() {
+        return updatedAt;
+    }
+}
+"""
+
+MEMORY_ENTRY = """package com.valkyrlabs.graymatter.localserver.model;
+
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.FetchType;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
+import jakarta.persistence.PrePersist;
+import jakarta.persistence.PreUpdate;
+import jakarta.persistence.Table;
+import java.time.Instant;
+import java.util.UUID;
+
+@Entity
+@Table(name = "memory_entry")
+public class MemoryEntry {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.UUID)
+    private UUID id;
+
+    @ManyToOne(fetch = FetchType.EAGER, optional = false)
+    @JoinColumn(name = "principal_id", nullable = false)
+    private PrincipalRecord principal;
+
+    @Column(nullable = false)
+    private String type = "note";
+
+    @Column(nullable = false, length = 16000)
+    private String text;
+
+    @Column(nullable = false)
+    private String sourceChannel = "graymatter-local-server";
+
+    @Column(length = 2048)
+    private String tags = "";
+
+    @Column(nullable = false, updatable = false)
+    private Instant createdAt;
+
+    @Column(nullable = false)
+    private Instant modifiedAt;
+
+    protected MemoryEntry() {
+    }
+
+    public MemoryEntry(PrincipalRecord principal, String type, String text, String sourceChannel, String tags) {
+        this.principal = principal;
+        this.type = type;
+        this.text = text;
+        this.sourceChannel = sourceChannel;
+        this.tags = tags == null ? "" : tags;
+    }
+
+    @PrePersist
+    void prePersist() {
+        Instant now = Instant.now();
+        this.createdAt = now;
+        this.modifiedAt = now;
+    }
+
+    @PreUpdate
+    void preUpdate() {
+        this.modifiedAt = Instant.now();
+    }
+
+    public UUID getId() {
+        return id;
+    }
+
+    public PrincipalRecord getPrincipal() {
+        return principal;
+    }
+
+    public String getType() {
+        return type;
+    }
+
+    public String getText() {
+        return text;
+    }
+
+    public String getSourceChannel() {
+        return sourceChannel;
+    }
+
+    public String getTags() {
+        return tags;
+    }
+
+    public Instant getCreatedAt() {
+        return createdAt;
+    }
+
+    public Instant getModifiedAt() {
+        return modifiedAt;
+    }
+}
+"""
+
+WORKBOOK_RECORD = """package com.valkyrlabs.graymatter.localserver.model;
+
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.FetchType;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
+import jakarta.persistence.PrePersist;
+import jakarta.persistence.PreUpdate;
+import jakarta.persistence.Table;
+import java.time.Instant;
+import java.util.UUID;
+
+@Entity
+@Table(name = "workbook")
+public class WorkbookRecord {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.UUID)
+    private UUID id;
+
+    @ManyToOne(fetch = FetchType.EAGER, optional = false)
+    @JoinColumn(name = "owner_principal_id", nullable = false)
+    private PrincipalRecord owner;
+
+    @Column(nullable = false)
+    private String name;
+
+    @Column(nullable = false)
+    private String status = "WorkbookOpen";
+
+    @Column(nullable = false, updatable = false)
+    private Instant createdAt;
+
+    @Column(nullable = false)
+    private Instant modifiedAt;
+
+    protected WorkbookRecord() {
+    }
+
+    public WorkbookRecord(PrincipalRecord owner, String name, String status) {
+        this.owner = owner;
+        this.name = name;
+        this.status = status == null || status.isBlank() ? "WorkbookOpen" : status;
+    }
+
+    @PrePersist
+    void prePersist() {
+        Instant now = Instant.now();
+        this.createdAt = now;
+        this.modifiedAt = now;
+    }
+
+    @PreUpdate
+    void preUpdate() {
+        this.modifiedAt = Instant.now();
+    }
+
+    public UUID getId() {
+        return id;
+    }
+
+    public PrincipalRecord getOwner() {
+        return owner;
+    }
+
+    public String getName() {
+        return name;
+    }
+
+    public String getStatus() {
+        return status;
+    }
+
+    public Instant getCreatedAt() {
+        return createdAt;
+    }
+
+    public Instant getModifiedAt() {
+        return modifiedAt;
+    }
+}
+"""
+
+PRINCIPAL_REPOSITORY = """package com.valkyrlabs.graymatter.localserver.repository;
+
+import com.valkyrlabs.graymatter.localserver.model.PrincipalRecord;
+import java.util.Optional;
+import java.util.UUID;
+import org.springframework.data.jpa.repository.JpaRepository;
+
+public interface PrincipalRecordRepository extends JpaRepository<PrincipalRecord, UUID> {
+    Optional<PrincipalRecord> findByUsernameIgnoreCase(String username);
+}
+"""
+
+USER_PREFERENCES_REPOSITORY = """package com.valkyrlabs.graymatter.localserver.repository;
+
+import com.valkyrlabs.graymatter.localserver.model.UserPreferences;
+import java.util.Optional;
+import java.util.UUID;
+import org.springframework.data.jpa.repository.JpaRepository;
+
+public interface UserPreferencesRepository extends JpaRepository<UserPreferences, UUID> {
+    Optional<UserPreferences> findByPrincipalUsernameIgnoreCase(String username);
+}
+"""
+
+MEMORY_ENTRY_REPOSITORY = """package com.valkyrlabs.graymatter.localserver.repository;
+
+import com.valkyrlabs.graymatter.localserver.model.MemoryEntry;
+import java.util.List;
+import java.util.UUID;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+
+public interface MemoryEntryRepository extends JpaRepository<MemoryEntry, UUID> {
+
+    @Query(\"\"\"
+        select entry from MemoryEntry entry
+        where lower(entry.principal.username) = lower(:username)
+          and (
+            :query is null
+            or :query = ''
+            or lower(entry.text) like lower(concat('%', :query, '%'))
+            or lower(entry.type) like lower(concat('%', :query, '%'))
+            or lower(entry.tags) like lower(concat('%', :query, '%'))
+          )
+        order by entry.createdAt desc
+        \"\"\")
+    List<MemoryEntry> searchForPrincipal(
+        @Param("username") String username,
+        @Param("query") String query,
+        Pageable pageable);
+
+    long countByPrincipalUsernameIgnoreCase(String username);
+}
+"""
+
+WORKBOOK_RECORD_REPOSITORY = """package com.valkyrlabs.graymatter.localserver.repository;
+
+import com.valkyrlabs.graymatter.localserver.model.WorkbookRecord;
+import java.util.List;
+import java.util.UUID;
+import org.springframework.data.jpa.repository.JpaRepository;
+
+public interface WorkbookRecordRepository extends JpaRepository<WorkbookRecord, UUID> {
+    List<WorkbookRecord> findByOwnerUsernameIgnoreCaseOrderByCreatedAtDesc(String username);
+
+    long countByOwnerUsernameIgnoreCase(String username);
+}
+"""
+
+DASHBOARD_CONTROLLER = """package com.valkyrlabs.graymatter.localserver.controller;
+
+import com.valkyrlabs.graymatter.localserver.model.PrincipalRecord;
+import com.valkyrlabs.graymatter.localserver.repository.MemoryEntryRepository;
+import com.valkyrlabs.graymatter.localserver.repository.PrincipalRecordRepository;
+import com.valkyrlabs.graymatter.localserver.repository.UserPreferencesRepository;
+import com.valkyrlabs.graymatter.localserver.repository.WorkbookRecordRepository;
+import java.security.Principal;
+import java.util.List;
+import java.util.Map;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+@RestController
+@RequestMapping("/api/graymatter")
+public class DashboardController {
+
+    private final PrincipalRecordRepository principals;
+    private final UserPreferencesRepository preferences;
+    private final MemoryEntryRepository memoryEntries;
+    private final WorkbookRecordRepository workbooks;
+
+    public DashboardController(
+        PrincipalRecordRepository principals,
+        UserPreferencesRepository preferences,
+        MemoryEntryRepository memoryEntries,
+        WorkbookRecordRepository workbooks) {
+        this.principals = principals;
+        this.preferences = preferences;
+        this.memoryEntries = memoryEntries;
+        this.workbooks = workbooks;
+    }
+
+    @GetMapping("/dashboard")
+    public Map<String, Object> dashboard(Principal authenticated) {
+        PrincipalRecord principal = principals.findByUsernameIgnoreCase(authenticated.getName())
+            .orElseThrow();
+
+        return Map.ofEntries(
+            Map.entry("product", "GrayMatter Local Server"),
+            Map.entry("generationMode", "thorapi-febe"),
+            Map.entry("principal", Map.of(
+                "id", principal.getId(),
+                "username", principal.getUsername(),
+                "displayName", principal.getDisplayName(),
+                "roles", List.of(principal.authorityArray()))),
+            Map.entry("coreServices", List.of(
+                "RBAC",
+                "Principal",
+                "UserPreferences",
+                "MemoryEntry",
+                "Data Workbooks",
+                "Mothership Sync",
+                "Swarm Protocol",
+                "Live Telemetry")),
+            Map.entry("memoryEntryCount", memoryEntries.countByPrincipalUsernameIgnoreCase(principal.getUsername())),
+            Map.entry("workbookCount", workbooks.countByOwnerUsernameIgnoreCase(principal.getUsername())),
+            Map.entry("preferencesReady", preferences.findByPrincipalUsernameIgnoreCase(principal.getUsername()).isPresent()),
+            Map.entry("storage", "local H2"),
+            Map.entry("bundle", Map.of(
+                "id", "graymatter-local",
+                "generationMode", "thorapi-febe",
+                "sourceTemplate", "graymatter-local",
+                "customComponents", List.of(
+                    "GrayMatterDashboard",
+                    "MemoryEntryWorkbench",
+                    "MothershipPromotionBridge",
+                    "SwarmProtocolBridge",
+                    "LiveTelemetryPanel"))),
+            Map.entry("mothership", Map.of(
+                "target", "https://valkyrlabs.com",
+                "apiBase", "https://api-0.valkyrlabs.com/v1",
+                "mode", "promotion-prepared")),
+            Map.entry("swarmProtocol", Map.of(
+                "protocolVersion", "graymatter-swarm-v0.1",
+                "nodeRole", "light-node",
+                "state", "LOCAL_ONLY")));
+    }
+}
+"""
+
+MEMORY_ENTRY_CONTROLLER = """package com.valkyrlabs.graymatter.localserver.controller;
+
+import com.valkyrlabs.graymatter.localserver.model.MemoryEntry;
+import com.valkyrlabs.graymatter.localserver.model.PrincipalRecord;
+import com.valkyrlabs.graymatter.localserver.repository.MemoryEntryRepository;
+import com.valkyrlabs.graymatter.localserver.repository.PrincipalRecordRepository;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
+import java.security.Principal;
+import java.time.Instant;
+import java.util.List;
+import java.util.UUID;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.ResponseStatus;
+import org.springframework.web.bind.annotation.RestController;
+
+@RestController
+@RequestMapping({"/api/memory-entries", "/MemoryEntry"})
+public class MemoryEntryController {
+
+    private final PrincipalRecordRepository principals;
+    private final MemoryEntryRepository memoryEntries;
+
+    public MemoryEntryController(PrincipalRecordRepository principals, MemoryEntryRepository memoryEntries) {
+        this.principals = principals;
+        this.memoryEntries = memoryEntries;
+    }
+
+    @GetMapping
+    public List<MemoryEntryResponse> list(
+        Principal authenticated,
+        @RequestParam(name = "q", required = false) String query) {
+        return memoryEntries.searchForPrincipal(authenticated.getName(), query, PageRequest.of(0, 50))
+            .stream()
+            .map(MemoryEntryResponse::from)
+            .toList();
+    }
+
+    @PostMapping
+    @ResponseStatus(HttpStatus.CREATED)
+    public MemoryEntryResponse create(
+        Principal authenticated,
+        @Valid @RequestBody CreateMemoryEntryRequest request) {
+        PrincipalRecord principal = principals.findByUsernameIgnoreCase(authenticated.getName())
+            .orElseThrow();
+        MemoryEntry entry = new MemoryEntry(
+            principal,
+            request.type(),
+            request.text(),
+            request.sourceChannel() == null || request.sourceChannel().isBlank()
+                ? "graymatter-local-server"
+                : request.sourceChannel(),
+            request.tags());
+        return MemoryEntryResponse.from(memoryEntries.save(entry));
+    }
+
+    public record CreateMemoryEntryRequest(
+        String type,
+        @NotBlank String text,
+        String sourceChannel,
+        String tags) {
+    }
+
+    public record MemoryEntryResponse(
+        UUID id,
+        String type,
+        String text,
+        String sourceChannel,
+        String tags,
+        Instant createdAt,
+        Instant modifiedAt) {
+        static MemoryEntryResponse from(MemoryEntry entry) {
+            return new MemoryEntryResponse(
+                entry.getId(),
+                entry.getType(),
+                entry.getText(),
+                entry.getSourceChannel(),
+                entry.getTags(),
+                entry.getCreatedAt(),
+                entry.getModifiedAt());
+        }
+    }
+}
+"""
+
+USER_PREFERENCES_CONTROLLER = """package com.valkyrlabs.graymatter.localserver.controller;
+
+import com.valkyrlabs.graymatter.localserver.model.UserPreferences;
+import com.valkyrlabs.graymatter.localserver.repository.UserPreferencesRepository;
+import java.security.Principal;
+import java.time.Instant;
+import java.util.UUID;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+@RestController
+@RequestMapping("/api/user-preferences")
+public class UserPreferencesController {
+
+    private final UserPreferencesRepository preferences;
+
+    public UserPreferencesController(UserPreferencesRepository preferences) {
+        this.preferences = preferences;
+    }
+
+    @GetMapping("/me")
+    public UserPreferencesResponse mine(Principal authenticated) {
+        return preferences.findByPrincipalUsernameIgnoreCase(authenticated.getName())
+            .map(UserPreferencesResponse::from)
+            .orElseThrow();
+    }
+
+    @PutMapping("/me")
+    public UserPreferencesResponse update(
+        Principal authenticated,
+        @RequestBody UpdateUserPreferencesRequest request) {
+        UserPreferences current = preferences.findByPrincipalUsernameIgnoreCase(authenticated.getName())
+            .orElseThrow();
+        if (request.theme() != null && !request.theme().isBlank()) {
+            current.setTheme(request.theme());
+        }
+        if (request.defaultMemoryScope() != null && !request.defaultMemoryScope().isBlank()) {
+            current.setDefaultMemoryScope(request.defaultMemoryScope());
+        }
+        return UserPreferencesResponse.from(preferences.save(current));
+    }
+
+    public record UpdateUserPreferencesRequest(String theme, String defaultMemoryScope) {
+    }
+
+    public record UserPreferencesResponse(
+        UUID id,
+        String username,
+        String theme,
+        String defaultMemoryScope,
+        Instant updatedAt) {
+        static UserPreferencesResponse from(UserPreferences preferences) {
+            return new UserPreferencesResponse(
+                preferences.getId(),
+                preferences.getPrincipal().getUsername(),
+                preferences.getTheme(),
+                preferences.getDefaultMemoryScope(),
+                preferences.getUpdatedAt());
+        }
+    }
+}
+"""
+
+WORKBOOK_CONTROLLER = """package com.valkyrlabs.graymatter.localserver.controller;
+
+import com.valkyrlabs.graymatter.localserver.model.PrincipalRecord;
+import com.valkyrlabs.graymatter.localserver.model.WorkbookRecord;
+import com.valkyrlabs.graymatter.localserver.repository.PrincipalRecordRepository;
+import com.valkyrlabs.graymatter.localserver.repository.WorkbookRecordRepository;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
+import java.security.Principal;
+import java.time.Instant;
+import java.util.List;
+import java.util.UUID;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.ResponseStatus;
+import org.springframework.web.bind.annotation.RestController;
+
+@RestController
+@RequestMapping("/Workbook")
+public class WorkbookController {
+
+    private final PrincipalRecordRepository principals;
+    private final WorkbookRecordRepository workbooks;
+
+    public WorkbookController(PrincipalRecordRepository principals, WorkbookRecordRepository workbooks) {
+        this.principals = principals;
+        this.workbooks = workbooks;
+    }
+
+    @GetMapping
+    public List<WorkbookResponse> list(Principal authenticated) {
+        return workbooks.findByOwnerUsernameIgnoreCaseOrderByCreatedAtDesc(authenticated.getName())
+            .stream()
+            .map(WorkbookResponse::from)
+            .toList();
+    }
+
+    @PostMapping
+    @ResponseStatus(HttpStatus.CREATED)
+    public WorkbookResponse create(Principal authenticated, @Valid @RequestBody CreateWorkbookRequest request) {
+        PrincipalRecord owner = principals.findByUsernameIgnoreCase(authenticated.getName())
+            .orElseThrow();
+        WorkbookRecord workbook = new WorkbookRecord(owner, request.name(), request.status());
+        return WorkbookResponse.from(workbooks.save(workbook));
+    }
+
+    @GetMapping("/{id}")
+    public WorkbookResponse get(Principal authenticated, @PathVariable UUID id) {
+        WorkbookRecord workbook = workbooks.findById(id)
+            .filter(record -> record.getOwner().getUsername().equalsIgnoreCase(authenticated.getName()))
+            .orElseThrow();
+        return WorkbookResponse.from(workbook);
+    }
+
+    public record CreateWorkbookRequest(@NotBlank String name, String status) {
+    }
+
+    public record WorkbookResponse(
+        UUID id,
+        String name,
+        String status,
+        String ownerUsername,
+        Instant createdAt,
+        Instant modifiedAt) {
+        static WorkbookResponse from(WorkbookRecord workbook) {
+            return new WorkbookResponse(
+                workbook.getId(),
+                workbook.getName(),
+                workbook.getStatus(),
+                workbook.getOwner().getUsername(),
+                workbook.getCreatedAt(),
+                workbook.getModifiedAt());
+        }
+    }
+}
+"""
+
+MOTHERSHIP_SYNC_CONTROLLER = """package com.valkyrlabs.graymatter.localserver.controller;
+
+import com.valkyrlabs.graymatter.localserver.model.PrincipalRecord;
+import com.valkyrlabs.graymatter.localserver.repository.MemoryEntryRepository;
+import com.valkyrlabs.graymatter.localserver.repository.PrincipalRecordRepository;
+import com.valkyrlabs.graymatter.localserver.repository.WorkbookRecordRepository;
+import java.security.Principal;
+import java.time.Instant;
+import java.util.List;
+import java.util.Map;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.ResponseStatus;
+import org.springframework.web.bind.annotation.RestController;
+
+@RestController
+@RequestMapping("/api/graymatter/sync")
+public class MothershipSyncController {
+
+    private final PrincipalRecordRepository principals;
+    private final MemoryEntryRepository memoryEntries;
+    private final WorkbookRecordRepository workbooks;
+
+    public MothershipSyncController(
+        PrincipalRecordRepository principals,
+        MemoryEntryRepository memoryEntries,
+        WorkbookRecordRepository workbooks) {
+        this.principals = principals;
+        this.memoryEntries = memoryEntries;
+        this.workbooks = workbooks;
+    }
+
+    @GetMapping("/status")
+    public Map<String, Object> status(Principal authenticated) {
+        PrincipalRecord principal = findPrincipal(authenticated);
+        return syncStatus(principal, "READY_FOR_PROMOTION");
+    }
+
+    @PostMapping("/mothership")
+    @ResponseStatus(HttpStatus.ACCEPTED)
+    public Map<String, Object> promoteToMothership(Principal authenticated) {
+        PrincipalRecord principal = findPrincipal(authenticated);
+        return Map.ofEntries(
+            Map.entry("status", "PROMOTION_PREPARED"),
+            Map.entry("message", "Local GrayMatter light bundle is packaged for authenticated mothership synchronization."),
+            Map.entry("target", "https://valkyrlabs.com"),
+            Map.entry("apiBase", "https://api-0.valkyrlabs.com/v1"),
+            Map.entry("requiresAuth", "VALKYR_AUTH_TOKEN or hosted valkyrlabs.com login"),
+            Map.entry("generatedAt", Instant.now().toString()),
+            Map.entry("principal", principal.getUsername()),
+            Map.entry("payload", Map.of(
+                "bundle", "graymatter-local",
+                "generationMode", "thorapi-febe",
+                "memoryEntryCount", memoryEntries.countByPrincipalUsernameIgnoreCase(principal.getUsername()),
+                "workbookCount", workbooks.countByOwnerUsernameIgnoreCase(principal.getUsername()),
+                "swarmProtocol", "graymatter-swarm-v0.1")),
+            Map.entry("nextSteps", List.of(
+                "Authenticate against https://api-0.valkyrlabs.com/v1 with VALKYR_AUTH_TOKEN.",
+                "POST the generated application-bundle contract and local memory/workbook payload to the hosted promotion API.",
+                "Confirm hosted RBAC scope before switching clients from local light mode to full GrayMatter.")));
+    }
+
+    private PrincipalRecord findPrincipal(Principal authenticated) {
+        return principals.findByUsernameIgnoreCase(authenticated.getName()).orElseThrow();
+    }
+
+    private Map<String, Object> syncStatus(PrincipalRecord principal, String state) {
+        return Map.ofEntries(
+            Map.entry("state", state),
+            Map.entry("target", "https://valkyrlabs.com"),
+            Map.entry("apiBase", "https://api-0.valkyrlabs.com/v1"),
+            Map.entry("mode", "local-light-to-full"),
+            Map.entry("applicationBundle", "graymatter-local"),
+            Map.entry("generationMode", "thorapi-febe"),
+            Map.entry("principal", principal.getUsername()),
+            Map.entry("memoryEntryCount", memoryEntries.countByPrincipalUsernameIgnoreCase(principal.getUsername())),
+            Map.entry("workbookCount", workbooks.countByOwnerUsernameIgnoreCase(principal.getUsername())),
+            Map.entry("auth", Map.of(
+                "required", true,
+                "environmentVariable", "VALKYR_AUTH_TOKEN",
+                "hostedLogin", "https://valkyrlabs.com/login")),
+            Map.entry("swarmProtocol", "graymatter-swarm-v0.1"));
+    }
+}
+"""
+
+LIVE_TELEMETRY_CONTROLLER = """package com.valkyrlabs.graymatter.localserver.controller;
+
+import com.valkyrlabs.graymatter.localserver.model.PrincipalRecord;
+import com.valkyrlabs.graymatter.localserver.repository.MemoryEntryRepository;
+import com.valkyrlabs.graymatter.localserver.repository.PrincipalRecordRepository;
+import com.valkyrlabs.graymatter.localserver.repository.WorkbookRecordRepository;
+import java.lang.management.ManagementFactory;
+import java.lang.management.OperatingSystemMXBean;
+import java.security.Principal;
+import java.time.Instant;
+import java.util.List;
+import java.util.Map;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+@RestController
+@RequestMapping("/api/graymatter/telemetry")
+public class LiveTelemetryController {
+
+    private final PrincipalRecordRepository principals;
+    private final MemoryEntryRepository memoryEntries;
+    private final WorkbookRecordRepository workbooks;
+
+    public LiveTelemetryController(
+        PrincipalRecordRepository principals,
+        MemoryEntryRepository memoryEntries,
+        WorkbookRecordRepository workbooks) {
+        this.principals = principals;
+        this.memoryEntries = memoryEntries;
+        this.workbooks = workbooks;
+    }
+
+    @GetMapping("/status")
+    public Map<String, Object> status(Principal authenticated) {
+        PrincipalRecord principal = principals.findByUsernameIgnoreCase(authenticated.getName()).orElseThrow();
+        Runtime runtime = Runtime.getRuntime();
+        OperatingSystemMXBean os = ManagementFactory.getOperatingSystemMXBean();
+        long usedMemoryMb = (runtime.totalMemory() - runtime.freeMemory()) / (1024 * 1024);
+        long maxMemoryMb = runtime.maxMemory() / (1024 * 1024);
+        long memoryEntryCount = memoryEntries.countByPrincipalUsernameIgnoreCase(principal.getUsername());
+        long workbookCount = workbooks.countByOwnerUsernameIgnoreCase(principal.getUsername());
+
+        return Map.ofEntries(
+            Map.entry("panel", "Live Telemetry"),
+            Map.entry("section", "System Equalizer"),
+            Map.entry("generatedAt", Instant.now().toString()),
+            Map.entry("principal", Map.of(
+                "username", principal.getUsername(),
+                "displayName", principal.getDisplayName(),
+                "roles", List.of(principal.authorityArray()),
+                "admin", List.of(principal.authorityArray()).contains("ROLE_ADMIN"))),
+            Map.entry("mode", "compact"),
+            Map.entry("metrics", List.of(
+                metric("memory.entries", "MemoryEntry records", memoryEntryCount, "records", "ok"),
+                metric("data.workbooks", "Data Workbooks", workbookCount, "workbooks", "ok"),
+                metric("system.equalizer", "System Equalizer", "compact", "mode", "ok"),
+                metric("system.heap.used.mb", "Heap used", usedMemoryMb, "MB", heapState(usedMemoryMb, maxMemoryMb)),
+                metric("system.heap.max.mb", "Heap max", maxMemoryMb, "MB", "ok"),
+                metric("system.load.average", "System load average", os.getSystemLoadAverage(), "load", "ok"),
+                metric("system.processors", "Available processors", os.getAvailableProcessors(), "cores", "ok"))),
+            Map.entry("sources", List.of(
+                "/api/graymatter/dashboard",
+                "/api/graymatter/swarm/protocol",
+                "/api/graymatter/sync/status",
+                "java.lang.management")));
+    }
+
+    private Map<String, Object> metric(String id, String label, Object value, String unit, String state) {
+        return Map.of(
+            "id", id,
+            "label", label,
+            "value", value,
+            "unit", unit,
+            "state", state);
+    }
+
+    private String heapState(long usedMemoryMb, long maxMemoryMb) {
+        if (maxMemoryMb <= 0) {
+            return "unknown";
+        }
+        double ratio = (double) usedMemoryMb / (double) maxMemoryMb;
+        if (ratio > 0.85) {
+            return "warn";
+        }
+        return "ok";
+    }
+}
+"""
+
+SWARM_PROTOCOL_CONTROLLER = """package com.valkyrlabs.graymatter.localserver.controller;
+
+import com.valkyrlabs.graymatter.localserver.model.PrincipalRecord;
+import com.valkyrlabs.graymatter.localserver.repository.MemoryEntryRepository;
+import com.valkyrlabs.graymatter.localserver.repository.PrincipalRecordRepository;
+import com.valkyrlabs.graymatter.localserver.repository.WorkbookRecordRepository;
+import java.nio.charset.StandardCharsets;
+import java.security.Principal;
+import java.time.Instant;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+@RestController
+@RequestMapping({"/api/graymatter/swarm", "/api/v1/SwarmOps"})
+public class SwarmProtocolController {
+
+    private final PrincipalRecordRepository principals;
+    private final MemoryEntryRepository memoryEntries;
+    private final WorkbookRecordRepository workbooks;
+
+    public SwarmProtocolController(
+        PrincipalRecordRepository principals,
+        MemoryEntryRepository memoryEntries,
+        WorkbookRecordRepository workbooks) {
+        this.principals = principals;
+        this.memoryEntries = memoryEntries;
+        this.workbooks = workbooks;
+    }
+
+    @GetMapping({"/protocol", "/graph"})
+    public Map<String, Object> protocol(Principal authenticated) {
+        PrincipalRecord principal = findPrincipal(authenticated);
+        Map<String, Object> node = localNode(principal);
+        return Map.ofEntries(
+            Map.entry("protocolVersion", "graymatter-swarm-v0.1"),
+            Map.entry("state", "LOCAL_LIGHT_READY"),
+            Map.entry("mothership", "https://valkyrlabs.com"),
+            Map.entry("apiBase", "https://api-0.valkyrlabs.com/v1"),
+            Map.entry("node", node),
+            Map.entry("nodes", List.of(node)),
+            Map.entry("edges", List.of(Map.of(
+                "from", node.get("nodeId"),
+                "to", "valkyrlabs-mothership",
+                "type", "promotion-sync",
+                "state", "prepared"))),
+            Map.entry("capabilities", List.of(
+                "local-memory",
+                "data-workbooks",
+                "thorapi-febe-bundle",
+                "promotion-sync",
+                "rbac-session",
+                "SwarmOps")),
+            Map.entry("endpoints", List.of(
+                "/api/graymatter/dashboard",
+                "/api/graymatter/sync/status",
+                "/api/graymatter/sync/mothership",
+                "/api/graymatter/swarm/protocol",
+                "/api/v1/SwarmOps/graph",
+                "/MemoryEntry",
+                "/Workbook")),
+            Map.entry("generatedAt", Instant.now().toString()));
+    }
+
+    @GetMapping("/agents")
+    public Map<String, Object> agents(Principal authenticated) {
+        PrincipalRecord principal = findPrincipal(authenticated);
+        return Map.of(
+            "protocolVersion", "graymatter-swarm-v0.1",
+            "agents", List.of(localNode(principal)));
+    }
+
+    private PrincipalRecord findPrincipal(Principal authenticated) {
+        return principals.findByUsernameIgnoreCase(authenticated.getName()).orElseThrow();
+    }
+
+    private Map<String, Object> localNode(PrincipalRecord principal) {
+        String seed = principal.getUsername() + ":graymatter-local-light";
+        String nodeId = "graymatter-light-" + UUID.nameUUIDFromBytes(seed.getBytes(StandardCharsets.UTF_8));
+        return Map.ofEntries(
+            Map.entry("nodeId", nodeId),
+            Map.entry("role", "light-node"),
+            Map.entry("principal", principal.getUsername()),
+            Map.entry("bundle", "graymatter-local"),
+            Map.entry("memoryEntryCount", memoryEntries.countByPrincipalUsernameIgnoreCase(principal.getUsername())),
+            Map.entry("workbookCount", workbooks.countByOwnerUsernameIgnoreCase(principal.getUsername())),
+            Map.entry("heartbeatTtlSeconds", 60),
+            Map.entry("state", "READY"));
+    }
+}
+"""
+
+STATIC_INDEX = """<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GrayMatter Local Server</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #05080d;
+      --panel: #101925;
+      --line: #17d7df;
+      --green: #6dffcb;
+      --orange: #ff9d35;
+      --text: #f7fbff;
+      --muted: #aab7c4;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background:
+        radial-gradient(circle at 18% 20%, rgba(23, 215, 223, 0.18), transparent 28rem),
+        radial-gradient(circle at 82% 12%, rgba(255, 157, 53, 0.12), transparent 24rem),
+        var(--bg);
+      color: var(--text);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    main { width: min(1120px, calc(100% - 32px)); margin: 0 auto; padding: 48px 0; }
+    header { display: flex; justify-content: space-between; gap: 24px; align-items: flex-start; margin-bottom: 32px; }
+    h1 { margin: 0 0 12px; font-size: clamp(2.2rem, 5vw, 5rem); letter-spacing: 0; line-height: 0.95; }
+    p { color: var(--muted); font-size: 1.05rem; line-height: 1.65; }
+    .status { border: 1px solid rgba(23, 215, 223, 0.35); background: rgba(16, 25, 37, 0.82); padding: 14px 18px; min-width: 220px; }
+    .grid { display: grid; grid-template-columns: minmax(280px, 0.8fr) minmax(320px, 1.2fr); gap: 24px; }
+    section {
+      border: 1px solid rgba(23, 215, 223, 0.32);
+      background: rgba(16, 25, 37, 0.76);
+      padding: 24px;
+      box-shadow: 0 0 30px rgba(23, 215, 223, 0.08);
+    }
+    h2 { margin: 0 0 18px; font-size: 1.05rem; text-transform: uppercase; letter-spacing: 0.12em; color: var(--green); }
+    label { display: block; color: var(--muted); margin: 16px 0 8px; }
+    input, textarea {
+      width: 100%;
+      border: 1px solid rgba(109, 255, 203, 0.38);
+      background: #071018;
+      color: var(--text);
+      padding: 12px 14px;
+      font: inherit;
+    }
+    textarea { min-height: 120px; resize: vertical; }
+    button {
+      margin-top: 18px;
+      border: 1px solid var(--line);
+      background: linear-gradient(90deg, rgba(23, 215, 223, 0.92), rgba(109, 255, 203, 0.92));
+      color: #061018;
+      font-weight: 800;
+      padding: 12px 16px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      cursor: pointer;
+    }
+    .ghost { background: transparent; color: var(--text); }
+    .cards { display: grid; gap: 14px; margin-top: 16px; }
+    .entry { border-left: 3px solid var(--orange); background: rgba(255, 255, 255, 0.04); padding: 14px; }
+    .entry strong { display: block; margin-bottom: 8px; color: var(--green); }
+    code { color: var(--green); }
+    @media (max-width: 760px) {
+      header, .grid { display: block; }
+      .status { margin-top: 20px; }
+      section { margin-bottom: 18px; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <div>
+        <h1>GrayMatter Local Server</h1>
+        <p>Run private agent memory on this machine with RBAC, Principal, UserPreferences, MemoryEntry, and Data Workbooks services. Keep local context portable now, then connect to hosted GrayMatter when the workspace is ready.</p>
+      </div>
+      <div class="status">
+        <strong>Local endpoint</strong>
+        <p><code>http://localhost:8787</code></p>
+      </div>
+    </header>
+
+    <div class="grid">
+      <section>
+        <h2>Login</h2>
+        <p>Use the admin username and password supplied through environment variables before launch.</p>
+        <label for="username">Username</label>
+        <input id="username" value="admin" autocomplete="username">
+        <label for="password">Password</label>
+        <input id="password" type="password" autocomplete="current-password">
+        <button id="connect">Connect</button>
+        <button class="ghost" id="health">Health</button>
+        <p id="session"></p>
+      </section>
+
+      <section>
+        <h2>Dashboard</h2>
+        <div id="dashboard">Connect to inspect local GrayMatter state.</div>
+      </section>
+
+      <section>
+        <h2>Write MemoryEntry</h2>
+        <label for="type">Type</label>
+        <input id="type" value="note">
+        <label for="tags">Tags</label>
+        <input id="tags" value="local,agent-memory">
+        <label for="text">Text</label>
+        <textarea id="text">GrayMatter Local Server is ready.</textarea>
+        <button id="save">Save Memory</button>
+      </section>
+
+      <section>
+        <h2>Recent Memory</h2>
+        <button class="ghost" id="refresh">Refresh</button>
+        <div class="cards" id="entries"></div>
+      </section>
+    </div>
+  </main>
+
+  <script>
+    const authHeader = () => "Basic " + btoa(`${username.value}:${password.value}`);
+    const jsonHeaders = () => ({ "Authorization": authHeader(), "Content-Type": "application/json" });
+    const plainHeaders = () => ({ "Authorization": authHeader() });
+
+    async function loadDashboard() {
+      const response = await fetch("/api/graymatter/dashboard", { headers: plainHeaders() });
+      if (!response.ok) throw new Error(`Dashboard failed: ${response.status}`);
+      const data = await response.json();
+      session.textContent = `Connected as ${data.principal.username}`;
+      dashboard.innerHTML = `
+        <p><strong>${data.product}</strong></p>
+        <p>Principal: <code>${data.principal.displayName}</code></p>
+        <p>RBAC: <code>${data.principal.roles.join(", ")}</code></p>
+        <p>Core services: <code>${data.coreServices.join(", ")}</code></p>
+        <p>Memory entries: <code>${data.memoryEntryCount}</code></p>
+        <p>Data Workbooks: <code>${data.workbookCount}</code></p>
+        <p>Storage: <code>${data.storage}</code></p>
+      `;
+    }
+
+    async function loadEntries() {
+      const response = await fetch("/api/memory-entries", { headers: plainHeaders() });
+      if (!response.ok) throw new Error(`Memory query failed: ${response.status}`);
+      const data = await response.json();
+      entries.innerHTML = data.length
+        ? data.map(entry => `<div class="entry"><strong>${entry.type}</strong><div>${entry.text}</div><p>${entry.tags || ""}</p></div>`).join("")
+        : "<p>No memory entries yet.</p>";
+    }
+
+    connect.onclick = async () => {
+      try {
+        await loadDashboard();
+        await loadEntries();
+      } catch (error) {
+        session.textContent = error.message;
+      }
+    };
+
+    health.onclick = async () => {
+      const response = await fetch("/actuator/health");
+      session.textContent = `Health ${response.status}`;
+    };
+
+    refresh.onclick = async () => {
+      try { await loadEntries(); } catch (error) { session.textContent = error.message; }
+    };
+
+    save.onclick = async () => {
+      try {
+        const response = await fetch("/api/memory-entries", {
+          method: "POST",
+          headers: jsonHeaders(),
+          body: JSON.stringify({ type: type.value, tags: tags.value, text: text.value })
+        });
+        if (!response.ok) throw new Error(`Save failed: ${response.status}`);
+        await loadDashboard();
+        await loadEntries();
+      } catch (error) {
+        session.textContent = error.message;
+      }
+    };
+  </script>
+</body>
+</html>
+"""
+
+STATIC_INDEX_V2 = """<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GrayMatter Local Server</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #061018;
+      --surface: rgba(9, 22, 33, 0.82);
+      --surface-strong: rgba(12, 31, 46, 0.92);
+      --surface-soft: rgba(255, 255, 255, 0.055);
+      --line: rgba(128, 190, 212, 0.26);
+      --line-strong: rgba(82, 221, 255, 0.54);
+      --text: #f5fbff;
+      --muted: #9fb5c2;
+      --accent: #53dfff;
+      --accent-2: #ffc17d;
+      --ok: #74f0bd;
+      --danger: #ff8a8a;
+      --shadow: rgba(0, 8, 16, 0.34);
+    }
+
+    body.light {
+      color-scheme: light;
+      --bg: #f7fafc;
+      --surface: rgba(255, 255, 255, 0.86);
+      --surface-strong: rgba(255, 255, 255, 0.96);
+      --surface-soft: rgba(15, 34, 46, 0.055);
+      --line: rgba(15, 34, 46, 0.14);
+      --line-strong: rgba(2, 132, 199, 0.34);
+      --text: #0d1821;
+      --muted: #5d7180;
+      --accent: #067ca7;
+      --accent-2: #b95b16;
+      --ok: #0f8f64;
+      --danger: #b4232a;
+      --shadow: rgba(12, 35, 50, 0.14);
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      color: var(--text);
+      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background:
+        radial-gradient(circle at 10% 12%, rgba(83, 223, 255, 0.22), transparent 24rem),
+        radial-gradient(circle at 84% 8%, rgba(255, 193, 125, 0.16), transparent 22rem),
+        linear-gradient(160deg, var(--bg), #081722 48%, var(--bg));
+    }
+    body.light {
+      background:
+        radial-gradient(circle at 10% 12%, rgba(2, 132, 199, 0.12), transparent 24rem),
+        radial-gradient(circle at 84% 8%, rgba(185, 91, 22, 0.1), transparent 22rem),
+        linear-gradient(160deg, #f8fafc, #e8f2f7 48%, #f7fafc);
+    }
+    button, input, textarea { font: inherit; }
+    button {
+      min-height: 42px;
+      border: 1px solid var(--line-strong);
+      border-radius: 8px;
+      background: linear-gradient(120deg, var(--accent), #8df1ff 62%, var(--accent-2));
+      color: #061018;
+      font-weight: 760;
+      padding: 0 14px;
+      cursor: pointer;
+      transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+    }
+    button:hover { transform: translateY(-1px); box-shadow: 0 12px 28px var(--shadow); }
+    button.secondary {
+      color: var(--text);
+      background: var(--surface-soft);
+      border-color: var(--line);
+    }
+    a { color: inherit; }
+    code {
+      color: var(--ok);
+      background: var(--surface-soft);
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 0.08rem 0.32rem;
+    }
+
+    .shell {
+      width: min(1240px, calc(100% - 32px));
+      margin: 0 auto;
+      padding: 28px 0 44px;
+    }
+    .topbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 18px;
+      margin-bottom: 26px;
+    }
+    .brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 12px;
+      min-width: 0;
+      text-decoration: none;
+    }
+    .brand svg {
+      width: 44px;
+      height: 44px;
+      flex: 0 0 auto;
+      filter: drop-shadow(0 10px 22px rgba(83, 223, 255, 0.25));
+    }
+    .brand strong {
+      display: block;
+      font-size: 1rem;
+      letter-spacing: 0;
+    }
+    .brand span {
+      display: block;
+      color: var(--muted);
+      font-size: 0.78rem;
+      margin-top: 2px;
+    }
+    .top-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 10px; }
+    .hero {
+      display: grid;
+      grid-template-columns: minmax(0, 1.24fr) minmax(320px, 0.76fr);
+      gap: 18px;
+      align-items: stretch;
+      margin-bottom: 18px;
+    }
+    .hero-copy, .panel, .login-panel, .mode-card {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: linear-gradient(155deg, var(--surface-strong), var(--surface));
+      box-shadow: 0 18px 44px var(--shadow);
+    }
+    .hero-copy {
+      position: relative;
+      overflow: hidden;
+      min-height: 360px;
+      padding: clamp(22px, 4vw, 42px);
+    }
+    .hero-copy::after {
+      content: "";
+      position: absolute;
+      inset: auto 20px 20px auto;
+      width: min(360px, 48vw);
+      aspect-ratio: 1;
+      border: 1px dashed rgba(128, 190, 212, 0.34);
+      border-radius: 999px;
+      background:
+        linear-gradient(90deg, transparent 49.5%, rgba(83, 223, 255, 0.2) 50%, transparent 50.5%),
+        linear-gradient(0deg, transparent 49.5%, rgba(255, 193, 125, 0.16) 50%, transparent 50.5%);
+      opacity: 0.86;
+      pointer-events: none;
+    }
+    .overline {
+      margin: 0;
+      color: color-mix(in srgb, var(--accent) 72%, var(--text) 28%);
+      font-size: 0.76rem;
+      font-weight: 760;
+      text-transform: uppercase;
+      letter-spacing: 0.18em;
+    }
+    h1, h2, h3, p { margin-top: 0; }
+    h1 {
+      position: relative;
+      z-index: 1;
+      max-width: 12ch;
+      margin-bottom: 16px;
+      font-size: clamp(2.6rem, 7vw, 5.8rem);
+      line-height: 0.95;
+      letter-spacing: 0;
+    }
+    .hero-copy .lead {
+      position: relative;
+      z-index: 1;
+      max-width: 68ch;
+      color: var(--muted);
+      line-height: 1.72;
+      font-size: 1.02rem;
+    }
+    .session-banner {
+      display: none;
+      position: relative;
+      z-index: 1;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      width: min(620px, 100%);
+      margin-top: 26px;
+      padding: 14px 16px;
+      border: 1px solid var(--line-strong);
+      border-radius: 8px;
+      background: rgba(83, 223, 255, 0.08);
+    }
+    .authenticated .session-banner { display: flex; }
+    .authenticated #loginPanel { display: none; }
+    .login-panel { padding: 20px; }
+    .login-panel h2, .panel h2 {
+      margin: 0 0 12px;
+      font-size: 0.92rem;
+      text-transform: uppercase;
+      letter-spacing: 0.14em;
+      color: var(--ok);
+    }
+    .form-row { display: grid; gap: 8px; margin-top: 12px; }
+    label { color: var(--muted); font-size: 0.88rem; }
+    input, textarea {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(3, 12, 18, 0.58);
+      color: var(--text);
+      padding: 11px 12px;
+    }
+    body.light input, body.light textarea { background: rgba(255, 255, 255, 0.82); }
+    textarea { min-height: 116px; resize: vertical; }
+    .button-row { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
+    .session-note { color: var(--muted); min-height: 26px; margin: 14px 0 0; }
+    .mode-rail {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+      margin-bottom: 18px;
+    }
+    .mode-card { padding: 15px; min-height: 122px; }
+    .mode-card span, .metric span, .entry span {
+      display: block;
+      color: var(--muted);
+      font-size: 0.76rem;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+    }
+    .mode-card strong {
+      display: block;
+      margin-top: 8px;
+      font-size: 1.08rem;
+    }
+    .mode-card p { color: var(--muted); line-height: 1.5; margin: 8px 0 0; }
+    .dashboard-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1.2fr) minmax(300px, 0.8fr);
+      gap: 18px;
+      align-items: start;
+    }
+    .panel { padding: 20px; }
+    .panel.wide { grid-column: span 2; }
+    .panel p { color: var(--muted); line-height: 1.62; }
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 14px;
+    }
+    .metric {
+      min-height: 92px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--surface-soft);
+      padding: 12px;
+    }
+    .metric strong { display: block; margin-top: 10px; font-size: 1.34rem; }
+    .workspace-grid {
+      display: grid;
+      grid-template-columns: minmax(320px, 0.86fr) minmax(0, 1.14fr);
+      gap: 18px;
+      margin-top: 18px;
+    }
+    .entry-list { display: grid; gap: 10px; margin-top: 12px; }
+    .entry {
+      border: 1px solid var(--line);
+      border-left: 3px solid var(--accent-2);
+      border-radius: 8px;
+      background: var(--surface-soft);
+      padding: 12px;
+    }
+    .entry strong { display: block; margin: 4px 0 8px; }
+    .entry p { margin: 0; color: var(--muted); }
+    .status-lines { display: grid; gap: 9px; margin-top: 12px; }
+    .status-line {
+      display: flex;
+      justify-content: space-between;
+      gap: 14px;
+      border-bottom: 1px solid var(--line);
+      padding-bottom: 9px;
+      color: var(--muted);
+    }
+    .status-line strong { color: var(--text); text-align: right; }
+    .pill-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+    .pill {
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: var(--surface-soft);
+      color: var(--muted);
+      padding: 6px 10px;
+      font-size: 0.78rem;
+    }
+    .sync-output {
+      min-height: 92px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(3, 12, 18, 0.42);
+      color: var(--muted);
+      padding: 12px;
+      overflow: auto;
+    }
+    body.light .sync-output { background: rgba(255, 255, 255, 0.72); }
+    .journey {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 12px;
+    }
+    .journey div {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--surface-soft);
+      padding: 12px;
+      min-height: 108px;
+    }
+    .journey strong { display: block; margin: 8px 0; }
+    .journey p { margin: 0; color: var(--muted); font-size: 0.92rem; }
+    @media (max-width: 980px) {
+      .hero, .dashboard-grid, .workspace-grid { grid-template-columns: 1fr; }
+      .panel.wide { grid-column: auto; }
+      .mode-rail, .metrics, .journey { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+    @media (max-width: 640px) {
+      .shell { width: min(100% - 20px, 1240px); padding-top: 16px; }
+      .topbar { align-items: flex-start; flex-direction: column; }
+      .top-actions { justify-content: flex-start; }
+      .hero-copy { min-height: 0; }
+      .mode-rail, .metrics, .journey { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <header class="topbar">
+      <a class="brand" href="https://valkyrlabs.com" target="_blank" rel="noopener noreferrer" aria-label="Open Valkyr Labs">
+        <svg viewBox="0 0 64 64" role="img" aria-label="Valkyr Labs logo">
+          <circle cx="32" cy="32" r="32" fill="#0d1b2a"/>
+          <circle cx="32" cy="32" r="29" fill="none" stroke="#fff" stroke-width="4"/>
+          <rect x="20" y="20" width="30" height="18" fill="#ffa500" stroke="#fff" stroke-width="2" rx="2"/>
+          <rect x="22" y="22" width="26" height="14" fill="#ffbd45"/>
+          <rect x="29" y="38" width="8" height="18" fill="#ffa500" stroke="#fff" stroke-width="2"/>
+          <path d="M29 43h8M29 48h8M29 53h8" stroke="#fff" stroke-width="1.3"/>
+        </svg>
+        <span><strong>Valkyr Labs</strong><span>GrayMatter Local Server</span></span>
+      </a>
+      <nav class="top-actions" aria-label="Primary actions">
+        <button class="secondary" id="themeToggle" type="button">Light / Full</button>
+        <button class="secondary" id="health" type="button">Health</button>
+        <a href="https://valkyrlabs.com" target="_blank" rel="noopener noreferrer"><button class="secondary" type="button">Full GrayMatter</button></a>
+      </nav>
+    </header>
+
+    <section class="hero">
+      <div class="hero-copy">
+        <p class="overline">GrayMatter Light Bundle</p>
+        <h1>Memory first. Promotion ready.</h1>
+        <p class="lead">
+          This standalone GrayMatter server brings the Valkyr control panel into the local/light runtime:
+          RBAC, Principal identity, UserPreferences, durable MemoryEntry records, Data Workbooks, Swarm Protocol,
+          and a clean path to promote or synchronize with the valkyrlabs.com mothership.
+        </p>
+        <div class="session-banner">
+          <div>
+            <strong id="sessionTitle">Connected</strong>
+            <p class="session-note" id="sessionBannerText">Local dashboard is authenticated.</p>
+          </div>
+          <button class="secondary" id="refreshAll" type="button">Refresh Console</button>
+        </div>
+      </div>
+
+      <aside id="loginPanel" class="login-panel">
+        <h2>Local Login</h2>
+        <p>Use the admin username and password supplied through environment variables before launch. After login, this panel disappears and the control surface stays live.</p>
+        <div class="form-row">
+          <label for="username">Username</label>
+          <input id="username" value="admin" autocomplete="username">
+        </div>
+        <div class="form-row">
+          <label for="password">Password</label>
+          <input id="password" type="password" autocomplete="current-password">
+        </div>
+        <div class="button-row">
+          <button id="connect" type="button">Connect</button>
+          <button class="secondary" id="loginHealth" type="button">Health</button>
+        </div>
+        <p class="session-note" id="session">Connect to inspect local GrayMatter state.</p>
+      </aside>
+    </section>
+
+    <section class="mode-rail" aria-label="Bundle capability summary">
+      <div class="mode-card"><span>Mode</span><strong>Local Light</strong><p>Private H2-backed runtime on this machine.</p></div>
+      <div class="mode-card"><span>Full Path</span><strong>valkyrlabs.com</strong><p>Promotion bridge prepares the bundle for hosted GrayMatter.</p></div>
+      <div class="mode-card"><span>Generation</span><strong>ThorAPI FEBE</strong><p>Schema-first app bundle with custom and built-in Valkyr components.</p></div>
+      <div class="mode-card"><span>Swarm</span><strong>graymatter-swarm-v0.1</strong><p>Local light-node adapter exposed through SwarmOps-compatible endpoints.</p></div>
+    </section>
+
+    <section class="dashboard-grid">
+      <article class="panel">
+        <h2>Command Center</h2>
+        <p id="dashboard">Connect to load the GrayMatter control panel.</p>
+        <div class="metrics" id="metrics"></div>
+        <div class="pill-row" id="servicePills"></div>
+      </article>
+
+      <article class="panel">
+        <h2>Mothership Bridge</h2>
+        <p>Prepare the local light bundle and data summary for authenticated synchronization with <code>valkyrlabs.com</code>.</p>
+        <div class="status-lines" id="syncStatus"></div>
+        <div class="button-row">
+          <button id="promote" type="button">Promote / Synchronize</button>
+        </div>
+        <pre class="sync-output" id="syncOutput">Waiting for authenticated session.</pre>
+      </article>
+
+      <article class="panel wide">
+        <h2>Swarm Protocol</h2>
+        <p>GrayMatter Light exposes a local SWARM v0.1 light-node identity so the standalone bundle can be discovered, graphed, and promoted into the broader ValkyrAI system.</p>
+        <div class="status-lines" id="swarmStatus"></div>
+        <div class="pill-row" id="swarmPills"></div>
+      </article>
+
+      <article class="panel wide">
+        <h2>Live Telemetry</h2>
+        <p>Authenticated admin telemetry for the local light runtime. The System Equalizer is compact by default, but it still returns baseline metrics instead of hiding the panel.</p>
+        <div class="status-lines" id="telemetryStatus"></div>
+        <div class="metrics" id="telemetryMetrics"></div>
+      </article>
+    </section>
+
+    <section class="workspace-grid">
+      <article class="panel">
+        <h2>Memory Graph Workspace</h2>
+        <p>Capture durable local context now; the promotion bridge includes these counts in the mothership handoff.</p>
+        <div class="form-row">
+          <label for="type">Memory type</label>
+          <input id="type" value="context">
+        </div>
+        <div class="form-row">
+          <label for="tags">Tags</label>
+          <input id="tags" value="local,agent-memory,swarm">
+        </div>
+        <div class="form-row">
+          <label for="text">Memory text</label>
+          <textarea id="text">GrayMatter Light is ready to promote into the Valkyr Labs mothership.</textarea>
+        </div>
+        <div class="button-row">
+          <button id="save" type="button">Create Entry</button>
+          <button class="secondary" id="refresh" type="button">Refresh Memory</button>
+        </div>
+      </article>
+
+      <article class="panel">
+        <h2>Recent Memory</h2>
+        <div class="entry-list" id="entries"><p>Connect to load memory entries.</p></div>
+      </article>
+    </section>
+
+    <section class="panel" style="margin-top:18px">
+      <h2>GrayMatter-First Journey</h2>
+      <div class="journey">
+        <div><span class="overline">01</span><strong>Memory</strong><p>Durable MemoryEntry records and RBAC identity come first.</p></div>
+        <div><span class="overline">02</span><strong>Orchestration</strong><p>Swarm Protocol exposes the local node to ValkyrAI coordination.</p></div>
+        <div><span class="overline">03</span><strong>Generated App</strong><p>The bundle remains ThorAPI FEBE with custom dashboard and workbench surfaces.</p></div>
+        <div><span class="overline">04</span><strong>Launch</strong><p>Promote to full GrayMatter when hosted auth and RBAC scope are ready.</p></div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    (() => {
+      const $ = (id) => document.getElementById(id);
+      const elements = {
+        username: $("username"),
+        password: $("password"),
+        session: $("session"),
+        sessionTitle: $("sessionTitle"),
+        sessionBannerText: $("sessionBannerText"),
+        dashboard: $("dashboard"),
+        metrics: $("metrics"),
+        servicePills: $("servicePills"),
+        syncStatus: $("syncStatus"),
+        syncOutput: $("syncOutput"),
+        swarmStatus: $("swarmStatus"),
+        swarmPills: $("swarmPills"),
+        telemetryStatus: $("telemetryStatus"),
+        telemetryMetrics: $("telemetryMetrics"),
+        entries: $("entries"),
+        type: $("type"),
+        tags: $("tags"),
+        text: $("text")
+      };
+
+      const state = { dashboard: null, sync: null, swarm: null, telemetry: null };
+      const escapeHtml = (value) => String(value ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+      const authHeader = () => "Basic " + btoa(`${elements.username.value}:${elements.password.value}`);
+      const plainHeaders = () => ({ "Authorization": authHeader() });
+      const jsonHeaders = () => ({ ...plainHeaders(), "Content-Type": "application/json" });
+
+      async function requestJson(url, options = {}) {
+        const response = await fetch(url, options);
+        if (!response.ok) throw new Error(`${url} failed: ${response.status}`);
+        return response.json();
+      }
+
+      function renderDashboard(data) {
+        state.dashboard = data;
+        elements.sessionTitle.textContent = `Connected as ${data.principal.username}`;
+        elements.sessionBannerText.textContent = `${data.product} is running in ${data.generationMode} mode.`;
+        elements.dashboard.innerHTML = `
+          <strong>${escapeHtml(data.product)}</strong>
+          <p>Principal <code>${escapeHtml(data.principal.displayName)}</code> has RBAC roles <code>${escapeHtml(data.principal.roles.join(", "))}</code>.</p>
+          <p>Bundle <code>${escapeHtml(data.bundle.id)}</code> is generated through <code>${escapeHtml(data.bundle.generationMode)}</code> with local H2 storage.</p>
+        `;
+        elements.metrics.innerHTML = [
+          ["MemoryEntry", data.memoryEntryCount],
+          ["Data Workbooks", data.workbookCount],
+          ["RBAC", data.preferencesReady ? "Ready" : "Pending"],
+          ["Swarm", data.swarmProtocol.protocolVersion]
+        ].map(([label, value]) => `<div class="metric"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`).join("");
+        elements.servicePills.innerHTML = data.coreServices
+          .map((service) => `<span class="pill">${escapeHtml(service)}</span>`)
+          .join("");
+      }
+
+      function renderStatusLines(target, rows) {
+        target.innerHTML = rows
+          .map(([label, value]) => `<div class="status-line"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`)
+          .join("");
+      }
+
+      function renderSync(data) {
+        state.sync = data;
+        renderStatusLines(elements.syncStatus, [
+          ["State", data.state],
+          ["Target", data.target],
+          ["API", data.apiBase],
+          ["Auth", data.auth?.environmentVariable || data.requiresAuth || "VALKYR_AUTH_TOKEN"]
+        ]);
+      }
+
+      function renderSwarm(data) {
+        state.swarm = data;
+        renderStatusLines(elements.swarmStatus, [
+          ["Protocol", data.protocolVersion],
+          ["Node", data.node?.nodeId || "local"],
+          ["Role", data.node?.role || "light-node"],
+          ["State", data.state]
+        ]);
+        elements.swarmPills.innerHTML = (data.capabilities || [])
+          .map((capability) => `<span class="pill">${escapeHtml(capability)}</span>`)
+          .join("");
+      }
+
+      function renderTelemetry(data) {
+        state.telemetry = data;
+        renderStatusLines(elements.telemetryStatus, [
+          ["Panel", data.panel],
+          ["Section", data.section],
+          ["Mode", data.mode],
+          ["Admin", data.principal?.admin ? "yes" : "no"]
+        ]);
+        elements.telemetryMetrics.innerHTML = (data.metrics || [])
+          .map((metric) => `<div class="metric"><span>${escapeHtml(metric.label)}</span><strong>${escapeHtml(metric.value)} ${escapeHtml(metric.unit || "")}</strong></div>`)
+          .join("");
+      }
+
+      function renderEntries(data) {
+        elements.entries.innerHTML = data.length
+          ? data.map((entry) => `
+              <div class="entry">
+                <span>${escapeHtml(entry.type || "context")}</span>
+                <strong>${escapeHtml(entry.text || "Untitled Memory")}</strong>
+                <p>${escapeHtml(entry.tags || "local")}</p>
+              </div>`).join("")
+          : "<p>No memory entries yet. Create one to seed the local graph.</p>";
+      }
+
+      async function loadDashboard() {
+        const data = await requestJson("/api/graymatter/dashboard", { headers: plainHeaders() });
+        document.body.classList.add("authenticated");
+        elements.session.textContent = "";
+        renderDashboard(data);
+      }
+
+      async function loadSyncStatus() {
+        renderSync(await requestJson("/api/graymatter/sync/status", { headers: plainHeaders() }));
+      }
+
+      async function loadSwarm() {
+        renderSwarm(await requestJson("/api/graymatter/swarm/protocol", { headers: plainHeaders() }));
+      }
+
+      async function loadTelemetry() {
+        renderTelemetry(await requestJson("/api/graymatter/telemetry/status", { headers: plainHeaders() }));
+      }
+
+      async function loadEntries() {
+        renderEntries(await requestJson("/api/memory-entries", { headers: plainHeaders() }));
+      }
+
+      async function establishSession() {
+        try {
+          elements.session.textContent = "Connecting...";
+          await loadDashboard();
+          await Promise.all([loadSyncStatus(), loadSwarm(), loadTelemetry(), loadEntries()]);
+        } catch (error) {
+          document.body.classList.remove("authenticated");
+          elements.session.textContent = error.message;
+        }
+      }
+
+      async function checkHealth(target = elements.session) {
+        const response = await fetch("/actuator/health");
+        target.textContent = `Health ${response.status}`;
+      }
+
+      $("connect").onclick = establishSession;
+      $("refreshAll").onclick = establishSession;
+      $("refresh").onclick = async () => {
+        try { await loadEntries(); } catch (error) { elements.sessionBannerText.textContent = error.message; }
+      };
+      $("health").onclick = () => checkHealth(elements.sessionBannerText);
+      $("loginHealth").onclick = () => checkHealth(elements.session);
+      $("themeToggle").onclick = () => document.body.classList.toggle("light");
+
+      $("promote").onclick = async () => {
+        try {
+          const response = await requestJson("/api/graymatter/sync/mothership", {
+            method: "POST",
+            headers: plainHeaders()
+          });
+          elements.syncOutput.textContent = JSON.stringify(response, null, 2);
+          await loadSyncStatus();
+        } catch (error) {
+          elements.syncOutput.textContent = error.message;
+        }
+      };
+
+      $("save").onclick = async () => {
+        try {
+          await requestJson("/api/memory-entries", {
+            method: "POST",
+            headers: jsonHeaders(),
+            body: JSON.stringify({
+              type: elements.type.value,
+              tags: elements.tags.value,
+              text: elements.text.value,
+              sourceChannel: "graymatter-local-dashboard"
+            })
+          });
+          await loadDashboard();
+          await Promise.all([loadEntries(), loadSyncStatus(), loadSwarm(), loadTelemetry()]);
+        } catch (error) {
+          elements.sessionBannerText.textContent = error.message;
+        }
+      };
+    })();
+  </script>
+</body>
+</html>
+"""
+
+README_LOCAL_SERVER = """# GrayMatter Local Server
+
+GrayMatter Local Server is a downloadable, executable starter for private agent memory.
+
+It runs a minimum Spring Boot server on your machine with:
+
+- RBAC-backed login through Spring Security
+- `Principal` identity records
+- `UserPreferences` for local user state
+- `MemoryEntry` create/query APIs
+- Data Workbooks through the `/Workbook` API
+- an embedded Valkyr Labs-branded dashboard at `http://localhost:8787`
+- a Mothership promotion bridge at `/api/graymatter/sync/*`
+- a local GrayMatter SWARM v0.1 light-node adapter at `/api/graymatter/swarm/protocol`
+- a ValkyrAI app-factory `application-bundle` with ThorAPI FEBE inputs
+- H2 file storage in `./data`
+- a Maven native profile for GraalVM/Spring Native builds
+
+## Run
+
+Set local admin credentials before launch:
+
+```bash
+export GRAYMATTER_ADMIN_USERNAME=admin
+read -rsp "GrayMatter admin password: " GRAYMATTER_ADMIN_PASSWORD
+export GRAYMATTER_ADMIN_PASSWORD
+bin/graymatter-local-server
+```
+
+## Build from source
+
+```bash
+cd source
+./mvnw package
+```
+
+If the archive includes `lib/graymatter-local-server.jar`, the launcher runs it directly.
+Otherwise it builds from `source` with local Maven or the Maven wrapper.
+
+## Promote / Synchronize
+
+The dashboard button calls `POST /api/graymatter/sync/mothership`.
+This prepares a promotion payload and reports the local bundle, memory, workbook,
+and Swarm Protocol state. It does not claim hosted synchronization completed
+unless the operator supplies hosted auth such as `VALKYR_AUTH_TOKEN`.
+
+Swarm Protocol status is exposed locally at:
+
+```bash
+curl -u "admin:$GRAYMATTER_ADMIN_PASSWORD" http://localhost:8787/api/graymatter/swarm/protocol
+```
+
+## Native build
+
+With GraalVM native-image installed:
+
+```bash
+cd source
+./mvnw -Pnative native:compile
+```
+"""
+
+LAUNCHER = """#!/usr/bin/env bash
+set -euo pipefail
+
+APP_HOME="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+JAR="$APP_HOME/lib/graymatter-local-server.jar"
+SOURCE_DIR="$APP_HOME/source"
+
+export SERVER_PORT="${SERVER_PORT:-8787}"
+mkdir -p "$APP_HOME/data"
+
+if [[ -f "$JAR" ]]; then
+  exec java -jar "$JAR" "$@"
+fi
+
+if [[ ! -d "$SOURCE_DIR" ]]; then
+  echo "GrayMatter Local Server source is missing: $SOURCE_DIR" >&2
+  exit 1
+fi
+
+cd "$SOURCE_DIR"
+if [[ -x ./mvnw ]]; then
+  ./mvnw -q -DskipTests package
+elif command -v mvn >/dev/null 2>&1; then
+  mvn -q -DskipTests package
+else
+  echo "Java package not bundled and Maven is unavailable. Install Maven or use a native/bundled GrayMatter package." >&2
+  exit 1
+fi
+
+BUILT_JAR="$(find target -maxdepth 1 -type f -name 'graymatter-local-server-*.jar' ! -name '*sources*' | sort | tail -n 1)"
+if [[ -z "$BUILT_JAR" ]]; then
+  echo "GrayMatter Local Server build did not produce a runnable jar." >&2
+  exit 1
+fi
+
+exec java -jar "$BUILT_JAR" "$@"
+"""
+
+
+def write_file(path: Path, content: str, mode: int | None = None) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8")
+    if mode is not None:
+        current_mode = stat.S_IMODE(path.stat().st_mode)
+        path.chmod(current_mode | mode)
+
+
+def graymatter_openapi_spec() -> dict:
+    return {
+        "openapi": "3.0.3",
+        "info": {
+            "title": "GrayMatter Local Runtime API",
+            "version": "0.1.0",
+            "description": "ThorAPI FEBE contract for the standalone GrayMatter local server.",
+        },
+        "servers": [{"url": "http://localhost:8787"}],
+        "x-thorapi-generation": {
+            "mode": "febe",
+            "sourceTemplate": "graymatter-local",
+            "customComponents": [
+                "GrayMatterDashboard",
+                "MemoryEntryWorkbench",
+                "MothershipPromotionBridge",
+                "SwarmProtocolBridge",
+                "LiveTelemetryPanel",
+            ],
+            "builtInValkyrComponents": ["rbac-core", "data-workbooks"],
+        },
+        "paths": {
+            "/api/graymatter/dashboard": {
+                "get": {
+                    "operationId": "getGrayMatterDashboard",
+                    "summary": "Returns the local GrayMatter dashboard model.",
+                    "responses": {
+                        "200": {
+                            "description": "GrayMatter dashboard payload",
+                            "content": {
+                                "application/json": {
+                                    "schema": {"$ref": "#/components/schemas/GrayMatterDashboard"}
+                                }
+                            },
+                        }
+                    },
+                }
+            },
+            "/api/graymatter/sync/status": {
+                "get": {
+                    "operationId": "getGrayMatterMothershipSyncStatus",
+                    "summary": "Return local-to-mothership promotion readiness.",
+                    "responses": {
+                        "200": {
+                            "description": "Mothership sync status",
+                            "content": {
+                                "application/json": {
+                                    "schema": {"$ref": "#/components/schemas/MothershipSyncStatus"}
+                                }
+                            },
+                        }
+                    },
+                }
+            },
+            "/api/graymatter/sync/mothership": {
+                "post": {
+                    "operationId": "promoteGrayMatterToMothership",
+                    "summary": "Prepare a local GrayMatter light bundle for authenticated mothership synchronization.",
+                    "responses": {
+                        "202": {
+                            "description": "Promotion package prepared",
+                            "content": {
+                                "application/json": {
+                                    "schema": {"$ref": "#/components/schemas/MothershipSyncResponse"}
+                                }
+                            },
+                        }
+                    },
+                }
+            },
+            "/api/graymatter/swarm/protocol": {
+                "get": {
+                    "operationId": "getGrayMatterSwarmProtocol",
+                    "summary": "Return the local GrayMatter SWARM v0.1 adapter state.",
+                    "responses": {
+                        "200": {
+                            "description": "Swarm protocol status",
+                            "content": {
+                                "application/json": {
+                                    "schema": {"$ref": "#/components/schemas/SwarmProtocolStatus"}
+                                }
+                            },
+                        }
+                    },
+                }
+            },
+            "/api/graymatter/telemetry/status": {
+                "get": {
+                    "operationId": "getGrayMatterLiveTelemetryStatus",
+                    "summary": "Return authenticated local GrayMatter live telemetry metrics.",
+                    "responses": {
+                        "200": {
+                            "description": "Live telemetry status",
+                            "content": {
+                                "application/json": {
+                                    "schema": {"$ref": "#/components/schemas/LiveTelemetryStatus"}
+                                }
+                            },
+                        }
+                    },
+                }
+            },
+            "/MemoryEntry": {
+                "get": {
+                    "operationId": "listMemoryEntries",
+                    "summary": "List MemoryEntry records for the authenticated Principal.",
+                    "responses": {
+                        "200": {
+                            "description": "MemoryEntry records",
+                            "content": {
+                                "application/json": {
+                                    "schema": {
+                                        "type": "array",
+                                        "items": {"$ref": "#/components/schemas/MemoryEntry"},
+                                    }
+                                }
+                            },
+                        }
+                    },
+                },
+                "post": {
+                    "operationId": "createMemoryEntry",
+                    "summary": "Create a MemoryEntry.",
+                    "requestBody": {
+                        "required": True,
+                        "content": {
+                            "application/json": {
+                                "schema": {"$ref": "#/components/schemas/MemoryEntry"}
+                            }
+                        },
+                    },
+                    "responses": {"201": {"description": "MemoryEntry created"}},
+                },
+            },
+            "/api/user-preferences/me": {
+                "get": {
+                    "operationId": "getCurrentUserPreferences",
+                    "summary": "Return UserPreferences for the authenticated Principal.",
+                    "responses": {"200": {"description": "Current preferences"}},
+                }
+            },
+            "/Workbook": {
+                "get": {
+                    "operationId": "listWorkbooks",
+                    "summary": "List Data Workbooks for the authenticated Principal.",
+                    "responses": {
+                        "200": {
+                            "description": "Workbook records",
+                            "content": {
+                                "application/json": {
+                                    "schema": {
+                                        "type": "array",
+                                        "items": {"$ref": "#/components/schemas/Workbook"},
+                                    }
+                                }
+                            },
+                        }
+                    },
+                },
+                "post": {
+                    "operationId": "createWorkbook",
+                    "summary": "Create a Data Workbook.",
+                    "requestBody": {
+                        "required": True,
+                        "content": {
+                            "application/json": {
+                                "schema": {"$ref": "#/components/schemas/Workbook"}
+                            }
+                        },
+                    },
+                    "responses": {"201": {"description": "Workbook created"}},
+                },
+            },
+            "/Workbook/{id}": {
+                "get": {
+                    "operationId": "getWorkbook",
+                    "summary": "Return a single Data Workbook.",
+                    "parameters": [
+                        {
+                            "name": "id",
+                            "in": "path",
+                            "required": True,
+                            "schema": {"type": "string", "format": "uuid"},
+                        }
+                    ],
+                    "responses": {"200": {"description": "Workbook record"}},
+                }
+            },
+        },
+        "components": {
+            "schemas": {
+                "Principal": {
+                    "type": "object",
+                    "properties": {
+                        "id": {"type": "string", "format": "uuid"},
+                        "username": {"type": "string"},
+                        "displayName": {"type": "string"},
+                        "roles": {"type": "array", "items": {"type": "string"}},
+                    },
+                },
+                "UserPreferences": {
+                    "type": "object",
+                    "properties": {
+                        "id": {"type": "string", "format": "uuid"},
+                        "username": {"type": "string"},
+                        "theme": {"type": "string"},
+                        "defaultMemoryScope": {"type": "string"},
+                    },
+                },
+                "MemoryEntry": {
+                    "type": "object",
+                    "required": ["text"],
+                    "properties": {
+                        "id": {"type": "string", "format": "uuid"},
+                        "type": {"type": "string"},
+                        "text": {"type": "string"},
+                        "sourceChannel": {"type": "string"},
+                        "tags": {"type": "string"},
+                        "createdAt": {"type": "string", "format": "date-time"},
+                        "modifiedAt": {"type": "string", "format": "date-time"},
+                    },
+                },
+                "Workbook": {
+                    "type": "object",
+                    "required": ["name"],
+                    "description": "GridHeim Data Workbook surface bundled into the local GrayMatter server.",
+                    "properties": {
+                        "id": {"type": "string", "format": "uuid"},
+                        "name": {"type": "string", "example": "My Workbook"},
+                        "status": {
+                            "type": "string",
+                            "enum": [
+                                "WorkbookOpen",
+                                "WorkbookClosed",
+                                "WorkbookArchived",
+                                "WorkbookError",
+                                "WorkbookInvalid",
+                            ],
+                            "default": "WorkbookOpen",
+                        },
+                        "ownerUsername": {"type": "string"},
+                        "createdAt": {"type": "string", "format": "date-time"},
+                        "modifiedAt": {"type": "string", "format": "date-time"},
+                    },
+                },
+                "GrayMatterDashboard": {
+                    "type": "object",
+                    "properties": {
+                        "product": {"type": "string"},
+                        "generationMode": {"type": "string"},
+                        "principal": {"$ref": "#/components/schemas/Principal"},
+                        "coreServices": {"type": "array", "items": {"type": "string"}},
+                        "memoryEntryCount": {"type": "integer"},
+                        "workbookCount": {"type": "integer"},
+                        "bundle": {"type": "object"},
+                        "mothership": {"type": "object"},
+                        "swarmProtocol": {"type": "object"},
+                        "storage": {"type": "string"},
+                    },
+                },
+                "MothershipSyncStatus": {
+                    "type": "object",
+                    "properties": {
+                        "state": {"type": "string"},
+                        "target": {"type": "string", "example": "https://valkyrlabs.com"},
+                        "apiBase": {"type": "string", "example": "https://api-0.valkyrlabs.com/v1"},
+                        "applicationBundle": {"type": "string"},
+                        "generationMode": {"type": "string"},
+                        "memoryEntryCount": {"type": "integer"},
+                        "workbookCount": {"type": "integer"},
+                        "swarmProtocol": {"type": "string"},
+                    },
+                },
+                "MothershipSyncResponse": {
+                    "type": "object",
+                    "properties": {
+                        "status": {"type": "string", "example": "PROMOTION_PREPARED"},
+                        "message": {"type": "string"},
+                        "target": {"type": "string"},
+                        "apiBase": {"type": "string"},
+                        "requiresAuth": {"type": "string"},
+                        "payload": {"type": "object"},
+                        "nextSteps": {"type": "array", "items": {"type": "string"}},
+                    },
+                },
+                "SwarmProtocolStatus": {
+                    "type": "object",
+                    "properties": {
+                        "protocolVersion": {"type": "string", "example": "graymatter-swarm-v0.1"},
+                        "state": {"type": "string"},
+                        "mothership": {"type": "string"},
+                        "apiBase": {"type": "string"},
+                        "node": {"type": "object"},
+                        "nodes": {"type": "array", "items": {"type": "object"}},
+                        "edges": {"type": "array", "items": {"type": "object"}},
+                        "capabilities": {"type": "array", "items": {"type": "string"}},
+                        "endpoints": {"type": "array", "items": {"type": "string"}},
+                    },
+                },
+                "LiveTelemetryMetric": {
+                    "type": "object",
+                    "properties": {
+                        "id": {"type": "string"},
+                        "label": {"type": "string"},
+                        "value": {},
+                        "unit": {"type": "string"},
+                        "state": {"type": "string"},
+                    },
+                },
+                "LiveTelemetryStatus": {
+                    "type": "object",
+                    "properties": {
+                        "panel": {"type": "string", "example": "Live Telemetry"},
+                        "section": {"type": "string", "example": "System Equalizer"},
+                        "mode": {"type": "string", "example": "compact"},
+                        "principal": {"type": "object"},
+                        "metrics": {
+                            "type": "array",
+                            "items": {"$ref": "#/components/schemas/LiveTelemetryMetric"},
+                        },
+                        "sources": {"type": "array", "items": {"type": "string"}},
+                    },
+                },
+            }
+        },
+    }
+
+
+def write_application_bundle(bundle_dir: Path) -> None:
+    template = {
+        "key": "graymatter-local",
+        "name": "GrayMatter Local Server",
+        "description": "Standalone downloadable GrayMatter application generated from ValkyrAI app-factory inputs.",
+        "deployProfile": "web-plus-api",
+        "generationMode": "thorapi-febe",
+        "workflow": {"defaultFlow": "graymatter-local-bootstrap"},
+        "billingModel": "one-time",
+        "sourceTemplate": "graymatter-local",
+        "sharedModules": {
+            "auth": {"provider": "thorapi-session", "roles": ["owner", "admin", "member"]},
+            "workflow": {"engine": "mcp.workflow.execute", "defaultFlow": "graymatter-local-bootstrap"},
+            "swarm": {"protocol": "graymatter-swarm-v0.1", "component": "swarm-protocol"},
+            "promotion": {"target": "https://valkyrlabs.com", "component": "mothership-sync"},
+        },
+        "openApiSchemaRef": "./openapi.json",
+        "customComponents": [
+            "GrayMatterDashboard",
+            "MemoryEntryWorkbench",
+            "MothershipPromotionBridge",
+            "SwarmProtocolBridge",
+            "LiveTelemetryPanel",
+        ],
+        "builtInValkyrComponents": ["rbac-core", "data-workbooks"],
+    }
+    workflow = {
+        "id": "graymatter-local-bootstrap",
+        "name": "GrayMatter Local Bootstrap",
+        "steps": [
+            {
+                "id": "resolve-template",
+                "type": "service-call",
+                "config": {
+                    "service": "thorapi.app.template.resolve",
+                    "inputMap": {"templateKey": "graymatter-local"},
+                },
+            },
+            {
+                "id": "compose-thorapi-febe",
+                "type": "service-call",
+                "config": {
+                    "service": "thorapi.app.launch.contract",
+                    "inputMap": {
+                        "templateKey": "graymatter-local",
+                        "deployProfile": "web-plus-api",
+                        "generationMode": "thorapi-febe",
+                        "openApiSchemaPath": "application-bundle/openapi.json",
+                        "components": [
+                            "components/graymatter-dashboard.yaml",
+                            "components/memory-workbench.yaml",
+                            "components/mothership-sync.yaml",
+                            "components/swarm-protocol.yaml",
+                            "components/live-telemetry.yaml",
+                            "valkyr-components/rbac-core.yaml",
+                            "valkyr-components/data-workbooks.yaml",
+                        ],
+                    },
+                },
+            },
+        ],
+    }
+
+    write_file(bundle_dir / "template.json", json.dumps(template, indent=2) + "\n")
+    write_file(bundle_dir / "openapi.json", json.dumps(graymatter_openapi_spec(), indent=2) + "\n")
+    write_file(bundle_dir / "workflows/graymatter-local-bootstrap.workflow.json", json.dumps(workflow, indent=2) + "\n")
+    write_file(bundle_dir / "thorapi/graymatter-local.bundle.yaml", THORAPI_BUNDLE_YAML)
+    write_file(bundle_dir / "components/graymatter-dashboard.yaml", GRAYMATTER_DASHBOARD_COMPONENT)
+    write_file(bundle_dir / "components/memory-workbench.yaml", MEMORY_WORKBENCH_COMPONENT)
+    write_file(bundle_dir / "components/mothership-sync.yaml", MOTHERSHIP_SYNC_COMPONENT)
+    write_file(bundle_dir / "components/swarm-protocol.yaml", SWARM_PROTOCOL_COMPONENT)
+    write_file(bundle_dir / "components/live-telemetry.yaml", LIVE_TELEMETRY_COMPONENT)
+    write_file(bundle_dir / "valkyr-components/rbac-core.yaml", RBAC_CORE_COMPONENT)
+    write_file(bundle_dir / "valkyr-components/data-workbooks.yaml", DATA_WORKBOOKS_COMPONENT)
+
+
+def write_local_server(local_server_dir: Path) -> None:
+    package_dir = local_server_dir / "src/main/java/com/valkyrlabs/graymatter/localserver"
+    manifest = {
+        "artifactId": "graymatter-local-server",
+        "version": "0.1.0",
+        "java": "17",
+        "generationMode": "thorapi-febe",
+        "sourceTemplate": "graymatter-local",
+        "customComponents": [
+            "GrayMatterDashboard",
+            "MemoryEntryWorkbench",
+            "MothershipPromotionBridge",
+            "SwarmProtocolBridge",
+            "LiveTelemetryPanel",
+        ],
+        "builtInValkyrComponents": ["rbac-core", "data-workbooks"],
+        "coreServices": [
+            "RBAC",
+            "Principal",
+            "UserPreferences",
+            "MemoryEntry",
+            "Data Workbooks",
+            "Mothership Sync",
+            "Swarm Protocol",
+            "Live Telemetry",
+        ],
+        "dashboard": "http://localhost:8787",
+        "mothership": "https://valkyrlabs.com",
+        "apiBase": "https://api-0.valkyrlabs.com/v1",
+        "swarmProtocol": "graymatter-swarm-v0.1",
+        "database": "local H2",
+    }
+
+    write_file(local_server_dir / "pom.xml", POM_XML)
+    write_file(local_server_dir / "README.md", README_LOCAL_SERVER)
+    write_file(local_server_dir / "manifest.json", json.dumps(manifest, indent=2) + "\n")
+    write_file(local_server_dir / "bin/graymatter-local-server", LAUNCHER, stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+    write_file(package_dir / "GrayMatterLocalServerApplication.java", APP_JAVA)
+    write_file(package_dir / "config/SecurityConfig.java", SECURITY_CONFIG)
+    write_file(package_dir / "bootstrap/AdminBootstrap.java", ADMIN_BOOTSTRAP)
+    write_file(package_dir / "model/PrincipalRecord.java", PRINCIPAL_RECORD)
+    write_file(package_dir / "model/UserPreferences.java", USER_PREFERENCES)
+    write_file(package_dir / "model/MemoryEntry.java", MEMORY_ENTRY)
+    write_file(package_dir / "model/WorkbookRecord.java", WORKBOOK_RECORD)
+    write_file(package_dir / "repository/PrincipalRecordRepository.java", PRINCIPAL_REPOSITORY)
+    write_file(package_dir / "repository/UserPreferencesRepository.java", USER_PREFERENCES_REPOSITORY)
+    write_file(package_dir / "repository/MemoryEntryRepository.java", MEMORY_ENTRY_REPOSITORY)
+    write_file(package_dir / "repository/WorkbookRecordRepository.java", WORKBOOK_RECORD_REPOSITORY)
+    write_file(package_dir / "controller/DashboardController.java", DASHBOARD_CONTROLLER)
+    write_file(package_dir / "controller/MemoryEntryController.java", MEMORY_ENTRY_CONTROLLER)
+    write_file(package_dir / "controller/LiveTelemetryController.java", LIVE_TELEMETRY_CONTROLLER)
+    write_file(package_dir / "controller/MothershipSyncController.java", MOTHERSHIP_SYNC_CONTROLLER)
+    write_file(package_dir / "controller/SwarmProtocolController.java", SWARM_PROTOCOL_CONTROLLER)
+    write_file(package_dir / "controller/UserPreferencesController.java", USER_PREFERENCES_CONTROLLER)
+    write_file(package_dir / "controller/WorkbookController.java", WORKBOOK_CONTROLLER)
+    write_file(local_server_dir / "src/main/resources/application.properties", APPLICATION_PROPERTIES)
+    write_file(local_server_dir / "src/main/resources/static/index.html", STATIC_INDEX_V2)
 
 
 def main() -> int:
@@ -64,13 +2852,17 @@ def main() -> int:
     data_dir.mkdir(parents=True, exist_ok=True)
 
     spec = EXAMPLE_SPEC.read_text(encoding="utf-8")
-    (out_dir / "api.hbs.yaml").write_text(spec, encoding="utf-8")
-    (out_dir / "docker-compose.yaml").write_text(DOCKER_COMPOSE, encoding="utf-8")
-    (dashboard_dir / "index.html").write_text(DASHBOARD_HTML, encoding="utf-8")
-    (out_dir / "UPGRADE.md").write_text(UPGRADE_NOTE, encoding="utf-8")
+    write_file(out_dir / "api.hbs.yaml", spec)
+    write_file(out_dir / "docker-compose.yaml", DOCKER_COMPOSE)
+    write_file(dashboard_dir / "index.html", DASHBOARD_HTML)
+    write_file(out_dir / "UPGRADE.md", UPGRADE_NOTE)
+    write_application_bundle(out_dir / "application-bundle")
+    write_local_server(out_dir / "local-server")
+
+    os.makedirs(out_dir / "local-server/data", exist_ok=True)
 
     print(f"Created GrayMatter Light bundle at {out_dir}")
-    print("Next: docker compose up -d")
+    print("Next: docker compose up -d or local-server/bin/graymatter-local-server")
     return 0
 
 

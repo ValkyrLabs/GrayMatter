@@ -89,8 +89,26 @@ A developer should be able to:
 This repo now includes:
 - `examples/graymatter-light-thorapi-bundle.yaml` as a minimal local bundle surface
 - `scripts/gm-light-smoke` as a runnable local write/query smoke test
+- `scripts/gm-light-bootstrap` to generate the app-factory bundle and local server source
+- `scripts/package-local-server` to produce `dist/graymatter-local-server-latest.tar.gz`
 
-These assets are intentionally small. They are a proving ground, not a full local service.
+The generated local server includes RBAC-backed login, `Principal`, `UserPreferences`, `MemoryEntry`, a minimal Data Workbooks `/Workbook` API, a Valkyr Labs-branded dashboard, a mothership promotion bridge, and a local GrayMatter SWARM v0.1 adapter. The generated `application-bundle/` records the ValkyrAI app-factory template, ThorAPI FEBE OpenAPI contract, custom components, and built-in `rbac-core` / `data-workbooks` references.
+
+## Local-to-full bridge
+
+The light dashboard includes a `Promote / Synchronize` control. It calls `POST /api/graymatter/sync/mothership` and returns a prepared handoff payload with:
+- local bundle identity
+- ThorAPI FEBE generation mode
+- MemoryEntry and Workbook counts
+- target `https://valkyrlabs.com`
+- hosted API base `https://api-0.valkyrlabs.com/v1`
+- required auth guidance through `VALKYR_AUTH_TOKEN` or hosted login
+
+This button prepares synchronization; it does not pretend hosted sync completed without authenticated access to the mothership.
+
+## Swarm Protocol status
+
+Light mode now exposes the local node through `GET /api/graymatter/swarm/protocol`. The response advertises `graymatter-swarm-v0.1`, the local light-node id, SwarmOps-compatible graph shape, and the endpoints that connect the bundle to memory, workbooks, promotion, and dashboard state.
 
 ## Recommendation
 

@@ -442,6 +442,21 @@ That creates `dist/graymatter-local-server-latest.tar.gz`. The archive contains:
 
 The embedded dashboard includes Valkyr Labs branding, hides the local login panel after successful login, exposes `Promote / Synchronize` for the valkyrlabs.com mothership bridge, and reports the local `graymatter-swarm-v0.1` light-node status.
 
+## awesome-codex-plugins listing kit
+
+GrayMatter ships a ready-to-submit listing packet for `awesome-codex-plugins`.
+
+- Listing markdown block: `docs/awesome-codex-plugins.md`
+- Source metadata: `.codex-plugin/plugin.json`
+
+Quick copy flow:
+
+```bash
+cat docs/awesome-codex-plugins.md
+```
+
+Then open a PR against `hashgraph-online/awesome-codex-plugins` and paste the generated block into `README.md` using that repository's contribution format.
+
 ## Launch position
 
 The launch target is simple:

@@ -52,6 +52,7 @@ else:
 
 has_env_token = bool(os.getenv("VALKYR_AUTH_TOKEN"))
 keychain_service = os.getenv("VALKYR_KEYCHAIN_SERVICE", "VALKYR_AUTH")
+api_base = os.getenv("VALKYR_API_BASE", "https://api-0.valkyrlabs.com/v1").rstrip("/")
 keychain_token = False
 resolved_token = (os.getenv("VALKYR_AUTH_TOKEN") or os.getenv("VALKYR_JWT_SESSION") or "").strip()
 
@@ -106,10 +107,43 @@ def _token_health(token: str):
 
     return "ok"
 
+def _token_live_valid(token: str):
+    if not token:
+        return False
+    auth_me_url = f"{api_base}/auth/me"
+    try:
+        res = subprocess.run(
+            [
+                "curl",
+                "-sS",
+                "-o",
+                "/dev/null",
+                "-w",
+                "%{http_code}",
+                "--connect-timeout",
+                "5",
+                "--max-time",
+                "10",
+                "-H",
+                f"Authorization: Bearer {token}",
+                auth_me_url,
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            check=False,
+        )
+        code = (res.stdout or "").strip()
+        return code == "200"
+    except Exception:
+        return False
+
 token_state = _token_health(resolved_token)
+if token_state == "ok" and resolved_token and not _token_live_valid(resolved_token):
+    token_state = "invalid"
 
 auth_state = "env_token" if has_env_token else ("keychain_token" if keychain_token else "missing")
-health = "error" if fallback_state == "invalid" else ("degraded" if auth_state == "missing" or pending_writes > 0 or token_state in {"expired", "read_only"} else "ok")
+health = "error" if fallback_state == "invalid" else ("degraded" if auth_state == "missing" or pending_writes > 0 or token_state in {"expired", "invalid", "read_only"} else "ok")
 
 if os.getenv("GM_STATUS_FORMAT", "kv") == "json":
     print(json.dumps({

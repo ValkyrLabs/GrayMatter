@@ -536,6 +536,48 @@ test_write_rejects_read_only_token_before_network_request() {
   assert_contains "${result}" "read-only" "graymatter_api should explain that the token lacks write access"
 }
 
+test_light_mode_allows_local_request_without_token() {
+  local temp_root
+  local fake_bin
+  local script_copy
+  local result
+  local status=0
+
+  temp_root="$(mktemp -d)"
+  fake_bin="${temp_root}/bin"
+  script_copy="${temp_root}/graymatter_api.sh"
+  mkdir -p "${fake_bin}"
+
+  cp "${API_SRC}" "${script_copy}"
+  chmod +x "${script_copy}"
+  make_fake_bin "${fake_bin}"
+
+  TEST_OSASCRIPT_LOG="${temp_root}/osascript.log"
+  TEST_POWERSHELL_LOG="${temp_root}/powershell.log"
+  TEST_OPEN_LOG="${temp_root}/open.log"
+  TEST_SECURITY_LOG="${temp_root}/security.log"
+  TEST_CURL_STATE_FILE="${temp_root}/curl.state"
+  TEST_GM_LOGIN_LOG="${temp_root}/gm-login.log"
+  export TEST_OSASCRIPT_LOG TEST_POWERSHELL_LOG TEST_OPEN_LOG TEST_SECURITY_LOG TEST_CURL_STATE_FILE TEST_GM_LOGIN_LOG
+  export TEST_CURL_SCENARIO="success"
+  export TEST_SECURITY_SCENARIO="missing-token"
+
+  set +e
+  result="$(
+    PATH="${fake_bin}:/usr/bin:/bin" \
+    TMPDIR="${temp_root}" \
+    GRAYMATTER_LIGHT_MODE=true \
+    VALKYR_API_BASE="http://localhost:8899" \
+    "${script_copy}" POST /MemoryEntry '{"type":"context","text":"local"}' 2>&1
+  )"
+  status=$?
+  set -e
+
+  [[ "${status}" == "0" ]] || fail "graymatter_api should allow local light requests without hosted auth"
+  assert_contains "${result}" '{"ok":true}' "graymatter_api should run the local light request"
+  assert_file_missing "${temp_root}/gm-login.log" "graymatter_api should not run hosted login in light mode"
+}
+
 with_fixture test_success_passthrough
 with_fixture test_insufficient_funds_shows_links_and_uses_macos_prompt
 with_fixture test_insufficient_funds_falls_back_to_windows_prompt
@@ -543,5 +585,6 @@ with_fixture test_unauthorized_refreshes_token_from_keychain_credentials
 with_fixture test_missing_token_runs_login_before_request
 with_fixture test_success_uses_fallback_tempdir_when_default_tmp_fails
 test_write_rejects_read_only_token_before_network_request
+test_light_mode_allows_local_request_without_token
 
 printf 'PASS: graymatter_api_test.sh\n'

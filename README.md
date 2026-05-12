@@ -8,6 +8,14 @@ GrayMatter is an installable and immediately usable OpenClaw skill for:
 GrayMatter lets an OpenClaw instance move beyond file memory and isolated chat context.
 When properly authenticated, the agent can persist durable memory, inspect the live business schema, and operate inside the organization's RBAC-scoped data environment.
 
+## Ready-to-rock release surfaces
+
+GrayMatter ships as three related but independently usable surfaces:
+
+- **MCP service**: `mcp-server/` runs as an HTTP/SSE service for Claude.ai, Claude Code, Cursor, and any MCP-compatible host, and also supports `node mcp-server/index.js --stdio` for plugin-managed MCP launch.
+- **Codex plugin**: `.codex-plugin/plugin.json` exposes this repo as the `graymatter` plugin with the standalone skill plus `.mcp.json`, so Codex can discover both the instructions and the MCP server.
+- **Standalone OpenClaw skill**: `graymatter.skill` packages `SKILL.md` and the required scripts for OpenClaw install, activation, hosted api-0 use, and GrayMatter Light local mode.
+
 ## What GrayMatter is for
 
 GrayMatter is the memory and context layer for business-native agent systems.
@@ -131,6 +139,9 @@ Rule:
 - `scripts/gm-register-agent` — register or refresh the OpenClaw server as an Agent in api-0
 - `scripts/gm-mcp-contract` — emit the portable MCP memory-tool contract schema used by agent/IDE adapters
 - `scripts/gm-light-bootstrap` — generate the local GrayMatter app bundle and server source scaffold
+- `scripts/gm-light-up` — generate and start the local ThorAPI-backed GrayMatter Light instance
+- `scripts/gm-light-env` — print the environment exports that point skill scripts at the running Light instance
+- `scripts/gm-light-json-smoke` — JSON-file fallback smoke test for Light payload shape without ThorAPI
 - `scripts/package-local-server` — package the standalone downloadable GrayMatter Local Server archive
 - `scripts/package_graymatter.py` — deterministic validation and packaging
 - `mcp-server/` — standalone HTTP/SSE MCP server for GrayMatter memory, graph, entity, and schema tools
@@ -427,6 +438,17 @@ Rebuild the packaged skill with:
 ```bash
 python3 scripts/package_graymatter.py
 ```
+
+Run an actual local ThorAPI-backed Light instance with:
+
+```bash
+scripts/gm-light-up
+source .graymatter-light/.graymatter-light-env
+scripts/gm-write context "GrayMatter Light is running" local-light
+scripts/gm-query "GrayMatter Light"
+```
+
+`gm-light-up` generates the api.hbs.yaml template at `.graymatter-light/api.hbs.yaml`, rendered api.yaml at `.graymatter-light/api.yaml`, the Docker Compose file, and the Light control panel, then starts the ThorAPI image with `THORAPI_TEMPLATE=/app/api.hbs.yaml` and `THORAPI_SPEC=/app/api.yaml`. The default image is `ghcr.io/valkyrlabs/thorapi:latest`; use `--image` or `THORAPI_IMAGE` when running a private, pinned, or locally built ThorAPI image. The rendered spec explicitly includes the MCP backing paths for `memory_write`, `memory_read`, `memory_query`, `graph_get`, entity tools, and `schema_summary`. The env file sets `VALKYR_API_BASE=http://localhost:8080` and `GRAYMATTER_LIGHT_MODE=true`, so the normal GrayMatter skill scripts and the standalone MCP server can connect to the running local instance without requiring hosted api-0 auth.
 
 Build the standalone downloadable local server with:
 

@@ -135,6 +135,63 @@ if token_is_clearly_read_only "$TOKEN"; then
 fi
 pass 'GrayMatter auth source detected'
 
+TOKEN_STATE="$(python3 - "$TOKEN" <<'PY'
+import base64
+import json
+import sys
+import time
+
+token = (sys.argv[1] if len(sys.argv) > 1 else "").strip()
+if not token:
+    print("missing")
+    raise SystemExit(0)
+
+parts = token.split(".")
+if len(parts) < 3:
+    print("ok")
+    raise SystemExit(0)
+
+try:
+    payload = parts[1] + ("=" * (-len(parts[1]) % 4))
+    claims = json.loads(base64.urlsafe_b64decode(payload.encode()).decode())
+except Exception:
+    print("ok")
+    raise SystemExit(0)
+
+exp = claims.get("exp")
+if isinstance(exp, (int, float)) and float(exp) <= time.time():
+    print("expired")
+    raise SystemExit(0)
+
+scopes = []
+raw_scope = claims.get("scope") or claims.get("scp")
+if isinstance(raw_scope, str):
+    scopes.extend(s.strip().lower() for s in raw_scope.replace(",", " ").split() if s.strip())
+elif isinstance(raw_scope, list):
+    scopes.extend(str(s).strip().lower() for s in raw_scope if str(s).strip())
+
+roles = claims.get("roles")
+if isinstance(roles, list):
+    scopes.extend(str(r).strip().lower() for r in roles if str(r).strip())
+
+read_only_markers = {"read", "readonly", "schema-read", "schema:read", "memory:read"}
+write_markers = {"write", "memory:write", "contentdata:write", "admin", "owner"}
+has_read_only = any(marker in scope for scope in scopes for marker in read_only_markers)
+has_write = any(marker in scope for scope in scopes for marker in write_markers)
+print("read_only" if has_read_only and not has_write else "ok")
+PY
+)"
+
+case "$TOKEN_STATE" in
+  expired)
+    fail "GrayMatter auth token is expired. Re-run gm-login to refresh your session."
+    ;;
+  read_only)
+    fail "GrayMatter auth token appears read-only. Use write-capable credentials before install validation."
+    ;;
+esac
+pass "GrayMatter auth token health: ${TOKEN_STATE}"
+
 if curl --silent --show-error --fail --max-time 10 "$BASE" >/dev/null 2>&1; then
   pass "API base reachable: $BASE"
 else

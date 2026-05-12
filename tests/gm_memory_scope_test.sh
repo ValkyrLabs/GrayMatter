@@ -16,19 +16,19 @@ printf '%s\n' "${3:-}"
 EOF
 chmod +x "$TMP_DIR/graymatter_api.sh"
 
-AUTOMATION_MEMORY="/Users/johnmcmahon/.codex/automations/mcp-and-skill-hunter/memory.md"
+AUTOMATION_MEMORY="/tmp/codex-home/.codex/automations/mcp-and-skill-hunter/memory.md"
 
 WRITE_OUTPUT="$(
   "$TMP_DIR/gm-write" context "Research complete; publish blocked" \
     --scope-path "$AUTOMATION_MEMORY" \
-    --user johnmcmahon
+    --user codex-user
 )"
 
 jq -e '.sourceChannel == "codex:automation:mcp-and-skill-hunter"' <<<"$WRITE_OUTPUT" >/dev/null
 jq -e '.text | contains("[graymatter-scope]")' <<<"$WRITE_OUTPUT" >/dev/null
 jq -e '.text | contains("scope: automation")' <<<"$WRITE_OUTPUT" >/dev/null
 jq -e '.text | contains("automationId: mcp-and-skill-hunter")' <<<"$WRITE_OUTPUT" >/dev/null
-jq -e '.text | contains("artifactPath: /Users/johnmcmahon/.codex/automations/mcp-and-skill-hunter/memory.md")' <<<"$WRITE_OUTPUT" >/dev/null
+jq -e '.text | contains("artifactPath: /tmp/codex-home/.codex/automations/mcp-and-skill-hunter/memory.md")' <<<"$WRITE_OUTPUT" >/dev/null
 jq -e '.text | contains("Research complete; publish blocked")' <<<"$WRITE_OUTPUT" >/dev/null
 
 QUERY_OUTPUT="$("$TMP_DIR/gm-query" "publish blocked" 5 context --scope-path "$AUTOMATION_MEMORY")"

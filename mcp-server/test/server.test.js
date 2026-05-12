@@ -350,7 +350,7 @@ test('memory_write forwards per-request auth to api-0 MemoryEntry', async () => 
 });
 
 test('memory tools derive scoped sourceChannel from Codex hierarchy metadata', async () => {
-  const automationPath = '/Users/johnmcmahon/.codex/automations/mcp-and-skill-hunter/memory.md';
+  const automationPath = '/tmp/codex-home/.codex/automations/mcp-and-skill-hunter/memory.md';
   const fakeApi = createFakeApi(async (_req, res, record) => {
     res.writeHead(200, { 'content-type': 'application/json' });
     if (record.path === '/v1/MemoryEntry') {
@@ -359,7 +359,7 @@ test('memory tools derive scoped sourceChannel from Codex hierarchy metadata', a
       assert.match(record.body.text, /\[graymatter-scope\]/);
       assert.match(record.body.text, /scope: automation/);
       assert.match(record.body.text, /automationId: mcp-and-skill-hunter/);
-      assert.match(record.body.text, /artifactPath: \/Users\/johnmcmahon\/\.codex\/automations\/mcp-and-skill-hunter\/memory\.md/);
+      assert.match(record.body.text, /artifactPath: \/tmp\/codex-home\/\.codex\/automations\/mcp-and-skill-hunter\/memory\.md/);
       assert.match(record.body.text, /Research complete/);
       res.end(JSON.stringify({ id: 'mem-scoped', ...record.body }));
       return;
@@ -389,7 +389,7 @@ test('memory tools derive scoped sourceChannel from Codex hierarchy metadata', a
           type: 'context',
           text: 'Research complete',
           scopePath: automationPath,
-          user: 'johnmcmahon'
+          user: 'codex-user'
         }
       }
     });

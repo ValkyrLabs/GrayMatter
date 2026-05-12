@@ -2,6 +2,7 @@
 'use strict';
 
 const http = require('node:http');
+const readline = require('node:readline');
 const { URL } = require('node:url');
 
 const DEFAULT_API_BASE = 'https://api-0.valkyrlabs.com/v1';
@@ -148,6 +149,46 @@ function createGrayMatterMcpServer(options = {}) {
       sendJson(res, 404, { error: 'Not found' });
     } catch (error) {
       sendJson(res, 500, { error: error.message });
+    }
+  });
+}
+
+function createRpcContext(options = {}) {
+  const apiBase = withoutTrailingSlash(options.apiBase || process.env.VALKYR_API_BASE || DEFAULT_API_BASE);
+  const fetchImpl = options.fetch || globalThis.fetch;
+
+  if (typeof fetchImpl !== 'function') {
+    throw new Error('Global fetch is required. Use Node 20 or newer.');
+  }
+
+  return {
+    apiBase,
+    fetchImpl,
+    token: options.token || process.env.VALKYR_AUTH_TOKEN || process.env.VALKYR_JWT_SESSION || ''
+  };
+}
+
+function startStdioServer(options = {}) {
+  const context = createRpcContext(options);
+  const lines = readline.createInterface({
+    input: process.stdin,
+    crlfDelay: Infinity
+  });
+
+  lines.on('line', async (line) => {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      return;
+    }
+
+    try {
+      const message = JSON.parse(trimmed);
+      const response = await handleRpc(message, context);
+      if (response !== null) {
+        process.stdout.write(`${JSON.stringify(response)}\n`);
+      }
+    } catch (error) {
+      process.stdout.write(`${JSON.stringify(jsonRpcError(null, -32700, `Invalid JSON-RPC message: ${error.message}`))}\n`);
     }
   });
 }
@@ -418,13 +459,18 @@ function withoutTrailingSlash(value) {
 
 module.exports = {
   createGrayMatterMcpServer,
+  startStdioServer,
   tools
 };
 
 if (require.main === module) {
-  const port = Number(process.env.PORT || DEFAULT_PORT);
-  const server = createGrayMatterMcpServer();
-  server.listen(port, () => {
-    process.stdout.write(`GrayMatter MCP server listening on http://localhost:${port}\n`);
-  });
+  if (process.argv.includes('--stdio')) {
+    startStdioServer();
+  } else {
+    const port = Number(process.env.PORT || DEFAULT_PORT);
+    const server = createGrayMatterMcpServer();
+    server.listen(port, () => {
+      process.stdout.write(`GrayMatter MCP server listening on http://localhost:${port}\n`);
+    });
+  }
 }

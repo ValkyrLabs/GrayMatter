@@ -5,6 +5,7 @@
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
+    "stdio": "node index.js --stdio",
     "test": "node --test test/*.test.js"
   },
   "engines": {

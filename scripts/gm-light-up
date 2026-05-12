@@ -5,11 +5,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 BUNDLE_DIR="${GRAYMATTER_LIGHT_BUNDLE_DIR:-${ROOT_DIR}/.graymatter-light}"
 PORT="${GRAYMATTER_LIGHT_PORT:-8080}"
+IMAGE="${THORAPI_IMAGE:-ghcr.io/valkyrlabs/thorapi:latest}"
 TIMEOUT_SECONDS=60
 
 usage() {
   cat >&2 <<'EOF'
-Usage: gm-light-up [--bundle-dir DIR] [--port PORT] [--timeout SECONDS]
+Usage: gm-light-up [--bundle-dir DIR] [--port PORT] [--image IMAGE] [--timeout SECONDS]
 
 Generates the GrayMatter Light ThorAPI bundle, starts the ThorAPI Docker
 Compose service, waits for health, and writes .graymatter-light-env so the
@@ -25,6 +26,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --port)
       PORT="$2"
+      shift 2
+      ;;
+    --image)
+      IMAGE="$2"
       shift 2
       ;;
     --timeout)
@@ -53,18 +58,19 @@ if ! docker info >/dev/null 2>&1; then
   exit 1
 fi
 
-"${SCRIPT_DIR}/gm-light-bootstrap" "$BUNDLE_DIR" >/dev/null
+API_BASE="http://localhost:${PORT}"
+GRAYMATTER_LIGHT_PUBLIC_URL="$API_BASE" "${SCRIPT_DIR}/gm-light-bootstrap" "$BUNDLE_DIR" >/dev/null
 
 ENV_FILE="${BUNDLE_DIR%/}/.graymatter-light-env"
-API_BASE="http://localhost:${PORT}"
 cat >"$ENV_FILE" <<EOF
 export VALKYR_API_BASE='${API_BASE}'
 export GRAYMATTER_LIGHT_API_BASE='${API_BASE}'
 export GRAYMATTER_LIGHT_MODE='true'
 export GRAYMATTER_LIGHT_BUNDLE_DIR='${BUNDLE_DIR}'
+export THORAPI_IMAGE='${IMAGE}'
 EOF
 
-GRAYMATTER_LIGHT_PORT="$PORT" docker compose -f "${BUNDLE_DIR%/}/docker-compose.yaml" up -d
+THORAPI_IMAGE="$IMAGE" GRAYMATTER_LIGHT_PORT="$PORT" docker compose -f "${BUNDLE_DIR%/}/docker-compose.yaml" up -d
 
 deadline=$((SECONDS + TIMEOUT_SECONDS))
 until curl -fsS "${API_BASE}/actuator/health" >/dev/null 2>&1; do

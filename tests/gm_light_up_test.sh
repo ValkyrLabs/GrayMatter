@@ -14,7 +14,7 @@ mkdir -p "$FAKE_BIN"
 cat >"$FAKE_BIN/docker" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
-printf 'GRAYMATTER_LIGHT_PORT=%s docker %s\n' "${GRAYMATTER_LIGHT_PORT:-}" "$*" >>"${TEST_DOCKER_LOG:?}"
+printf 'GRAYMATTER_LIGHT_PORT=%s THORAPI_IMAGE=%s docker %s\n' "${GRAYMATTER_LIGHT_PORT:-}" "${THORAPI_IMAGE:-}" "$*" >>"${TEST_DOCKER_LOG:?}"
 if [[ "${1:-}" == "info" ]]; then
   exit 0
 fi
@@ -44,18 +44,27 @@ PATH="$FAKE_BIN:/usr/bin:/bin" \
   "$ROOT/scripts/gm-light-up" \
   --bundle-dir "$BUNDLE_DIR" \
   --port 8899 \
+  --image example/thorapi:test \
   --timeout 1 >"$TMP_DIR/output.txt"
 
 [[ -f "$BUNDLE_DIR/api.hbs.yaml" ]]
+[[ -f "$BUNDLE_DIR/api.yaml" ]]
 [[ -f "$BUNDLE_DIR/dashboard/index.html" ]]
 [[ -f "$BUNDLE_DIR/.graymatter-light-env" ]]
 
 grep -q "docker info" "$DOCKER_LOG"
-grep -q "GRAYMATTER_LIGHT_PORT=8899 docker compose -f $BUNDLE_DIR/docker-compose.yaml up -d" "$DOCKER_LOG"
+grep -q "GRAYMATTER_LIGHT_PORT=8899 THORAPI_IMAGE=example/thorapi:test docker compose -f $BUNDLE_DIR/docker-compose.yaml up -d" "$DOCKER_LOG"
 grep -q "curl .*http://localhost:8899/actuator/health" "$CURL_LOG"
 grep -q "export VALKYR_API_BASE='http://localhost:8899'" "$BUNDLE_DIR/.graymatter-light-env"
+grep -q "export THORAPI_IMAGE='example/thorapi:test'" "$BUNDLE_DIR/.graymatter-light-env"
 grep -q "export GRAYMATTER_LIGHT_MODE='true'" "$BUNDLE_DIR/.graymatter-light-env"
 grep -q "export GRAYMATTER_LIGHT_BUNDLE_DIR='$BUNDLE_DIR'" "$BUNDLE_DIR/.graymatter-light-env"
+grep -q "{{server_url}}" "$BUNDLE_DIR/api.hbs.yaml"
+grep -q "http://localhost:8899" "$BUNDLE_DIR/api.yaml"
+if grep -q "{{server_url}}" "$BUNDLE_DIR/api.yaml"; then
+  echo "Rendered api.yaml should not contain template placeholders" >&2
+  exit 1
+fi
 grep -q "VALKYR_API_BASE=http://localhost:8899" "$TMP_DIR/output.txt"
 
 "$ROOT/scripts/gm-light-env" --bundle-dir "$BUNDLE_DIR" >"$TMP_DIR/env.out"

@@ -18,6 +18,15 @@ const tools = [
         type: { type: 'string', enum: ['decision', 'todo', 'context', 'artifact', 'preference'] },
         text: { type: 'string' },
         sourceChannel: { type: 'string' },
+        scope: { type: 'string', description: 'Memory scope, for example automation, workspace, chat, or session.' },
+        runtime: { type: 'string', description: 'Runtime namespace used when deriving sourceChannel. Defaults to codex.' },
+        user: { type: 'string' },
+        workspaceKey: { type: 'string' },
+        chatKey: { type: 'string' },
+        sessionKey: { type: 'string' },
+        automationId: { type: 'string' },
+        artifactPath: { type: 'string' },
+        scopePath: { type: 'string', description: 'Local path used to derive automation/workspace memory scope.' },
         tags: { oneOf: [{ type: 'array', items: { type: 'string' } }, { type: 'string' }] }
       },
       required: ['type', 'text']
@@ -39,7 +48,17 @@ const tools = [
       type: 'object',
       properties: {
         query: { type: 'string' },
-        limit: { type: 'integer', minimum: 1, maximum: 100 }
+        limit: { type: 'integer', minimum: 1, maximum: 100 },
+        type: { type: 'string' },
+        sourceChannel: { type: 'string' },
+        scope: { type: 'string' },
+        runtime: { type: 'string' },
+        workspaceKey: { type: 'string' },
+        chatKey: { type: 'string' },
+        sessionKey: { type: 'string' },
+        automationId: { type: 'string' },
+        artifactPath: { type: 'string' },
+        scopePath: { type: 'string' }
       },
       required: ['query']
     }
@@ -236,13 +255,13 @@ async function callTool(params, context) {
 
   switch (name) {
     case 'memory_write':
-      return toolResult(await apiRequest(context, 'POST', 'MemoryEntry', args));
+      return toolResult(await apiRequest(context, 'POST', 'MemoryEntry', buildMemoryWritePayload(args)));
     case 'memory_read':
       requireString(args.id, 'id');
       return toolResult(await apiRequest(context, 'GET', `MemoryEntry/${encodeURIComponent(args.id)}`));
     case 'memory_query':
       requireString(args.query, 'query');
-      return toolResult(await apiRequest(context, 'POST', 'MemoryEntry/query', args));
+      return toolResult(await apiRequest(context, 'POST', 'MemoryEntry/query', buildMemoryQueryPayload(args)));
     case 'graph_get': {
       const graphPath = args.path ? `SwarmOps/graph/${trimSlashes(args.path)}` : 'SwarmOps/graph';
       return toolResult(await apiRequest(context, 'GET', graphPath));
@@ -303,6 +322,151 @@ async function apiRequest(context, method, endpoint, body) {
   }
 
   return payload;
+}
+
+function buildMemoryWritePayload(args) {
+  requireString(args.type, 'type');
+  requireString(args.text, 'text');
+
+  const metadata = memoryScopeMetadata(args);
+  const sourceChannel = args.sourceChannel || metadata.sourceChannel;
+  if (sourceChannel) {
+    metadata.sourceChannel = sourceChannel;
+  }
+
+  const payload = {
+    type: args.type,
+    text: Object.keys(metadata).length > 0 ? wrapMemoryText(args.text, metadata) : args.text
+  };
+
+  if (sourceChannel) {
+    payload.sourceChannel = sourceChannel;
+  }
+
+  if (args.tags !== undefined) {
+    payload.tags = args.tags;
+  }
+
+  return payload;
+}
+
+function buildMemoryQueryPayload(args) {
+  const metadata = memoryScopeMetadata(args);
+  const source = args.sourceChannel || metadata.sourceChannel;
+  const payload = {
+    query: args.query
+  };
+
+  if (args.limit !== undefined) {
+    payload.limit = args.limit;
+  }
+  if (args.type !== undefined) {
+    payload.type = args.type;
+  }
+  if (source) {
+    payload.source = source;
+  }
+
+  return payload;
+}
+
+function memoryScopeMetadata(args) {
+  if (!hasScopeSignal(args)) {
+    return {};
+  }
+
+  const runtime = args.runtime || 'codex';
+  const metadata = pickDefined({
+    scope: args.scope,
+    runtime,
+    user: args.user,
+    workspaceKey: args.workspaceKey,
+    chatKey: args.chatKey,
+    sessionKey: args.sessionKey,
+    automationId: args.automationId,
+    artifactPath: args.artifactPath || args.scopePath
+  });
+
+  if (!metadata.scope && args.scopePath) {
+    metadata.scope = scopeFromPath(args.scopePath);
+  }
+  if (!metadata.automationId && args.scopePath) {
+    metadata.automationId = automationIdFromPath(args.scopePath);
+  }
+  if (!metadata.workspaceKey && args.scopePath) {
+    metadata.workspaceKey = workspaceKeyFromPath(args.scopePath);
+  }
+
+  const sourceChannel = deriveSourceChannel({ ...args, ...metadata, runtime });
+  if (sourceChannel) {
+    metadata.sourceChannel = sourceChannel;
+  }
+
+  return pickDefined(metadata);
+}
+
+function hasScopeSignal(args) {
+  return Boolean(
+    args.scope ||
+    args.runtime ||
+    args.user ||
+    args.workspaceKey ||
+    args.chatKey ||
+    args.sessionKey ||
+    args.automationId ||
+    args.artifactPath ||
+    args.scopePath ||
+    args.sourceChannel
+  );
+}
+
+function deriveSourceChannel(values) {
+  const runtime = values.runtime || 'codex';
+  if (values.sourceChannel) return values.sourceChannel;
+  if (values.chatKey) return scopedKey(runtime, 'chat', values.chatKey);
+  if (values.sessionKey) return scopedKey(runtime, 'session', values.sessionKey);
+  if (values.automationId) return scopedKey(runtime, 'automation', values.automationId);
+  if (values.workspaceKey) return scopedKey(runtime, 'workspace', values.workspaceKey);
+  return '';
+}
+
+function scopedKey(runtime, kind, value) {
+  const raw = String(value || '');
+  return raw.includes(':') ? raw : `${runtime}:${kind}:${raw}`;
+}
+
+function scopeFromPath(pathValue) {
+  if (automationIdFromPath(pathValue)) return 'automation';
+  if (workspaceKeyFromPath(pathValue)) return 'workspace';
+  return '';
+}
+
+function automationIdFromPath(pathValue) {
+  const match = String(pathValue || '').match(/\.codex\/automations\/([^/]+)/);
+  return match ? match[1] : '';
+}
+
+function workspaceKeyFromPath(pathValue) {
+  const match = String(pathValue || '').match(/\/Documents\/Codex\/([^/]+)\/([^/]+)/);
+  return match ? `${match[1]}/${match[2]}` : '';
+}
+
+function wrapMemoryText(text, metadata) {
+  const lines = Object.entries(metadata)
+    .filter(([, value]) => value !== undefined && value !== null && String(value).length > 0)
+    .map(([key, value]) => `${key}: ${value}`);
+
+  if (lines.length === 0) {
+    return text;
+  }
+
+  return `[graymatter-scope]\n${lines.join('\n')}\n[/graymatter-scope]\n\n${text}`;
+}
+
+function pickDefined(values) {
+  return Object.fromEntries(
+    Object.entries(values).filter(([, value]) => value !== undefined && value !== null && String(value).length > 0)
+  );
 }
 
 function summarizeOpenApi(spec) {

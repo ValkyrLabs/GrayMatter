@@ -314,6 +314,27 @@ Current caution:
 - some deployments may still have a `MemoryEntry.tags` persistence mismatch
 - `scripts/gm-write` should retry without tags when the backend rejects tagged writes
 
+## Scoped memory hierarchy
+
+Use `MemoryEntry.sourceChannel` as the primary retrieval scope key. It is the field that `gm-query` maps to the query `source` filter, so it should carry the most specific stable context identifier available.
+
+Recommended scope keys:
+- `codex:automation:<automation-id>`
+- `codex:workspace:<workspace-key>`
+- `codex:chat:<chat-id>`
+- `codex:session:<session-id>`
+
+When memory is backed by a file path, preserve the folder hierarchy as structured metadata in the `MemoryEntry.text` header and mirror the strongest scope into `sourceChannel`. For example, `$HOME/.codex/automations/mcp-and-skill-hunter/memory.md` should become `sourceChannel=codex:automation:mcp-and-skill-hunter` with an audit header containing `scope`, `runtime`, `automationId`, `artifactPath`, and `sourceChannel`.
+
+The helpers support this convention directly:
+
+```bash
+scripts/gm-write context "handoff state" --scope-path "$HOME/.codex/automations/mcp-and-skill-hunter/memory.md"
+scripts/gm-query "handoff" 5 context --scope-path "$HOME/.codex/automations/mcp-and-skill-hunter/memory.md"
+```
+
+Tags are secondary hints only. Do not depend on tags for scoped retrieval until backend tag persistence is known healthy.
+
 ## Failure handling
 
 If api-0 is unavailable or a known schema/runtime bug blocks the exact write:

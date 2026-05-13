@@ -145,3 +145,15 @@ If backend tag persistence is working, use stable normalized tags like:
 - `customer-setup`
 
 If tagged writes fail, rely on untagged durable text first.
+
+## Scoped retrieval
+
+Use `MemoryEntry.sourceChannel` for the scope that should be filtered during search. Treat tags as optional hints and `sourceChannel` as the reliable context key.
+
+Preferred values:
+- `codex:automation:<automation-id>` for automation memory such as `.codex/automations/<id>/memory.md`
+- `codex:workspace:<workspace-key>` for project/workspace memory
+- `codex:chat:<chat-id>` for one chat thread
+- `codex:session:<session-id>` for one resumable agent session
+
+When the source is a file, include the file hierarchy in a compact `[graymatter-scope]` header inside `MemoryEntry.text`. That gives semantic search enough audit context while allowing `MemoryEntry/query` to filter by `source`.

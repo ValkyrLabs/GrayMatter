@@ -262,6 +262,20 @@ scripts/gm-write decision "GrayMatter is primary memory for this instance"
 scripts/gm-query "GrayMatter" 10
 ```
 
+### Scoped memory
+
+Use `sourceChannel` as the retrieval scope key for chat-, workspace-, and automation-specific memory. `gm-write` can derive that key from explicit scope fields or from a local path, then writes a compact `[graymatter-scope]` header into `MemoryEntry.text` so the hierarchy remains auditable even when tags are unavailable.
+
+```bash
+scripts/gm-write context "Research complete; publish blocked" \
+  --scope-path "$HOME/.codex/automations/mcp-and-skill-hunter/memory.md"
+
+scripts/gm-query "publish blocked" 5 context \
+  --scope-path "$HOME/.codex/automations/mcp-and-skill-hunter/memory.md"
+```
+
+For that path, GrayMatter derives `sourceChannel=codex:automation:mcp-and-skill-hunter`. For Codex project folders under `Documents/Codex/<date>/<slug>`, it derives `sourceChannel=codex:workspace:<date>/<slug>`. Use `--chat-key`, `--session-key`, `--workspace-key`, or `--automation-id` when a host can provide stronger identifiers than a file path.
+
 ### Tagged write with automatic fallback
 
 ```bash

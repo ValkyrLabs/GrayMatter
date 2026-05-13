@@ -2,13 +2,111 @@
 set -euo pipefail
 
 QUERY="${1:-}"
-LIMIT="${2:-10}"
-TYPE="${3:-}"
-SOURCE_CHANNEL="${4:-}"
 
 if [[ -z "$QUERY" ]]; then
-  echo "Usage: gm-query <query> [limit] [type] [sourceChannel]" >&2
+  echo "Usage: gm-query <query> [limit] [type] [sourceChannel] [--scope-path path] [--workspace-key key] [--chat-key key] [--session-key key] [--automation-id id]" >&2
   exit 1
+fi
+
+shift
+
+LIMIT="10"
+TYPE=""
+SOURCE_CHANNEL=""
+if [[ $# -gt 0 && "${1:-}" != --* ]]; then
+  LIMIT="$1"
+  shift
+fi
+if [[ $# -gt 0 && "${1:-}" != --* ]]; then
+  TYPE="$1"
+  shift
+fi
+if [[ $# -gt 0 && "${1:-}" != --* ]]; then
+  SOURCE_CHANNEL="$1"
+  shift
+fi
+
+RUNTIME="codex"
+WORKSPACE_KEY=""
+CHAT_KEY=""
+SESSION_KEY=""
+AUTOMATION_ID=""
+SCOPE_PATH=""
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --runtime)
+      RUNTIME="${2:-}"
+      shift 2
+      ;;
+    --workspace-key)
+      WORKSPACE_KEY="${2:-}"
+      shift 2
+      ;;
+    --chat-key)
+      CHAT_KEY="${2:-}"
+      shift 2
+      ;;
+    --session-key)
+      SESSION_KEY="${2:-}"
+      shift 2
+      ;;
+    --automation-id)
+      AUTOMATION_ID="${2:-}"
+      shift 2
+      ;;
+    --scope-path|--artifact-path|--path)
+      SCOPE_PATH="${2:-}"
+      shift 2
+      ;;
+    --source-channel)
+      SOURCE_CHANNEL="${2:-}"
+      shift 2
+      ;;
+    --type)
+      TYPE="${2:-}"
+      shift 2
+      ;;
+    --limit)
+      LIMIT="${2:-}"
+      shift 2
+      ;;
+    *)
+      echo "Unknown gm-query option: $1" >&2
+      exit 1
+      ;;
+  esac
+done
+
+derive_source_channel() {
+  local path="$1"
+  if [[ -n "$CHAT_KEY" ]]; then
+    scoped_key chat "$CHAT_KEY"
+  elif [[ -n "$SESSION_KEY" ]]; then
+    scoped_key session "$SESSION_KEY"
+  elif [[ -n "$AUTOMATION_ID" ]]; then
+    scoped_key automation "$AUTOMATION_ID"
+  elif [[ -n "$WORKSPACE_KEY" ]]; then
+    scoped_key workspace "$WORKSPACE_KEY"
+  elif [[ "$path" =~ \.codex/automations/([^/]+) ]]; then
+    printf '%s:automation:%s\n' "$RUNTIME" "${BASH_REMATCH[1]}"
+  elif [[ "$path" =~ /Documents/Codex/([^/]+)/([^/]+) ]]; then
+    printf '%s:workspace:%s/%s\n' "$RUNTIME" "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}"
+  fi
+}
+
+scoped_key() {
+  local kind="$1"
+  local value="$2"
+  if [[ "$value" == *:* ]]; then
+    printf '%s\n' "$value"
+  else
+    printf '%s:%s:%s\n' "$RUNTIME" "$kind" "$value"
+  fi
+}
+
+if [[ -z "$SOURCE_CHANNEL" ]]; then
+  SOURCE_CHANNEL="$(derive_source_channel "$SCOPE_PATH")"
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

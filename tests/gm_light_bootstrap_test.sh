@@ -28,10 +28,40 @@ assert_contains() {
   fi
 }
 
+<<<<<<< HEAD
 "$ROOT/scripts/gm-light-bootstrap" "$OUT" >/dev/null
 
 assert_file "$OUT/api.hbs.yaml"
 assert_file "$OUT/api.yaml"
+=======
+assert_file() {
+  if [[ ! -f "$1" ]]; then
+    echo "Missing generated file: $1" >&2
+    exit 1
+  fi
+}
+
+assert_executable() {
+  if [[ ! -x "$1" ]]; then
+    echo "Generated file is not executable: $1" >&2
+    exit 1
+  fi
+}
+
+assert_contains() {
+  local pattern="$1"
+  local file="$2"
+  if ! grep -q "$pattern" "$file"; then
+    echo "Expected '$pattern' in $file" >&2
+    exit 1
+  fi
+}
+
+rm -rf "$OUT"
+"$ROOT/scripts/gm-light-bootstrap" "$OUT" >/dev/null
+
+assert_file "$OUT/api.hbs.yaml"
+>>>>>>> cc7f9be (feat(core): local server)
 assert_file "$OUT/docker-compose.yaml"
 assert_file "$OUT/dashboard/index.html"
 assert_file "$OUT/UPGRADE.md"
@@ -58,11 +88,15 @@ assert_file "$OUT/local-server/src/main/java/com/valkyrlabs/graymatter/localserv
 assert_file "$OUT/local-server/src/main/java/com/valkyrlabs/graymatter/localserver/config/SecurityConfig.java"
 assert_file "$OUT/local-server/src/main/java/com/valkyrlabs/graymatter/localserver/controller/LiveTelemetryController.java"
 assert_file "$OUT/local-server/src/main/java/com/valkyrlabs/graymatter/localserver/controller/MothershipSyncController.java"
+<<<<<<< HEAD
 assert_file "$OUT/local-server/src/main/java/com/valkyrlabs/graymatter/localserver/controller/OpenApiController.java"
+=======
+>>>>>>> cc7f9be (feat(core): local server)
 assert_file "$OUT/local-server/src/main/java/com/valkyrlabs/graymatter/localserver/controller/SwarmProtocolController.java"
 assert_file "$OUT/local-server/src/main/java/com/valkyrlabs/graymatter/localserver/controller/WorkbookController.java"
 assert_file "$OUT/local-server/src/main/java/com/valkyrlabs/graymatter/localserver/repository/WorkbookRecordRepository.java"
 assert_file "$OUT/local-server/src/main/resources/application.properties"
+<<<<<<< HEAD
 assert_file "$OUT/local-server/src/main/resources/openapi.json"
 assert_file "$OUT/local-server/src/main/resources/static/index.html"
 
@@ -100,6 +134,12 @@ assert_contains "x-graymatter-mcp-contract" "$OUT/application-bundle/openapi.jso
 assert_contains "GrayMatter Light Control Panel" "$OUT/dashboard/index.html"
 assert_contains "/MemoryEntry" "$OUT/dashboard/index.html"
 assert_contains "/Workbook" "$OUT/dashboard/index.html"
+=======
+assert_file "$OUT/local-server/src/main/resources/static/index.html"
+
+assert_contains "graymatter-light" "$OUT/docker-compose.yaml"
+assert_contains "starter 1000 credits" "$OUT/UPGRADE.md"
+>>>>>>> cc7f9be (feat(core): local server)
 assert_contains '"generationMode": "thorapi-febe"' "$OUT/local-server/manifest.json"
 assert_contains '"sourceTemplate": "graymatter-local"' "$OUT/local-server/manifest.json"
 assert_contains "MothershipPromotionBridge" "$OUT/local-server/manifest.json"
@@ -116,8 +156,11 @@ assert_contains "/api/graymatter/sync/mothership" "$OUT/application-bundle/opena
 assert_contains "/api/graymatter/swarm/protocol" "$OUT/application-bundle/openapi.json"
 assert_contains "/api/graymatter/telemetry/status" "$OUT/application-bundle/openapi.json"
 assert_contains "/Workbook" "$OUT/application-bundle/openapi.json"
+<<<<<<< HEAD
 assert_contains "/api-docs" "$OUT/local-server/src/main/resources/openapi.json"
 assert_contains "x-graymatter-mcp-contract" "$OUT/local-server/src/main/resources/openapi.json"
+=======
+>>>>>>> cc7f9be (feat(core): local server)
 assert_contains "Data Workbooks" "$OUT/application-bundle/valkyr-components/data-workbooks.yaml"
 assert_contains "spring-boot-starter-parent" "$OUT/local-server/pom.xml"
 assert_contains "<java.version>17</java.version>" "$OUT/local-server/pom.xml"

@@ -133,7 +133,14 @@ Memory and graph helpers:
 
 Local/server packaging:
 - `scripts/gm-light-bootstrap`
+- `scripts/gm-light-up`
+- `scripts/gm-light-env`
+- `scripts/gm-light-json-smoke`
 - `scripts/package-local-server`
+
+MCP server:
+- `mcp-server/` exposes `memory_write`, `memory_read`, `memory_query`, `graph_get`, `entity_list`, `entity_get`, `entity_create`, and `schema_summary`
+- set `VALKYR_API_BASE` to hosted api-0 for Cloud mode or to the running GrayMatter Light base URL for local ThorAPI mode
 
 Design boundary:
 - these scripts are ergonomic wrappers for operators and agents
@@ -306,6 +313,27 @@ When tag persistence is healthy, prefer normalized tags such as:
 Current caution:
 - some deployments may still have a `MemoryEntry.tags` persistence mismatch
 - `scripts/gm-write` should retry without tags when the backend rejects tagged writes
+
+## Scoped memory hierarchy
+
+Use `MemoryEntry.sourceChannel` as the primary retrieval scope key. It is the field that `gm-query` maps to the query `source` filter, so it should carry the most specific stable context identifier available.
+
+Recommended scope keys:
+- `codex:automation:<automation-id>`
+- `codex:workspace:<workspace-key>`
+- `codex:chat:<chat-id>`
+- `codex:session:<session-id>`
+
+When memory is backed by a file path, preserve the folder hierarchy as structured metadata in the `MemoryEntry.text` header and mirror the strongest scope into `sourceChannel`. For example, `$HOME/.codex/automations/mcp-and-skill-hunter/memory.md` should become `sourceChannel=codex:automation:mcp-and-skill-hunter` with an audit header containing `scope`, `runtime`, `automationId`, `artifactPath`, and `sourceChannel`.
+
+The helpers support this convention directly:
+
+```bash
+scripts/gm-write context "handoff state" --scope-path "$HOME/.codex/automations/mcp-and-skill-hunter/memory.md"
+scripts/gm-query "handoff" 5 context --scope-path "$HOME/.codex/automations/mcp-and-skill-hunter/memory.md"
+```
+
+Tags are secondary hints only. Do not depend on tags for scoped retrieval until backend tag persistence is known healthy.
 
 ## Failure handling
 

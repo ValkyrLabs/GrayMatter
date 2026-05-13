@@ -112,10 +112,33 @@ if [[ -z "$USERNAME" ]]; then
 fi
 
 if [[ -z "$PASSWORD" && -n "$USERNAME" ]]; then
-  PASSWORD="$(keychain_get "$PASSWORD_SERVICE" "$USERNAME" || true)"
+  PASSWORD="$(keychain_get "$PASSWORD_SERVICE" "$USERNAME" || true)"  
+fi
+
+load_keychain_secret() {
+  local account="$1"
+  local service="$2"
+  local value=""
+  if command -v security >/dev/null 2>&1; then
+    value="$(security find-generic-password -a "$account" -s "$service" -w 2>/dev/null || true)"
+  fi
+  printf '%s' "$value"
+}
+
+if [[ -z "$USERNAME" ]]; then
+  USERNAME="$(load_keychain_secret default "$USERNAME_SERVICE")"
+fi
+
+if [[ -n "$USERNAME" && -z "$PASSWORD" ]]; then
+  PASSWORD="$(load_keychain_secret "$USERNAME" "$PASSWORD_SERVICE")"
 fi
 
 if [[ -z "$USERNAME" ]]; then
+  if [[ ! -t 0 ]]; then
+    echo "No reusable GrayMatter credentials found (env/keychain) and interactive login is unavailable." >&2
+    echo "Autonomous reauth is impossible from current machine state." >&2
+    exit 4
+  fi
   read -r -p "GrayMatter username: " USERNAME
 fi
 
@@ -139,7 +162,12 @@ APPLESCRIPT
 }
 
 if [[ -z "$PASSWORD" ]]; then
-  PASSWORD=$(prompt_password)
+  if [[ ! -t 0 ]]; then
+    echo "GrayMatter password not found in env/keychain and interactive login is unavailable." >&2
+    echo "Autonomous reauth is impossible from current machine state." >&2
+    exit 4
+  fi
+  PASSWORD="$(prompt_password)"
 fi
 
 set +e

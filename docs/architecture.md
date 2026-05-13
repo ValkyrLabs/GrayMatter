@@ -98,12 +98,9 @@ Target characteristics:
 
 ## Recommended repo direction
 
-Short term:
+Current repo direction:
 - keep the skill and shell helpers production-ready
-- document the mode split clearly
-- add a minimal ThorAPI spec or bundle example for local memory
-
-Medium term:
-- provide a runnable GrayMatter Light local service
-- include a tiny query/create demo
-- add migration notes from Light to Cloud
+- keep the mode split clear: hosted api-0 for Cloud, local ThorAPI for Light
+- keep `gm-light-up` as the runnable GrayMatter Light local service
+- keep the generated `api.hbs.yaml` template, rendered `api.yaml`, and MCP contract mapping in sync
+- include query/create demos and migration notes from Light to Cloud

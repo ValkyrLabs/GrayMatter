@@ -38,8 +38,8 @@ function createFakeApi(handler) {
   return { server, requests };
 }
 
-async function postRpc(baseUrl, payload, headers = {}) {
-  const response = await fetch(`${baseUrl}/`, {
+async function postRpc(baseUrl, payload, headers = {}, path = '/') {
+  const response = await fetch(`${baseUrl}${path}`, {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
@@ -164,6 +164,7 @@ test('stdio mode exposes the GrayMatter MCP tools for Codex plugin launch', asyn
         'entity_list',
         'entity_get',
         'entity_create',
+        'show_graymatter_overview',
         'schema_summary'
       ]
     );
@@ -191,7 +192,26 @@ test('initialize works through the paired message endpoint', async () => {
     assert.equal(response.status, 200);
     assert.equal(body.id, 'init-1');
     assert.equal(body.result.serverInfo.name, 'graymatter');
-    assert.deepEqual(body.result.capabilities, { tools: {} });
+    assert.deepEqual(body.result.capabilities, { tools: {}, resources: {} });
+  } finally {
+    server.close();
+  }
+});
+
+test('initialize works through the Apps SDK /mcp endpoint', async () => {
+  const server = createGrayMatterMcpServer({ apiBase: 'https://api-0.example.test/v1' });
+  const baseUrl = await listen(server);
+
+  try {
+    const result = await postRpc(baseUrl, {
+      jsonrpc: '2.0',
+      id: 'init-apps-sdk',
+      method: 'initialize'
+    }, {}, '/mcp');
+
+    assert.equal(result.status, 200);
+    assert.equal(result.body.id, 'init-apps-sdk');
+    assert.equal(result.body.result.serverInfo.name, 'graymatter');
   } finally {
     server.close();
   }
@@ -207,6 +227,90 @@ test('sse announces the paired message endpoint', async () => {
     assert.equal(response.status, 200);
     assert.match(response.body, /event: endpoint/);
     assert.match(response.body, /data: \/message/);
+  } finally {
+    server.close();
+  }
+});
+
+test('tools/list exposes Apps SDK metadata required for review', async () => {
+  const server = createGrayMatterMcpServer({ apiBase: 'https://api-0.example.test/v1' });
+  const baseUrl = await listen(server);
+
+  try {
+    const result = await postRpc(baseUrl, {
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'tools/list'
+    });
+
+    assert.equal(result.status, 200);
+
+    for (const tool of result.body.result.tools) {
+      assert.equal(typeof tool.title, 'string', `${tool.name} title`);
+      assert.ok(tool.title.length > 0, `${tool.name} title`);
+      assert.deepEqual(tool.securitySchemes, [
+        { type: 'apiKey', in: 'header', name: 'X-Valkyr-Token' },
+        { type: 'http', scheme: 'bearer' }
+      ]);
+      assert.deepEqual(tool._meta.securitySchemes, tool.securitySchemes);
+      assert.equal(typeof tool._meta['openai/toolInvocation/invoking'], 'string', `${tool.name} invoking text`);
+      assert.equal(typeof tool._meta['openai/toolInvocation/invoked'], 'string', `${tool.name} invoked text`);
+      assert.equal(typeof tool.annotations.readOnlyHint, 'boolean', `${tool.name} readOnlyHint`);
+      assert.equal(typeof tool.annotations.destructiveHint, 'boolean', `${tool.name} destructiveHint`);
+      assert.equal(typeof tool.annotations.openWorldHint, 'boolean', `${tool.name} openWorldHint`);
+    }
+
+    const overview = result.body.result.tools.find((tool) => tool.name === 'show_graymatter_overview');
+    assert.ok(overview, 'show_graymatter_overview is present');
+    assert.equal(overview._meta.ui.resourceUri, 'ui://graymatter/overview.html');
+    assert.equal(overview._meta['openai/outputTemplate'], 'ui://graymatter/overview.html');
+  } finally {
+    server.close();
+  }
+});
+
+test('resources expose the GrayMatter Apps SDK overview widget', async () => {
+  const server = createGrayMatterMcpServer({
+    apiBase: 'https://api-0.example.test/v1',
+    widgetDomain: 'https://graymatter.example.test'
+  });
+  const baseUrl = await listen(server);
+
+  try {
+    const listed = await postRpc(baseUrl, {
+      jsonrpc: '2.0',
+      id: 'resources',
+      method: 'resources/list'
+    });
+
+    assert.equal(listed.status, 200);
+    assert.deepEqual(listed.body.result.resources, [
+      {
+        uri: 'ui://graymatter/overview.html',
+        name: 'GrayMatter overview',
+        title: 'GrayMatter overview',
+        description: 'Overview card for GrayMatter durable memory and schema tools.',
+        mimeType: 'text/html;profile=mcp-app'
+      }
+    ]);
+
+    const read = await postRpc(baseUrl, {
+      jsonrpc: '2.0',
+      id: 'resource',
+      method: 'resources/read',
+      params: { uri: 'ui://graymatter/overview.html' }
+    });
+
+    assert.equal(read.status, 200);
+    assert.equal(read.body.result.contents.length, 1);
+    assert.equal(read.body.result.contents[0].uri, 'ui://graymatter/overview.html');
+    assert.equal(read.body.result.contents[0].mimeType, 'text/html;profile=mcp-app');
+    assert.match(read.body.result.contents[0].text, /GrayMatter/);
+    assert.deepEqual(read.body.result.contents[0]._meta.ui.csp.connectDomains, [
+      'https://api-0.valkyrlabs.com'
+    ]);
+    assert.equal(read.body.result.contents[0]._meta.ui.domain, 'https://graymatter.example.test');
+    assert.equal(read.body.result.contents[0]._meta['openai/widgetDomain'], 'https://graymatter.example.test');
   } finally {
     server.close();
   }
@@ -234,6 +338,7 @@ test('tools/list exposes the GrayMatter tool surface', async () => {
         'entity_list',
         'entity_get',
         'entity_create',
+        'show_graymatter_overview',
         'schema_summary'
       ]
     );
@@ -349,6 +454,16 @@ test('memory_write forwards per-request auth to api-0 MemoryEntry', async () => 
   }
 });
 
+test('Apps SDK bearer auth is accepted on /mcp and forwarded to api-0', async () => {
+  const fakeApi = createFakeApi(async (_req, res, record) => {
+    assert.equal(record.method, 'GET');
+    assert.equal(record.path, '/v1/MemoryEntry/mem-99');
+    assert.equal(record.headers.authorization, 'Bearer apps-sdk-token');
+
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ id: 'mem-99' }));
+});
+                                
 test('memory tools derive scoped sourceChannel from Codex hierarchy metadata', async () => {
   const automationPath = '/tmp/codex-home/.codex/automations/mcp-and-skill-hunter/memory.md';
   const fakeApi = createFakeApi(async (_req, res, record) => {
@@ -379,6 +494,16 @@ test('memory tools derive scoped sourceChannel from Codex hierarchy metadata', a
   const baseUrl = await listen(server);
 
   try {
+    const result = await postRpc(baseUrl, {
+      jsonrpc: '2.0',
+      id: 'bearer-auth',
+      method: 'tools/call',
+      params: { name: 'memory_read', arguments: { id: 'mem-99' } }
+    }, { authorization: 'Bearer apps-sdk-token' }, '/mcp');
+
+    assert.equal(result.status, 200);
+    assert.equal(result.body.result.content[0].text, JSON.stringify({ id: 'mem-99' }));
+    assert.equal(fakeApi.requests.length, 1);
     const writeResult = await postRpc(baseUrl, {
       jsonrpc: '2.0',
       id: 'scoped-write',

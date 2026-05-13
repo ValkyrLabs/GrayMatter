@@ -12,7 +12,7 @@ When properly authenticated, the agent can persist durable memory, inspect the l
 
 GrayMatter ships as three related but independently usable surfaces:
 
-- **MCP service**: `mcp-server/` runs as an HTTP/SSE service for Claude.ai, Claude Code, Cursor, and any MCP-compatible host, and also supports `node mcp-server/index.js --stdio` for plugin-managed MCP launch.
+- **MCP service**: `mcp-server/` runs as an HTTP/SSE service for Claude.ai, Claude Code, Cursor, ChatGPT Apps SDK, and any MCP-compatible host, and also supports `node mcp-server/index.js --stdio` for plugin-managed MCP launch.
 - **Codex plugin**: `.codex-plugin/plugin.json` exposes this repo as the `graymatter` plugin with the standalone skill plus `.mcp.json`, so Codex can discover both the instructions and the MCP server.
 - **Standalone OpenClaw skill**: `graymatter.skill` packages `SKILL.md` and the required scripts for OpenClaw install, activation, hosted api-0 use, and GrayMatter Light local mode.
 
@@ -144,11 +144,15 @@ Rule:
 - `scripts/gm-light-json-smoke` — JSON-file fallback smoke test for Light payload shape without ThorAPI
 - `scripts/package-local-server` — package the standalone downloadable GrayMatter Local Server archive
 - `scripts/package_graymatter.py` — deterministic validation and packaging
-- `mcp-server/` — standalone HTTP/SSE MCP server for GrayMatter memory, graph, entity, and schema tools
+- `mcp-server/` — standalone HTTP/SSE and Apps SDK `/mcp` server for GrayMatter memory, graph, entity, schema, and overview tools
 - `docs/architecture.md` — architecture and operating model
+- `docs/openai-app-directory-submission.md` — Apps SDK submission checklist and copy
+- `docs/privacy-policy.md` — GrayMatter-specific public privacy policy source
+- `docs/reviewer-test-credentials.md` — review demo-account setup and secure credential handoff runbook
 - `docs/prd-context-compaction-reset.md` — PRD for bounded chat compaction and reset flows
 - `docs/thorapi-integration.md` — ThorAPI relationship and bundle direction
 - `docs/graymatter-light.md` — local/offline notes
+- `openai-app/submission-manifest.json` — non-secret app metadata for OpenAI dashboard submission
 - `examples/*` — example payloads and Light-mode starter assets
 - `references/*` — release and multi-agent guidance, including concurrency conventions
 - `references/mcp/memory-tool-contract.v1.json` — stable v1 portable tool contract for memory and graph operations

@@ -28,6 +28,7 @@ The repo-level `.mcp.json` points Codex at `node mcp-server/index.js --stdio`.
 | --- | --- | --- | --- |
 | `VALKYR_AUTH_TOKEN` | Recommended | none | Bearer token from `scripts/gm-login`. Can also be passed per request through `X-Valkyr-Token`. |
 | `VALKYR_API_BASE` | No | `https://api-0.valkyrlabs.com/v1` | API base to target. Use hosted api-0, a self-hosted api-0, or a local GrayMatter Light ThorAPI instance. |
+| `GRAYMATTER_WIDGET_DOMAIN` | No | `https://graymatter.valkyrlabs.com` | Public widget origin advertised in Apps SDK resource metadata for ChatGPT app review. |
 | `PORT` | No | `3333` | HTTP port to listen on. |
 
 Get a hosted token:
@@ -51,10 +52,13 @@ VALKYR_API_BASE=http://localhost:8080 GRAYMATTER_LIGHT_MODE=true npm start
 | --- | --- | --- |
 | `GET` | `/sse` | SSE stream; connect Claude.ai here with the paired message endpoint. |
 | `POST` | `/message` | JSON-RPC message endpoint paired with `/sse`. |
+| `POST` | `/mcp` | Public Apps SDK MCP endpoint for ChatGPT connector setup and app review. |
 | `POST` | `/` | Direct JSON-RPC endpoint for simpler clients and tests. |
 | `GET` | `/health` | Readiness check with configured API base and exposed tools. |
 
 Stdio mode exposes the same JSON-RPC methods over newline-delimited stdin/stdout and does not print startup text to stdout.
+
+The server also implements `resources/list` and `resources/read` for the Apps SDK overview widget at `ui://graymatter/overview.html`. Tool descriptors include Apps SDK security scheme mirrors, tool invocation status text, and action annotations for review.
 
 ## Available Tools
 
@@ -123,6 +127,14 @@ For multi-tenant deployments, do not set a shared `VALKYR_AUTH_TOKEN`. Pass each
 ## Production Notes
 
 Railway, Fly.io, and Docker deployments all work as long as the server can reach `VALKYR_API_BASE` and callers provide auth through either `VALKYR_AUTH_TOKEN` or `X-Valkyr-Token`.
+
+For ChatGPT app submission:
+
+1. Deploy this server on a public HTTPS domain.
+2. Submit the connector URL as `https://your-host/mcp`.
+3. Set `GRAYMATTER_WIDGET_DOMAIN` to the public origin that hosts the widget surface.
+4. Provide the GrayMatter privacy policy URL, screenshots, test prompts, and reviewer test credentials through the OpenAI Platform Dashboard only.
+5. Do not commit reviewer passwords, tokens, OAuth secrets, or MFA recovery material.
 
 Minimal Dockerfile:
 

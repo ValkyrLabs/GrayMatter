@@ -99,6 +99,22 @@ if ! command -v jq >/dev/null 2>&1; then
   exit 1
 fi
 
+keychain_get() {
+  local service="$1"
+  local account="$2"
+
+  command -v security >/dev/null 2>&1 || return 1
+  security find-generic-password -a "$account" -s "$service" -w 2>/dev/null
+}
+
+if [[ -z "$USERNAME" ]]; then
+  USERNAME="$(keychain_get "$USERNAME_SERVICE" default || true)"
+fi
+
+if [[ -z "$PASSWORD" && -n "$USERNAME" ]]; then
+  PASSWORD="$(keychain_get "$PASSWORD_SERVICE" "$USERNAME" || true)"
+fi
+
 if [[ -z "$USERNAME" ]]; then
   read -r -p "GrayMatter username: " USERNAME
 fi

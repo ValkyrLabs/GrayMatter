@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
+import base64
 import json
 import os
 import subprocess
 import sys
 from pathlib import Path
+from urllib import request, error
 
 sys.path.insert(0, os.path.dirname(__file__))
 try:
@@ -50,25 +52,89 @@ else:
 
 has_env_token = bool(os.getenv("VALKYR_AUTH_TOKEN"))
 keychain_service = os.getenv("VALKYR_KEYCHAIN_SERVICE", "VALKYR_AUTH")
+api_base = os.getenv("VALKYR_API_BASE", "https://api-0.valkyrlabs.com/v1").rstrip("/")
 keychain_token = False
+token_value = os.getenv("VALKYR_AUTH_TOKEN", "").strip()
 
 if not has_env_token:
     try:
         res = subprocess.run([
             "security", "find-generic-password", "-a", "default", "-s", keychain_service, "-w"
         ], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, check=False)
-        keychain_token = bool(res.stdout.strip())
+        token_value = res.stdout.strip()
+        keychain_token = bool(token_value)
     except Exception:
         keychain_token = False
 
 auth_state = "env_token" if has_env_token else ("keychain_token" if keychain_token else "missing")
 health = "error" if fallback_state == "invalid" else ("degraded" if auth_state == "missing" or pending_writes > 0 else "ok")
 
+
+def decode_claims(token: str):
+    parts = token.split(".")
+    if len(parts) < 2:
+        return {}
+    payload = parts[1]
+    payload += "=" * ((4 - len(payload) % 4) % 4)
+    try:
+        raw = base64.urlsafe_b64decode(payload.encode("utf-8"))
+        parsed = json.loads(raw.decode("utf-8"))
+        return parsed if isinstance(parsed, dict) else {}
+    except Exception:
+        return {}
+
+
+def token_scope_state(token: str):
+    claims = decode_claims(token)
+    roles = []
+    for key in ("roles", "roleList", "authorities", "authorityList"):
+        vals = claims.get(key, [])
+        if isinstance(vals, list):
+            roles.extend([v for v in vals if isinstance(v, str)])
+    scopes = claims.get("scopes", [])
+    if not isinstance(scopes, list):
+        scopes = []
+    non_trivial_roles = [r for r in set(roles) if r not in {"EVERYONE", "FREE"}]
+    non_readonly_scopes = [s for s in set(scopes) if s != "SCOPE_schema.read"]
+    if non_trivial_roles or non_readonly_scopes:
+        return "write_capable"
+    return "read_only"
+
+
+def live_token_state(token: str):
+    req = request.Request(
+        f"{api_base}/auth/me",
+        headers={"Authorization": f"Bearer {token}", "accept": "application/json"},
+        method="GET",
+    )
+    try:
+        with request.urlopen(req, timeout=8) as resp:
+            if 200 <= resp.status < 300:
+                return "valid"
+            return "invalid"
+    except error.HTTPError:
+        return "invalid"
+    except Exception:
+        return "unknown"
+
+
+token_live_state = "missing"
+token_permission_state = "unknown"
+if token_value:
+    token_permission_state = token_scope_state(token_value)
+    token_live_state = live_token_state(token_value)
+    if token_live_state == "invalid":
+        health = "degraded"
+
 if os.getenv("GM_STATUS_FORMAT", "kv") == "json":
     print(json.dumps({
         "graymatter": {
             "health": health,
             "auth": auth_state,
+            "token": {
+                "liveState": token_live_state,
+                "permissionState": token_permission_state,
+            },
             "fallback": {
                 "path": str(fallback_path),
                 "state": fallback_state,
@@ -78,6 +144,12 @@ if os.getenv("GM_STATUS_FORMAT", "kv") == "json":
     }, indent=2))
 else:
     auth_kv = "env" if has_env_token else ("keychain" if keychain_token else "missing")
+    if token_live_state == "invalid":
+        auth_kv = f"{auth_kv}:invalid"
+    elif token_live_state == "valid" and token_permission_state == "read_only":
+        auth_kv = f"{auth_kv}:read_only"
+    elif token_live_state == "valid" and token_permission_state == "write_capable":
+        auth_kv = f"{auth_kv}:write_capable"
     memory_layer = "ready" if fallback_state != "invalid" else "degraded"
     graph_layer = strategic_layer = kpi_layer = "unknown"
     try:

@@ -462,6 +462,31 @@ test('Apps SDK bearer auth is accepted on /mcp and forwarded to api-0', async ()
 
     res.writeHead(200, { 'content-type': 'application/json' });
     res.end(JSON.stringify({ id: 'mem-99' }));
+});
+                                
+test('memory tools derive scoped sourceChannel from Codex hierarchy metadata', async () => {
+  const automationPath = '/tmp/codex-home/.codex/automations/mcp-and-skill-hunter/memory.md';
+  const fakeApi = createFakeApi(async (_req, res, record) => {
+    res.writeHead(200, { 'content-type': 'application/json' });
+    if (record.path === '/v1/MemoryEntry') {
+      assert.equal(record.body.type, 'context');
+      assert.equal(record.body.sourceChannel, 'codex:automation:mcp-and-skill-hunter');
+      assert.match(record.body.text, /\[graymatter-scope\]/);
+      assert.match(record.body.text, /scope: automation/);
+      assert.match(record.body.text, /automationId: mcp-and-skill-hunter/);
+      assert.match(record.body.text, /artifactPath: \/tmp\/codex-home\/\.codex\/automations\/mcp-and-skill-hunter\/memory\.md/);
+      assert.match(record.body.text, /Research complete/);
+      res.end(JSON.stringify({ id: 'mem-scoped', ...record.body }));
+      return;
+    }
+    if (record.path === '/v1/MemoryEntry/query') {
+      assert.equal(record.body.query, 'Research complete');
+      assert.equal(record.body.source, 'codex:automation:mcp-and-skill-hunter');
+      assert.equal(record.body.type, 'context');
+      res.end(JSON.stringify({ results: [{ id: 'mem-scoped' }] }));
+      return;
+    }
+    throw new Error(`Unexpected path ${record.path}`);
   });
 
   const apiBase = await listen(fakeApi.server);
@@ -479,6 +504,37 @@ test('Apps SDK bearer auth is accepted on /mcp and forwarded to api-0', async ()
     assert.equal(result.status, 200);
     assert.equal(result.body.result.content[0].text, JSON.stringify({ id: 'mem-99' }));
     assert.equal(fakeApi.requests.length, 1);
+    const writeResult = await postRpc(baseUrl, {
+      jsonrpc: '2.0',
+      id: 'scoped-write',
+      method: 'tools/call',
+      params: {
+        name: 'memory_write',
+        arguments: {
+          type: 'context',
+          text: 'Research complete',
+          scopePath: automationPath,
+          user: 'codex-user'
+        }
+      }
+    });
+    const queryResult = await postRpc(baseUrl, {
+      jsonrpc: '2.0',
+      id: 'scoped-query',
+      method: 'tools/call',
+      params: {
+        name: 'memory_query',
+        arguments: {
+          query: 'Research complete',
+          type: 'context',
+          scopePath: automationPath
+        }
+      }
+    });
+
+    assert.equal(writeResult.status, 200);
+    assert.equal(queryResult.status, 200);
+    assert.equal(fakeApi.requests.length, 2);
   } finally {
     server.close();
     fakeApi.server.close();

@@ -73,6 +73,24 @@ The server also implements `resources/list` and `resources/read` for the Apps SD
 | `entity_create` | `POST /{entityType}` | Create one entity when RBAC permits it. |
 | `schema_summary` | `GET /api-docs` | Summarize the live ValkyrAI OpenAPI schema. |
 
+## Scoped Memory
+
+`memory_write` and `memory_query` accept optional scope fields so agents can retrieve memory for the current chat, workspace, automation, or session without relying on loose tag matching.
+
+Supported fields:
+- `sourceChannel`
+- `scope`
+- `runtime`
+- `user`
+- `workspaceKey`
+- `chatKey`
+- `sessionKey`
+- `automationId`
+- `artifactPath`
+- `scopePath`
+
+When `sourceChannel` is not provided, the server derives it from the strongest available scope. A path like `$HOME/.codex/automations/mcp-and-skill-hunter/memory.md` becomes `codex:automation:mcp-and-skill-hunter`; a Codex workspace path under `Documents/Codex/<date>/<slug>` becomes `codex:workspace:<date>/<slug>`. `memory_write` preserves the hierarchy in a compact `[graymatter-scope]` header inside `MemoryEntry.text`, while `memory_query` sends the derived value as the api-0 `source` filter.
+
 ## Connect to Claude.ai
 
 1. Run the server somewhere Claude.ai can reach it.

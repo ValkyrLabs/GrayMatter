@@ -1,0 +1,7 @@
+id: rbac-core
+name: RBAC Core Services
+description: Built-in Valkyr component for Principal identity, roles, and UserPreferences.
+exports:
+  - Principal
+  - UserPreferences
+  - RBAC

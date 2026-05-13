@@ -1,0 +1,19 @@
+id: graymatter-local
+version: 0.1.0
+name: GrayMatter Local Server
+description: Standalone GrayMatter application bundle generated from ValkyrAI app-factory inputs.
+generationMode: thorapi-febe
+specFragments:
+  - ./openapi.json
+components:
+  - ./components/graymatter-dashboard.yaml
+  - ./components/memory-workbench.yaml
+  - ./components/mothership-sync.yaml
+  - ./components/swarm-protocol.yaml
+  - ./components/live-telemetry.yaml
+builtInValkyrComponents:
+  - rbac-core
+  - data-workbooks
+dependsOn:
+  - rbac-core
+  - data-workbooks

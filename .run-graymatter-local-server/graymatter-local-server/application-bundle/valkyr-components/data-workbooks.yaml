@@ -1,0 +1,6 @@
+id: data-workbooks
+name: Data Workbooks
+description: Built-in Valkyr component for GridHeim-style local workbook data surfaces.
+exports:
+  - Workbook
+  - WorkbookStatus

@@ -245,11 +245,6 @@ elseif ($result -eq "No") { Start-Process $signupUrl }
 }
 
 RESPONSE_FILE="$(portable_mktemp graymatter-response.XXXXXX)"
-cleanup() {
-  rm -f "$RESPONSE_FILE"
-}
-trap cleanup EXIT
-
 RESPONSE_HEADERS="$(portable_mktemp graymatter-headers.XXXXXX)"
 cleanup() {
   rm -f "$RESPONSE_FILE"

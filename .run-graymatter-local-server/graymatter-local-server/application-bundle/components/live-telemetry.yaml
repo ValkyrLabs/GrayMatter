@@ -1,0 +1,11 @@
+id: live-telemetry
+name: LiveTelemetryPanel
+kind: backend-component
+description: Authenticated local telemetry panel for admin-visible GrayMatter light runtime metrics.
+source: controller/LiveTelemetryController.java
+binds:
+  - GET /api/graymatter/telemetry/status
+exports:
+  - Live Telemetry
+  - System Equalizer
+  - Runtime Metrics

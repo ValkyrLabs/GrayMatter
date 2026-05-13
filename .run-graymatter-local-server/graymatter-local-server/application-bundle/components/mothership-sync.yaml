@@ -1,0 +1,11 @@
+id: mothership-sync
+name: MothershipPromotionBridge
+kind: backend-component
+description: Promotion and synchronization bridge from local GrayMatter light bundles to valkyrlabs.com.
+source: controller/MothershipSyncController.java
+binds:
+  - GET /api/graymatter/sync/status
+  - POST /api/graymatter/sync/mothership
+target:
+  site: https://valkyrlabs.com
+  api: https://api-0.valkyrlabs.com/v1

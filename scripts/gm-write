@@ -3,15 +3,191 @@ set -euo pipefail
 
 TYPE="${1:-}"
 TEXT="${2:-}"
-SOURCE_CHANNEL="${3:-openclaw}"
-TAGS_RAW="${4:-}"
 
 if [[ -z "$TYPE" || -z "$TEXT" ]]; then
-  echo "Usage: gm-write <decision|todo|context|artifact|preference> <text> [sourceChannel] [comma-separated-tags]" >&2
+  echo "Usage: gm-write <decision|todo|context|artifact|preference> <text> [sourceChannel] [comma-separated-tags] [--scope-path path] [--workspace-key key] [--chat-key key] [--session-key key] [--automation-id id] [--artifact-path path] [--user user]" >&2
   exit 1
 fi
 
+shift 2
+
+SOURCE_CHANNEL="openclaw"
+SOURCE_CHANNEL_EXPLICIT=0
+TAGS_RAW=""
+if [[ $# -gt 0 && "${1:-}" != --* ]]; then
+  SOURCE_CHANNEL="$1"
+  SOURCE_CHANNEL_EXPLICIT=1
+  shift
+fi
+if [[ $# -gt 0 && "${1:-}" != --* ]]; then
+  TAGS_RAW="$1"
+  shift
+fi
+
+SCOPE=""
+RUNTIME="codex"
+USER_NAME=""
+WORKSPACE_KEY=""
+CHAT_KEY=""
+SESSION_KEY=""
+AUTOMATION_ID=""
+ARTIFACT_PATH=""
+SCOPE_PATH=""
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --scope)
+      SCOPE="${2:-}"
+      shift 2
+      ;;
+    --runtime)
+      RUNTIME="${2:-}"
+      shift 2
+      ;;
+    --user)
+      USER_NAME="${2:-}"
+      shift 2
+      ;;
+    --workspace-key)
+      WORKSPACE_KEY="${2:-}"
+      shift 2
+      ;;
+    --chat-key)
+      CHAT_KEY="${2:-}"
+      shift 2
+      ;;
+    --session-key)
+      SESSION_KEY="${2:-}"
+      shift 2
+      ;;
+    --automation-id)
+      AUTOMATION_ID="${2:-}"
+      shift 2
+      ;;
+    --artifact-path|--path|--scope-path)
+      SCOPE_PATH="${2:-}"
+      if [[ "$1" == "--artifact-path" ]]; then
+        ARTIFACT_PATH="${2:-}"
+      fi
+      shift 2
+      ;;
+    --source-channel)
+      SOURCE_CHANNEL="${2:-}"
+      SOURCE_CHANNEL_EXPLICIT=1
+      shift 2
+      ;;
+    --tags)
+      TAGS_RAW="${2:-}"
+      shift 2
+      ;;
+    *)
+      echo "Unknown gm-write option: $1" >&2
+      exit 1
+      ;;
+  esac
+done
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+derive_scope_from_path() {
+  local path="$1"
+  if [[ "$path" =~ \.codex/automations/([^/]+) ]]; then
+    printf 'automation\n'
+  elif [[ "$path" =~ /Documents/Codex/([^/]+)/([^/]+) ]]; then
+    printf 'workspace\n'
+  fi
+}
+
+derive_source_channel() {
+  local path="$1"
+  if [[ -n "$CHAT_KEY" ]]; then
+    scoped_key chat "$CHAT_KEY"
+  elif [[ -n "$SESSION_KEY" ]]; then
+    scoped_key session "$SESSION_KEY"
+  elif [[ -n "$AUTOMATION_ID" ]]; then
+    scoped_key automation "$AUTOMATION_ID"
+  elif [[ -n "$WORKSPACE_KEY" ]]; then
+    scoped_key workspace "$WORKSPACE_KEY"
+  elif [[ "$path" =~ \.codex/automations/([^/]+) ]]; then
+    printf '%s:automation:%s\n' "$RUNTIME" "${BASH_REMATCH[1]}"
+  elif [[ "$path" =~ /Documents/Codex/([^/]+)/([^/]+) ]]; then
+    printf '%s:workspace:%s/%s\n' "$RUNTIME" "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}"
+  fi
+}
+
+scoped_key() {
+  local kind="$1"
+  local value="$2"
+  if [[ "$value" == *:* ]]; then
+    printf '%s\n' "$value"
+  else
+    printf '%s:%s:%s\n' "$RUNTIME" "$kind" "$value"
+  fi
+}
+
+derive_automation_id_from_path() {
+  local path="$1"
+  if [[ "$path" =~ \.codex/automations/([^/]+) ]]; then
+    printf '%s\n' "${BASH_REMATCH[1]}"
+  fi
+}
+
+derive_workspace_key_from_path() {
+  local path="$1"
+  if [[ "$path" =~ /Documents/Codex/([^/]+)/([^/]+) ]]; then
+    printf '%s/%s\n' "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}"
+  fi
+}
+
+if [[ -n "$SCOPE_PATH" && -z "$ARTIFACT_PATH" ]]; then
+  ARTIFACT_PATH="$SCOPE_PATH"
+fi
+if [[ -n "$SCOPE_PATH" && -z "$SCOPE" ]]; then
+  SCOPE="$(derive_scope_from_path "$SCOPE_PATH")"
+fi
+if [[ -n "$SCOPE_PATH" && -z "$AUTOMATION_ID" ]]; then
+  AUTOMATION_ID="$(derive_automation_id_from_path "$SCOPE_PATH")"
+fi
+if [[ -n "$SCOPE_PATH" && -z "$WORKSPACE_KEY" ]]; then
+  WORKSPACE_KEY="$(derive_workspace_key_from_path "$SCOPE_PATH")"
+fi
+if [[ "$SOURCE_CHANNEL_EXPLICIT" == "0" ]]; then
+  DERIVED_SOURCE_CHANNEL="$(derive_source_channel "$SCOPE_PATH")"
+  if [[ -n "$DERIVED_SOURCE_CHANNEL" ]]; then
+    SOURCE_CHANNEL="$DERIVED_SOURCE_CHANNEL"
+  fi
+fi
+
+SCOPE_METADATA="$(jq -nc \
+  --arg scope "$SCOPE" \
+  --arg runtime "$RUNTIME" \
+  --arg user "$USER_NAME" \
+  --arg workspaceKey "$WORKSPACE_KEY" \
+  --arg chatKey "$CHAT_KEY" \
+  --arg sessionKey "$SESSION_KEY" \
+  --arg automationId "$AUTOMATION_ID" \
+  --arg artifactPath "$ARTIFACT_PATH" \
+  --arg sourceChannel "$SOURCE_CHANNEL" \
+  '{
+    scope:$scope,
+    runtime:$runtime,
+    user:$user,
+    workspaceKey:$workspaceKey,
+    chatKey:$chatKey,
+    sessionKey:$sessionKey,
+    automationId:$automationId,
+    artifactPath:$artifactPath,
+    sourceChannel:$sourceChannel
+  } | with_entries(select(.value != ""))')"
+
+if jq -e 'length > 2 or ((has("runtime") and has("sourceChannel")) | not)' <<<"$SCOPE_METADATA" >/dev/null; then
+  TEXT="$(jq -nr --argjson metadata "$SCOPE_METADATA" --arg text "$TEXT" '
+    "[graymatter-scope]\n"
+    + ($metadata | to_entries | map("\(.key): \(.value)") | join("\n"))
+    + "\n[/graymatter-scope]\n\n"
+    + $text
+  ')"
+fi
 
 if [[ -n "$TAGS_RAW" ]]; then
   PAYLOAD="$(jq -nc --arg type "$TYPE" --arg text "$TEXT" --arg sourceChannel "$SOURCE_CHANNEL" --arg tagsRaw "$TAGS_RAW" '{type:$type,text:$text,sourceChannel:$sourceChannel,tags:($tagsRaw | split(",") | map(gsub("^\\s+|\\s+$";"")) | map(select(length > 0)))}')"

@@ -26,6 +26,7 @@ pass 'bash, curl, and jq are available'
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BASE="${VALKYR_API_BASE:-https://api-0.valkyrlabs.com/v1}"
 TOKEN=${VALKYR_AUTH_TOKEN:-${VALKYR_JWT_SESSION:-}}
+LIGHT_MODE="${GRAYMATTER_LIGHT_MODE:-false}"
 KEYCHAIN_SERVICE="${VALKYR_KEYCHAIN_SERVICE:-VALKYR_AUTH}"
 USERNAME_SERVICE="${VALKYR_USERNAME_KEYCHAIN_SERVICE:-${KEYCHAIN_SERVICE}_USERNAME}"
 PASSWORD_SERVICE="${VALKYR_PASSWORD_KEYCHAIN_SERVICE:-${KEYCHAIN_SERVICE}_PASSWORD}"
@@ -124,16 +125,132 @@ if [[ -z "$TOKEN" ]] && have security; then
   fi
 fi
 
-if [[ -z "$TOKEN" ]]; then
+if [[ -z "$TOKEN" && "$LIGHT_MODE" != "true" ]]; then
   if ! run_login || [[ -z "$TOKEN" ]]; then
     fail "No GrayMatter auth found. Checked VALKYR_AUTH_TOKEN, VALKYR_JWT_SESSION, macOS Keychain secret ${KEYCHAIN_SERVICE}, reusable credentials, and login did not produce a token."
   fi
 fi
 
 if token_is_clearly_read_only "$TOKEN"; then
+  if run_login && [[ -n "$TOKEN" ]] && ! token_is_clearly_read_only "$TOKEN"; then
+    :
+  else
+    fail "GrayMatter auth is read-only for ${USERNAME:-unknown}. The stored ${KEYCHAIN_SERVICE} session only grants schema-read access, and automatic re-login did not obtain a write-capable token."
+  fi
+fi
+if [[ -n "$TOKEN" ]] && token_is_clearly_read_only "$TOKEN"; then
   fail "GrayMatter auth is read-only for ${USERNAME:-unknown}. Login succeeded, but the issued token only grants schema-read access, so writes will fail."
 fi
-pass 'GrayMatter auth source detected'
+if [[ "$LIGHT_MODE" == "true" && -z "$TOKEN" ]]; then
+  pass 'GrayMatter Light mode enabled; hosted auth is not required'
+else
+  pass 'GrayMatter auth source detected'
+fi
+
+TOKEN_STATE="$(python3 - "$TOKEN" <<'PY'
+import base64
+import json
+import sys
+import time
+
+token = (sys.argv[1] if len(sys.argv) > 1 else "").strip()
+if not token:
+    print("missing")
+    raise SystemExit(0)
+
+parts = token.split(".")
+if len(parts) < 3:
+    print("ok")
+    raise SystemExit(0)
+
+try:
+    payload = parts[1] + ("=" * (-len(parts[1]) % 4))
+    claims = json.loads(base64.urlsafe_b64decode(payload.encode()).decode())
+except Exception:
+    print("ok")
+    raise SystemExit(0)
+
+exp = claims.get("exp")
+if isinstance(exp, (int, float)) and float(exp) <= time.time():
+    print("expired")
+    raise SystemExit(0)
+
+scopes = []
+raw_scope = claims.get("scope") or claims.get("scp")
+if isinstance(raw_scope, str):
+    scopes.extend(s.strip().lower() for s in raw_scope.replace(",", " ").split() if s.strip())
+elif isinstance(raw_scope, list):
+    scopes.extend(str(s).strip().lower() for s in raw_scope if str(s).strip())
+
+roles = claims.get("roles")
+if isinstance(roles, list):
+    scopes.extend(str(r).strip().lower() for r in roles if str(r).strip())
+
+read_only_markers = {"read", "readonly", "schema-read", "schema:read", "memory:read"}
+write_markers = {"write", "memory:write", "contentdata:write", "admin", "owner"}
+has_read_only = any(marker in scope for scope in scopes for marker in read_only_markers)
+has_write = any(marker in scope for scope in scopes for marker in write_markers)
+print("read_only" if has_read_only and not has_write else "ok")
+PY
+)"
+
+case "$TOKEN_STATE" in
+  expired)
+    if run_login && [[ -n "$TOKEN" ]]; then
+      TOKEN_STATE="$(python3 - "$TOKEN" <<'PY'
+import base64
+import json
+import sys
+import time
+
+token = (sys.argv[1] if len(sys.argv) > 1 else "").strip()
+if not token:
+    print("missing")
+    raise SystemExit(0)
+
+parts = token.split(".")
+if len(parts) < 3:
+    print("ok")
+    raise SystemExit(0)
+
+try:
+    payload = parts[1] + ("=" * (-len(parts[1]) % 4))
+    claims = json.loads(base64.urlsafe_b64decode(payload.encode()).decode())
+except Exception:
+    print("ok")
+    raise SystemExit(0)
+
+exp = claims.get("exp")
+if isinstance(exp, (int, float)) and float(exp) <= time.time():
+    print("expired")
+    raise SystemExit(0)
+
+scopes = []
+raw_scope = claims.get("scope") or claims.get("scp")
+if isinstance(raw_scope, str):
+    scopes.extend(s.strip().lower() for s in raw_scope.replace(",", " ").split() if s.strip())
+elif isinstance(raw_scope, list):
+    scopes.extend(str(s).strip().lower() for s in raw_scope if str(s).strip())
+
+roles = claims.get("roles")
+if isinstance(roles, list):
+    scopes.extend(str(r).strip().lower() for r in roles if str(r).strip())
+
+read_only_markers = {"read", "readonly", "schema-read", "schema:read", "memory:read"}
+write_markers = {"write", "memory:write", "contentdata:write", "admin", "owner"}
+has_read_only = any(marker in scope for scope in scopes for marker in read_only_markers)
+has_write = any(marker in scope for scope in scopes for marker in write_markers)
+print("read_only" if has_read_only and not has_write else "ok")
+PY
+)"
+    fi
+    [[ "$TOKEN_STATE" != "expired" ]] || fail "GrayMatter auth token is expired and automatic re-login did not refresh it."
+    ;;
+  read_only)
+    fail "GrayMatter auth token appears read-only. Use write-capable credentials before install validation."
+    ;;
+esac
+pass "GrayMatter auth token health: ${TOKEN_STATE}"
 
 if curl --silent --show-error --fail --max-time 10 "$BASE" >/dev/null 2>&1; then
   pass "API base reachable: $BASE"

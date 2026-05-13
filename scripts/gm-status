@@ -4,6 +4,8 @@ import json
 import os
 import subprocess
 import sys
+import time
+import base64
 from pathlib import Path
 from urllib import request, error
 
@@ -55,6 +57,7 @@ keychain_service = os.getenv("VALKYR_KEYCHAIN_SERVICE", "VALKYR_AUTH")
 api_base = os.getenv("VALKYR_API_BASE", "https://api-0.valkyrlabs.com/v1").rstrip("/")
 keychain_token = False
 token_value = os.getenv("VALKYR_AUTH_TOKEN", "").strip()
+resolved_token = (os.getenv("VALKYR_AUTH_TOKEN") or os.getenv("VALKYR_JWT_SESSION") or "").strip()
 
 if not has_env_token:
     try:
@@ -62,12 +65,91 @@ if not has_env_token:
             "security", "find-generic-password", "-a", "default", "-s", keychain_service, "-w"
         ], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, check=False)
         token_value = res.stdout.strip()
-        keychain_token = bool(token_value)
+        # keychain_token = bool(token_value)
+        
+        resolved_token = (res.stdout or "").strip()
+        keychain_token = bool(resolved_token)
     except Exception:
         keychain_token = False
 
+def _decode_jwt_payload(token: str):
+    if token.count(".") < 2:
+        return {}
+    try:
+        payload = token.split(".")[1]
+        payload += "=" * (-len(payload) % 4)
+        raw = base64.urlsafe_b64decode(payload.encode("utf-8"))
+        parsed = json.loads(raw.decode("utf-8"))
+        return parsed if isinstance(parsed, dict) else {}
+    except Exception:
+        return {}
+
+def _token_health(token: str):
+    if not token:
+        return "missing"
+
+    claims = _decode_jwt_payload(token)
+    exp = claims.get("exp")
+    if isinstance(exp, (int, float)) and float(exp) <= time.time():
+        return "expired"
+
+    scopes = []
+    raw_scope = claims.get("scope") or claims.get("scp")
+    if isinstance(raw_scope, str):
+        scopes.extend([s.strip().lower() for s in raw_scope.replace(",", " ").split() if s.strip()])
+    elif isinstance(raw_scope, list):
+        scopes.extend([str(s).strip().lower() for s in raw_scope if str(s).strip()])
+
+    roles = claims.get("roles")
+    if isinstance(roles, list):
+        scopes.extend([str(r).strip().lower() for r in roles if str(r).strip()])
+
+    read_only_markers = {"read", "readonly", "schema-read", "schema:read", "memory:read"}
+    write_markers = {"write", "memory:write", "contentdata:write", "admin", "owner"}
+    has_read_only = any(m in scope for scope in scopes for m in read_only_markers)
+    has_write = any(m in scope for scope in scopes for m in write_markers)
+    if has_read_only and not has_write:
+        return "read_only"
+
+    return "ok"
+
+def _token_live_valid(token: str):
+    if not token:
+        return False
+    auth_me_url = f"{api_base}/auth/me"
+    try:
+        res = subprocess.run(
+            [
+                "curl",
+                "-sS",
+                "-o",
+                "/dev/null",
+                "-w",
+                "%{http_code}",
+                "--connect-timeout",
+                "5",
+                "--max-time",
+                "10",
+                "-H",
+                f"Authorization: Bearer {token}",
+                auth_me_url,
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            check=False,
+        )
+        code = (res.stdout or "").strip()
+        return code == "200"
+    except Exception:
+        return False
+
+token_state = _token_health(resolved_token)
+if token_state == "ok" and resolved_token and not _token_live_valid(resolved_token):
+    token_state = "invalid"
+
 auth_state = "env_token" if has_env_token else ("keychain_token" if keychain_token else "missing")
-health = "error" if fallback_state == "invalid" else ("degraded" if auth_state == "missing" or pending_writes > 0 else "ok")
+health = "error" if fallback_state == "invalid" else ("degraded" if auth_state == "missing" or pending_writes > 0 or token_state in {"expired", "invalid", "read_only"} else "ok")
 
 
 def decode_claims(token: str):
@@ -154,6 +236,8 @@ else:
         auth_kv = f"{auth_kv}:write_capable"
     auth_memory_ready = token_live_state != "invalid" and token_live_state != "missing" and token_permission_state != "read_only"
     memory_layer = "ready" if fallback_state != "invalid" and auth_memory_ready else "degraded"
+#     memory_layer = "ready" if fallback_state != "invalid" else "degraded"
+#    memory_layer = "ready" if fallback_state != "invalid" and token_state == "ok" else "degraded"
     graph_layer = strategic_layer = kpi_layer = "unknown"
     try:
         with open(openapi_path, "r", encoding="utf-8") as fh:
@@ -166,6 +250,7 @@ else:
         graph_layer = strategic_layer = kpi_layer = "missing"
 
     print(f"graymatter_auth={auth_kv}")
+    print(f"graymatter_token_state={token_state}")
     print(f"memory_layer={memory_layer}")
     print(f"graph_layer={graph_layer}")
     print(f"strategic_layer={strategic_layer}")

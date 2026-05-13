@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-TMP_DIR="$ROOT/.tmp-test-local-server-runtime"
+TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/gm-local-server-runtime.XXXXXX")"
 DIST_DIR="$TMP_DIR/dist"
 TARBALL="$DIST_DIR/graymatter-local-server-latest.tar.gz"
 PORT="${GRAYMATTER_RUNTIME_TEST_PORT:-8790}"
@@ -15,6 +15,7 @@ cleanup() {
     kill "$SERVER_PID" >/dev/null 2>&1 || true
     wait "$SERVER_PID" >/dev/null 2>&1 || true
   fi
+  rm -rf "$TMP_DIR" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
 
@@ -30,7 +31,6 @@ wait_for_health() {
   return 1
 }
 
-rm -rf "$TMP_DIR"
 mkdir -p "$DIST_DIR"
 
 "$ROOT/scripts/package-local-server" \
@@ -65,6 +65,12 @@ grep -q '"generationMode":"thorapi-febe"' "$TMP_DIR/dashboard.json"
 grep -q 'LiveTelemetryPanel' "$TMP_DIR/dashboard.json"
 grep -q 'Live Telemetry' "$TMP_DIR/dashboard.json"
 
+curl -fsS -u "admin:$LOCAL_LOGIN_CODE" "http://localhost:$PORT/api-docs" \
+  > "$TMP_DIR/api-docs.json"
+grep -q '"x-graymatter-mcp-contract"' "$TMP_DIR/api-docs.json"
+grep -q '"/MemoryEntry/query"' "$TMP_DIR/api-docs.json"
+grep -q '"/SwarmOps/graph"' "$TMP_DIR/api-docs.json"
+
 curl -fsS -u "admin:$LOCAL_LOGIN_CODE" "http://localhost:$PORT/api/graymatter/swarm/protocol" \
   | grep -q '"protocolVersion":"graymatter-swarm-v0.1"'
 
@@ -90,10 +96,30 @@ grep -q "VALKYR_AUTH_TOKEN" "$TMP_DIR/sync-response.json"
 curl -fsS -u "admin:$LOCAL_LOGIN_CODE" \
   -H 'Content-Type: application/json' \
   -d '{"type":"decision","text":"Runtime test memory","tags":"runtime"}' \
-  "http://localhost:$PORT/MemoryEntry" >/dev/null
+  "http://localhost:$PORT/MemoryEntry" > "$TMP_DIR/memory-create.json"
+
+MEMORY_ID="$(python3 - "$TMP_DIR/memory-create.json" <<'PY'
+import json
+import sys
+with open(sys.argv[1], encoding="utf-8") as fh:
+    print(json.load(fh)["id"])
+PY
+)"
+
+curl -fsS -u "admin:$LOCAL_LOGIN_CODE" "http://localhost:$PORT/MemoryEntry/$MEMORY_ID" \
+  | grep -q "Runtime test memory"
+
+curl -fsS -u "admin:$LOCAL_LOGIN_CODE" \
+  -H 'Content-Type: application/json' \
+  -d '{"query":"runtime","limit":5}' \
+  "http://localhost:$PORT/MemoryEntry/query" \
+  | grep -q "Runtime test memory"
 
 curl -fsS -u "admin:$LOCAL_LOGIN_CODE" "http://localhost:$PORT/MemoryEntry?q=runtime" \
   | grep -q "Runtime test memory"
+
+curl -fsS -u "admin:$LOCAL_LOGIN_CODE" "http://localhost:$PORT/SwarmOps/graph" \
+  | grep -q '"protocolVersion":"graymatter-swarm-v0.1"'
 
 curl -fsS -u "admin:$LOCAL_LOGIN_CODE" \
   -H 'Content-Type: application/json' \

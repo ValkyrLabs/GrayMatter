@@ -2,14 +2,23 @@
 'use strict';
 
 const http = require('node:http');
+const readline = require('node:readline');
 const { URL } = require('node:url');
 
 const DEFAULT_API_BASE = 'https://api-0.valkyrlabs.com/v1';
+const DEFAULT_WIDGET_DOMAIN = 'https://graymatter.valkyrlabs.com';
 const DEFAULT_PORT = 3333;
+const APP_UI_RESOURCE_URI = 'ui://graymatter/overview.html';
+const APP_CONNECT_DOMAINS = ['https://api-0.valkyrlabs.com'];
+const APP_SECURITY_SCHEMES = [
+  { type: 'apiKey', in: 'header', name: 'X-Valkyr-Token' },
+  { type: 'http', scheme: 'bearer' }
+];
 
 const tools = [
-  {
+  defineTool({
     name: 'memory_write',
+    title: 'Write memory',
     description: 'Write a durable GrayMatter MemoryEntry.',
     inputSchema: {
       type: 'object',
@@ -17,44 +26,79 @@ const tools = [
         type: { type: 'string', enum: ['decision', 'todo', 'context', 'artifact', 'preference'] },
         text: { type: 'string' },
         sourceChannel: { type: 'string' },
+        scope: { type: 'string', description: 'Memory scope, for example automation, workspace, chat, or session.' },
+        runtime: { type: 'string', description: 'Runtime namespace used when deriving sourceChannel. Defaults to codex.' },
+        user: { type: 'string' },
+        workspaceKey: { type: 'string' },
+        chatKey: { type: 'string' },
+        sessionKey: { type: 'string' },
+        automationId: { type: 'string' },
+        artifactPath: { type: 'string' },
+        scopePath: { type: 'string', description: 'Local path used to derive automation/workspace memory scope.' },
         tags: { oneOf: [{ type: 'array', items: { type: 'string' } }, { type: 'string' }] }
       },
       required: ['type', 'text']
-    }
-  },
-  {
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true, idempotentHint: false },
+    invoking: 'Writing memory',
+    invoked: 'Memory written'
+  }),
+  defineTool({
     name: 'memory_read',
+    title: 'Read memory',
     description: 'Read a durable GrayMatter MemoryEntry by id.',
     inputSchema: {
       type: 'object',
       properties: { id: { type: 'string' } },
       required: ['id']
-    }
-  },
-  {
+    },
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true, idempotentHint: true },
+    invoking: 'Reading memory',
+    invoked: 'Memory ready'
+  }),
+  defineTool({
     name: 'memory_query',
+    title: 'Search memory',
     description: 'Semantic search across GrayMatter memory.',
     inputSchema: {
       type: 'object',
       properties: {
         query: { type: 'string' },
-        limit: { type: 'integer', minimum: 1, maximum: 100 }
+        limit: { type: 'integer', minimum: 1, maximum: 100 },
+        type: { type: 'string' },
+        sourceChannel: { type: 'string' },
+        scope: { type: 'string' },
+        runtime: { type: 'string' },
+        workspaceKey: { type: 'string' },
+        chatKey: { type: 'string' },
+        sessionKey: { type: 'string' },
+        automationId: { type: 'string' },
+        artifactPath: { type: 'string' },
+        scopePath: { type: 'string' }
       },
       required: ['query']
-    }
-  },
-  {
+    },
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true, idempotentHint: true },
+    invoking: 'Searching memory',
+    invoked: 'Memory search ready'
+  }),
+  defineTool({
     name: 'graph_get',
+    title: 'Get graph',
     description: 'Inspect the SwarmOps shared object graph.',
     inputSchema: {
       type: 'object',
       properties: {
         path: { type: 'string', description: 'Optional graph subpath.' }
       }
-    }
-  },
-  {
+    },
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true, idempotentHint: true },
+    invoking: 'Reading graph',
+    invoked: 'Graph ready'
+  }),
+  defineTool({
     name: 'entity_list',
+    title: 'List entities',
     description: 'List live ValkyrAI business entities by type.',
     inputSchema: {
       type: 'object',
@@ -64,10 +108,14 @@ const tools = [
         offset: { type: 'integer', minimum: 0 }
       },
       required: ['entityType']
-    }
-  },
-  {
+    },
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true, idempotentHint: true },
+    invoking: 'Listing entities',
+    invoked: 'Entities ready'
+  }),
+  defineTool({
     name: 'entity_get',
+    title: 'Get entity',
     description: 'Fetch one live ValkyrAI business entity by type and id.',
     inputSchema: {
       type: 'object',
@@ -76,10 +124,14 @@ const tools = [
         id: { type: 'string' }
       },
       required: ['entityType', 'id']
-    }
-  },
-  {
+    },
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true, idempotentHint: true },
+    invoking: 'Reading entity',
+    invoked: 'Entity ready'
+  }),
+  defineTool({
     name: 'entity_create',
+    title: 'Create entity',
     description: 'Create one live ValkyrAI business entity when RBAC permits it.',
     inputSchema: {
       type: 'object',
@@ -88,17 +140,45 @@ const tools = [
         body: { type: 'object' }
       },
       required: ['entityType', 'body']
-    }
-  },
-  {
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true, idempotentHint: false },
+    invoking: 'Creating entity',
+    invoked: 'Entity created'
+  }),
+  defineTool({
+    name: 'show_graymatter_overview',
+    title: 'Show GrayMatter overview',
+    description: 'Render an overview of the GrayMatter memory, graph, and schema tools for the current ChatGPT app session.',
+    inputSchema: { type: 'object', properties: {} },
+    outputSchema: {
+      type: 'object',
+      properties: {
+        app: { type: 'string' },
+        mcpEndpointPath: { type: 'string' },
+        toolCount: { type: 'integer' },
+        privacyPolicyUrl: { type: 'string' }
+      },
+      required: ['app', 'mcpEndpointPath', 'toolCount', 'privacyPolicyUrl']
+    },
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false, idempotentHint: true },
+    invoking: 'Showing overview',
+    invoked: 'Overview ready',
+    uiResourceUri: APP_UI_RESOURCE_URI
+  }),
+  defineTool({
     name: 'schema_summary',
+    title: 'Summarize schema',
     description: 'Summarize the live ValkyrAI OpenAPI schema.',
-    inputSchema: { type: 'object', properties: {} }
-  }
+    inputSchema: { type: 'object', properties: {} },
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true, idempotentHint: true },
+    invoking: 'Reading schema',
+    invoked: 'Schema ready'
+  })
 ];
 
 function createGrayMatterMcpServer(options = {}) {
   const apiBase = withoutTrailingSlash(options.apiBase || process.env.VALKYR_API_BASE || DEFAULT_API_BASE);
+  const widgetDomain = withoutTrailingSlash(options.widgetDomain || process.env.GRAYMATTER_WIDGET_DOMAIN || DEFAULT_WIDGET_DOMAIN);
   const fetchImpl = options.fetch || globalThis.fetch;
 
   if (typeof fetchImpl !== 'function') {
@@ -128,12 +208,13 @@ function createGrayMatterMcpServer(options = {}) {
         return;
       }
 
-      if (req.method === 'POST' && (requestUrl.pathname === '/' || requestUrl.pathname === '/message')) {
+      if (req.method === 'POST' && (requestUrl.pathname === '/' || requestUrl.pathname === '/message' || requestUrl.pathname === '/mcp')) {
         const rpcRequest = await readJson(req);
         const rpcResponse = await handleRpc(rpcRequest, {
           apiBase,
           fetchImpl,
-          token: authTokenFrom(req)
+          token: authTokenFrom(req),
+          widgetDomain
         });
 
         if (rpcResponse === null) {
@@ -148,6 +229,48 @@ function createGrayMatterMcpServer(options = {}) {
       sendJson(res, 404, { error: 'Not found' });
     } catch (error) {
       sendJson(res, 500, { error: error.message });
+    }
+  });
+}
+
+function createRpcContext(options = {}) {
+  const apiBase = withoutTrailingSlash(options.apiBase || process.env.VALKYR_API_BASE || DEFAULT_API_BASE);
+  const widgetDomain = withoutTrailingSlash(options.widgetDomain || process.env.GRAYMATTER_WIDGET_DOMAIN || DEFAULT_WIDGET_DOMAIN);
+  const fetchImpl = options.fetch || globalThis.fetch;
+
+  if (typeof fetchImpl !== 'function') {
+    throw new Error('Global fetch is required. Use Node 20 or newer.');
+  }
+
+  return {
+    apiBase,
+    fetchImpl,
+    token: options.token || process.env.VALKYR_AUTH_TOKEN || process.env.VALKYR_JWT_SESSION || '',
+    widgetDomain
+  };
+}
+
+function startStdioServer(options = {}) {
+  const context = createRpcContext(options);
+  const lines = readline.createInterface({
+    input: process.stdin,
+    crlfDelay: Infinity
+  });
+
+  lines.on('line', async (line) => {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      return;
+    }
+
+    try {
+      const message = JSON.parse(trimmed);
+      const response = await handleRpc(message, context);
+      if (response !== null) {
+        process.stdout.write(`${JSON.stringify(response)}\n`);
+      }
+    } catch (error) {
+      process.stdout.write(`${JSON.stringify(jsonRpcError(null, -32700, `Invalid JSON-RPC message: ${error.message}`))}\n`);
     }
   });
 }
@@ -171,7 +294,7 @@ async function handleRpc(message, context) {
       case 'initialize':
         return jsonRpcResult(id, {
           protocolVersion: '2024-11-05',
-          capabilities: { tools: {} },
+          capabilities: { tools: {}, resources: {} },
           serverInfo: {
             name: 'graymatter',
             version: '0.1.0'
@@ -179,6 +302,10 @@ async function handleRpc(message, context) {
         });
       case 'tools/list':
         return jsonRpcResult(id, { tools });
+      case 'resources/list':
+        return jsonRpcResult(id, { resources: [appResourceDescriptor()] });
+      case 'resources/read':
+        return jsonRpcResult(id, readResource(message.params || {}, context));
       case 'tools/call':
         return jsonRpcResult(id, await callTool(message.params || {}, context));
       default:
@@ -195,13 +322,13 @@ async function callTool(params, context) {
 
   switch (name) {
     case 'memory_write':
-      return toolResult(await apiRequest(context, 'POST', 'MemoryEntry', args));
+      return toolResult(await apiRequest(context, 'POST', 'MemoryEntry', buildMemoryWritePayload(args)));
     case 'memory_read':
       requireString(args.id, 'id');
       return toolResult(await apiRequest(context, 'GET', `MemoryEntry/${encodeURIComponent(args.id)}`));
     case 'memory_query':
       requireString(args.query, 'query');
-      return toolResult(await apiRequest(context, 'POST', 'MemoryEntry/query', args));
+      return toolResult(await apiRequest(context, 'POST', 'MemoryEntry/query', buildMemoryQueryPayload(args)));
     case 'graph_get': {
       const graphPath = args.path ? `SwarmOps/graph/${trimSlashes(args.path)}` : 'SwarmOps/graph';
       return toolResult(await apiRequest(context, 'GET', graphPath));
@@ -224,11 +351,193 @@ async function callTool(params, context) {
         throw new Error('body must be an object');
       }
       return toolResult(await apiRequest(context, 'POST', args.entityType, args.body));
+    case 'show_graymatter_overview':
+      return overviewToolResult();
     case 'schema_summary':
       return toolResult(summarizeOpenApi(await apiRequest(context, 'GET', 'api-docs')));
     default:
       throw new Error(`Unknown tool: ${name}`);
   }
+}
+
+function defineTool(tool) {
+  const securitySchemes = cloneSecuritySchemes();
+  const descriptor = {
+    name: tool.name,
+    title: tool.title,
+    description: tool.description,
+    inputSchema: tool.inputSchema,
+    securitySchemes,
+    annotations: tool.annotations,
+    _meta: {
+      securitySchemes,
+      'openai/toolInvocation/invoking': tool.invoking,
+      'openai/toolInvocation/invoked': tool.invoked
+    }
+  };
+
+  if (tool.outputSchema) {
+    descriptor.outputSchema = tool.outputSchema;
+  }
+
+  if (tool.uiResourceUri) {
+    descriptor._meta.ui = {
+      resourceUri: tool.uiResourceUri,
+      visibility: ['model', 'app']
+    };
+    descriptor._meta['openai/outputTemplate'] = tool.uiResourceUri;
+    descriptor._meta['openai/widgetAccessible'] = true;
+  }
+
+  return descriptor;
+}
+
+function cloneSecuritySchemes() {
+  return APP_SECURITY_SCHEMES.map((scheme) => ({ ...scheme }));
+}
+
+function appResourceDescriptor() {
+  return {
+    uri: APP_UI_RESOURCE_URI,
+    name: 'GrayMatter overview',
+    title: 'GrayMatter overview',
+    description: 'Overview card for GrayMatter durable memory and schema tools.',
+    mimeType: 'text/html;profile=mcp-app'
+  };
+}
+
+function readResource(params, context) {
+  if (params.uri !== APP_UI_RESOURCE_URI) {
+    throw new Error(`Unknown resource: ${params.uri || ''}`);
+  }
+
+  return {
+    contents: [
+      {
+        uri: APP_UI_RESOURCE_URI,
+        mimeType: 'text/html;profile=mcp-app',
+        text: overviewWidgetHtml(),
+        _meta: resourceMeta(context.widgetDomain)
+      }
+    ]
+  };
+}
+
+function resourceMeta(widgetDomain) {
+  return {
+    ui: {
+      prefersBorder: true,
+      domain: widgetDomain,
+      csp: {
+        connectDomains: APP_CONNECT_DOMAINS,
+        resourceDomains: [widgetDomain]
+      }
+    },
+    'openai/widgetDescription': 'GrayMatter overview for durable memory, graph, and schema tools.',
+    'openai/widgetPrefersBorder': true,
+    'openai/widgetDomain': widgetDomain,
+    'openai/widgetCSP': {
+      connect_domains: APP_CONNECT_DOMAINS,
+      resource_domains: [widgetDomain]
+    }
+  };
+}
+
+function overviewToolResult() {
+  const structuredContent = {
+    app: 'GrayMatter',
+    mcpEndpointPath: '/mcp',
+    toolCount: tools.length,
+    privacyPolicyUrl: 'https://github.com/ValkyrLabs/GrayMatter/blob/main/docs/privacy-policy.md'
+  };
+
+  return {
+    structuredContent,
+    content: [
+      {
+        type: 'text',
+        text: 'GrayMatter exposes durable memory, shared graph, and ValkyrAI schema tools through an Apps SDK-ready MCP endpoint.'
+      }
+    ]
+  };
+}
+
+function overviewWidgetHtml() {
+  return `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>GrayMatter Overview</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --gm-bg: #f4f0e6;
+        --gm-card: #fffaf0;
+        --gm-ink: #15372f;
+        --gm-muted: #5a6d65;
+        --gm-line: #d9ccb5;
+        --gm-accent: #245b4a;
+      }
+      body {
+        margin: 0;
+        background: var(--gm-bg);
+        color: var(--gm-ink);
+        font: 15px/1.45 Georgia, "Times New Roman", serif;
+      }
+      .card {
+        border: 1px solid var(--gm-line);
+        border-radius: 18px;
+        background: linear-gradient(135deg, var(--gm-card), #eef4ec);
+        padding: 20px;
+      }
+      h1 {
+        margin: 0 0 8px;
+        font-size: 24px;
+      }
+      p {
+        margin: 0 0 14px;
+        color: var(--gm-muted);
+      }
+      ul {
+        display: grid;
+        gap: 8px;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+      }
+      li {
+        border-left: 4px solid var(--gm-accent);
+        background: rgba(255, 255, 255, 0.5);
+        padding: 8px 10px;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --gm-bg: #10251f;
+          --gm-card: #18362d;
+          --gm-ink: #f6ead5;
+          --gm-muted: #c0d0c8;
+          --gm-line: #315f50;
+          --gm-accent: #92ccb4;
+        }
+        li {
+          background: rgba(0, 0, 0, 0.18);
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="card">
+      <h1>GrayMatter</h1>
+      <p>Durable memory, graph context, and live ValkyrAI schema access for agent workflows.</p>
+      <ul>
+        <li>Store decisions, todos, preferences, context, and artifacts as MemoryEntry records.</li>
+        <li>Search prior memory semantically before acting in a new chat or automation.</li>
+        <li>Inspect RBAC-scoped business entities and schema metadata through api-0.</li>
+      </ul>
+    </main>
+  </body>
+</html>`;
 }
 
 async function apiRequest(context, method, endpoint, body) {
@@ -264,6 +573,151 @@ async function apiRequest(context, method, endpoint, body) {
   return payload;
 }
 
+function buildMemoryWritePayload(args) {
+  requireString(args.type, 'type');
+  requireString(args.text, 'text');
+
+  const metadata = memoryScopeMetadata(args);
+  const sourceChannel = args.sourceChannel || metadata.sourceChannel;
+  if (sourceChannel) {
+    metadata.sourceChannel = sourceChannel;
+  }
+
+  const payload = {
+    type: args.type,
+    text: Object.keys(metadata).length > 0 ? wrapMemoryText(args.text, metadata) : args.text
+  };
+
+  if (sourceChannel) {
+    payload.sourceChannel = sourceChannel;
+  }
+
+  if (args.tags !== undefined) {
+    payload.tags = args.tags;
+  }
+
+  return payload;
+}
+
+function buildMemoryQueryPayload(args) {
+  const metadata = memoryScopeMetadata(args);
+  const source = args.sourceChannel || metadata.sourceChannel;
+  const payload = {
+    query: args.query
+  };
+
+  if (args.limit !== undefined) {
+    payload.limit = args.limit;
+  }
+  if (args.type !== undefined) {
+    payload.type = args.type;
+  }
+  if (source) {
+    payload.source = source;
+  }
+
+  return payload;
+}
+
+function memoryScopeMetadata(args) {
+  if (!hasScopeSignal(args)) {
+    return {};
+  }
+
+  const runtime = args.runtime || 'codex';
+  const metadata = pickDefined({
+    scope: args.scope,
+    runtime,
+    user: args.user,
+    workspaceKey: args.workspaceKey,
+    chatKey: args.chatKey,
+    sessionKey: args.sessionKey,
+    automationId: args.automationId,
+    artifactPath: args.artifactPath || args.scopePath
+  });
+
+  if (!metadata.scope && args.scopePath) {
+    metadata.scope = scopeFromPath(args.scopePath);
+  }
+  if (!metadata.automationId && args.scopePath) {
+    metadata.automationId = automationIdFromPath(args.scopePath);
+  }
+  if (!metadata.workspaceKey && args.scopePath) {
+    metadata.workspaceKey = workspaceKeyFromPath(args.scopePath);
+  }
+
+  const sourceChannel = deriveSourceChannel({ ...args, ...metadata, runtime });
+  if (sourceChannel) {
+    metadata.sourceChannel = sourceChannel;
+  }
+
+  return pickDefined(metadata);
+}
+
+function hasScopeSignal(args) {
+  return Boolean(
+    args.scope ||
+    args.runtime ||
+    args.user ||
+    args.workspaceKey ||
+    args.chatKey ||
+    args.sessionKey ||
+    args.automationId ||
+    args.artifactPath ||
+    args.scopePath ||
+    args.sourceChannel
+  );
+}
+
+function deriveSourceChannel(values) {
+  const runtime = values.runtime || 'codex';
+  if (values.sourceChannel) return values.sourceChannel;
+  if (values.chatKey) return scopedKey(runtime, 'chat', values.chatKey);
+  if (values.sessionKey) return scopedKey(runtime, 'session', values.sessionKey);
+  if (values.automationId) return scopedKey(runtime, 'automation', values.automationId);
+  if (values.workspaceKey) return scopedKey(runtime, 'workspace', values.workspaceKey);
+  return '';
+}
+
+function scopedKey(runtime, kind, value) {
+  const raw = String(value || '');
+  return raw.includes(':') ? raw : `${runtime}:${kind}:${raw}`;
+}
+
+function scopeFromPath(pathValue) {
+  if (automationIdFromPath(pathValue)) return 'automation';
+  if (workspaceKeyFromPath(pathValue)) return 'workspace';
+  return '';
+}
+
+function automationIdFromPath(pathValue) {
+  const match = String(pathValue || '').match(/\.codex\/automations\/([^/]+)/);
+  return match ? match[1] : '';
+}
+
+function workspaceKeyFromPath(pathValue) {
+  const match = String(pathValue || '').match(/\/Documents\/Codex\/([^/]+)\/([^/]+)/);
+  return match ? `${match[1]}/${match[2]}` : '';
+}
+
+function wrapMemoryText(text, metadata) {
+  const lines = Object.entries(metadata)
+    .filter(([, value]) => value !== undefined && value !== null && String(value).length > 0)
+    .map(([key, value]) => `${key}: ${value}`);
+
+  if (lines.length === 0) {
+    return text;
+  }
+
+  return `[graymatter-scope]\n${lines.join('\n')}\n[/graymatter-scope]\n\n${text}`;
+}
+
+function pickDefined(values) {
+  return Object.fromEntries(
+    Object.entries(values).filter(([, value]) => value !== undefined && value !== null && String(value).length > 0)
+  );
+}
+
 function summarizeOpenApi(spec) {
   const entities = new Set();
   for (const tag of spec.tags || []) {
@@ -293,7 +747,19 @@ function authTokenFrom(req) {
   if (Array.isArray(headerToken)) {
     return headerToken[0] || process.env.VALKYR_AUTH_TOKEN || '';
   }
-  return headerToken || process.env.VALKYR_AUTH_TOKEN || '';
+  if (headerToken) {
+    return headerToken;
+  }
+
+  const authHeader = Array.isArray(req.headers.authorization)
+    ? req.headers.authorization[0]
+    : req.headers.authorization;
+  const bearerMatch = typeof authHeader === 'string' ? authHeader.match(/^Bearer\s+(.+)$/i) : null;
+  if (bearerMatch) {
+    return bearerMatch[1].trim();
+  }
+
+  return process.env.VALKYR_AUTH_TOKEN || '';
 }
 
 function apiUrl(apiBase, endpoint) {
@@ -340,7 +806,7 @@ function readJson(req) {
 function sendJson(res, status, payload) {
   res.writeHead(status, {
     'access-control-allow-origin': '*',
-    'access-control-allow-headers': 'content-type,x-valkyr-token',
+    'access-control-allow-headers': 'authorization,content-type,x-valkyr-token',
     'access-control-allow-methods': 'GET,POST,OPTIONS',
     'content-type': 'application/json'
   });
@@ -350,7 +816,7 @@ function sendJson(res, status, payload) {
 function sendNoContent(res) {
   res.writeHead(204, {
     'access-control-allow-origin': '*',
-    'access-control-allow-headers': 'content-type,x-valkyr-token',
+    'access-control-allow-headers': 'authorization,content-type,x-valkyr-token',
     'access-control-allow-methods': 'GET,POST,OPTIONS'
   });
   res.end();
@@ -418,13 +884,18 @@ function withoutTrailingSlash(value) {
 
 module.exports = {
   createGrayMatterMcpServer,
+  startStdioServer,
   tools
 };
 
 if (require.main === module) {
-  const port = Number(process.env.PORT || DEFAULT_PORT);
-  const server = createGrayMatterMcpServer();
-  server.listen(port, () => {
-    process.stdout.write(`GrayMatter MCP server listening on http://localhost:${port}\n`);
-  });
+  if (process.argv.includes('--stdio')) {
+    startStdioServer();
+  } else {
+    const port = Number(process.env.PORT || DEFAULT_PORT);
+    const server = createGrayMatterMcpServer();
+    server.listen(port, () => {
+      process.stdout.write(`GrayMatter MCP server listening on http://localhost:${port}\n`);
+    });
+  }
 }

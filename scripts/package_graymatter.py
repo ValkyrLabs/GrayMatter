@@ -20,11 +20,8 @@ REQUIRED = [
     'scripts/gm-entity',
     'scripts/gm-register-agent',
     'scripts/gm-light-bootstrap',
-<<<<<<< HEAD
     'scripts/gm-light-up',
     'scripts/gm-light-env',
-=======
->>>>>>> cc7f9be (feat(core): local server)
     'scripts/package-local-server',
     'scripts/graymatter_api.sh',
     'examples/graymatter-light-thorapi-bundle.yaml',

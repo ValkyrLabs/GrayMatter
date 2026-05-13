@@ -2,16 +2,10 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-<<<<<<< HEAD
 TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/gm-local-server-package.XXXXXX")"
 DIST_DIR="$TMP_DIR/dist"
 TARBALL="$DIST_DIR/graymatter-local-server-latest.tar.gz"
 trap 'rm -rf "$TMP_DIR" >/dev/null 2>&1 || true' EXIT
-=======
-TMP_DIR="$ROOT/.tmp-test-local-server-package"
-DIST_DIR="$TMP_DIR/dist"
-TARBALL="$DIST_DIR/graymatter-local-server-latest.tar.gz"
->>>>>>> cc7f9be (feat(core): local server)
 
 assert_file() {
   if [[ ! -f "$1" ]]; then
@@ -44,10 +38,6 @@ assert_manifest_entry() {
   fi
 }
 
-<<<<<<< HEAD
-=======
-rm -rf "$TMP_DIR"
->>>>>>> cc7f9be (feat(core): local server)
 mkdir -p "$DIST_DIR"
 
 GRAYMATTER_SKIP_SERVER_BUILD=true \
@@ -73,15 +63,10 @@ assert_manifest_entry 'graymatter-local-server/source/pom.xml'
 assert_manifest_entry 'graymatter-local-server/source/src/main/java/com/valkyrlabs/graymatter/localserver/GrayMatterLocalServerApplication.java'
 assert_manifest_entry 'graymatter-local-server/source/src/main/java/com/valkyrlabs/graymatter/localserver/controller/LiveTelemetryController.java'
 assert_manifest_entry 'graymatter-local-server/source/src/main/java/com/valkyrlabs/graymatter/localserver/controller/MothershipSyncController.java'
-<<<<<<< HEAD
 assert_manifest_entry 'graymatter-local-server/source/src/main/java/com/valkyrlabs/graymatter/localserver/controller/OpenApiController.java'
 assert_manifest_entry 'graymatter-local-server/source/src/main/java/com/valkyrlabs/graymatter/localserver/controller/SwarmProtocolController.java'
 assert_manifest_entry 'graymatter-local-server/source/src/main/java/com/valkyrlabs/graymatter/localserver/controller/WorkbookController.java'
 assert_manifest_entry 'graymatter-local-server/source/src/main/resources/openapi.json'
-=======
-assert_manifest_entry 'graymatter-local-server/source/src/main/java/com/valkyrlabs/graymatter/localserver/controller/SwarmProtocolController.java'
-assert_manifest_entry 'graymatter-local-server/source/src/main/java/com/valkyrlabs/graymatter/localserver/controller/WorkbookController.java'
->>>>>>> cc7f9be (feat(core): local server)
 assert_manifest_entry 'graymatter-local-server/source/src/main/resources/static/index.html'
 
 tar -xzf "$TARBALL" -C "$TMP_DIR"
@@ -99,10 +84,7 @@ assert_contains "/api/graymatter/telemetry/status" "$TMP_DIR/graymatter-local-se
 assert_contains "/api/graymatter/sync/mothership" "$TMP_DIR/graymatter-local-server/application-bundle/openapi.json"
 assert_contains "/api/graymatter/swarm/protocol" "$TMP_DIR/graymatter-local-server/application-bundle/openapi.json"
 assert_contains "/Workbook" "$TMP_DIR/graymatter-local-server/application-bundle/openapi.json"
-<<<<<<< HEAD
 assert_contains "/api-docs" "$TMP_DIR/graymatter-local-server/source/src/main/resources/openapi.json"
 assert_contains "x-graymatter-mcp-contract" "$TMP_DIR/graymatter-local-server/source/src/main/resources/openapi.json"
-=======
->>>>>>> cc7f9be (feat(core): local server)
 
 echo "package_local_server_test: ok"

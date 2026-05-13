@@ -139,12 +139,9 @@ Rule:
 - `scripts/gm-register-agent` — register or refresh the OpenClaw server as an Agent in api-0
 - `scripts/gm-mcp-contract` — emit the portable MCP memory-tool contract schema used by agent/IDE adapters
 - `scripts/gm-light-bootstrap` — generate the local GrayMatter app bundle and server source scaffold
-<<<<<<< HEAD
 - `scripts/gm-light-up` — generate and start the local ThorAPI-backed GrayMatter Light instance
 - `scripts/gm-light-env` — print the environment exports that point skill scripts at the running Light instance
 - `scripts/gm-light-json-smoke` — JSON-file fallback smoke test for Light payload shape without ThorAPI
-=======
->>>>>>> e455211 (feat(core): local server)
 - `scripts/package-local-server` — package the standalone downloadable GrayMatter Local Server archive
 - `scripts/package_graymatter.py` — deterministic validation and packaging
 - `mcp-server/` — standalone HTTP/SSE and Apps SDK `/mcp` server for GrayMatter memory, graph, entity, schema, and overview tools
@@ -460,7 +457,6 @@ Rebuild the packaged skill with:
 python3 scripts/package_graymatter.py
 ```
 
-<<<<<<< HEAD
 Run an actual local ThorAPI-backed Light instance with:
 
 ```bash
@@ -472,8 +468,6 @@ scripts/gm-query "GrayMatter Light"
 
 `gm-light-up` generates the api.hbs.yaml template at `.graymatter-light/api.hbs.yaml`, rendered api.yaml at `.graymatter-light/api.yaml`, the Docker Compose file, and the Light control panel, then starts the ThorAPI image with `THORAPI_TEMPLATE=/app/api.hbs.yaml` and `THORAPI_SPEC=/app/api.yaml`. The default image is `ghcr.io/valkyrlabs/thorapi:latest`; use `--image` or `THORAPI_IMAGE` when running a private, pinned, or locally built ThorAPI image. The rendered spec explicitly includes the MCP backing paths for `memory_write`, `memory_read`, `memory_query`, `graph_get`, entity tools, and `schema_summary`. The env file sets `VALKYR_API_BASE=http://localhost:8080` and `GRAYMATTER_LIGHT_MODE=true`, so the normal GrayMatter skill scripts and the standalone MCP server can connect to the running local instance without requiring hosted api-0 auth.
 
-=======
->>>>>>> e455211 (feat(core): local server)
 Build the standalone downloadable local server with:
 
 ```bash
@@ -488,7 +482,6 @@ That creates `dist/graymatter-local-server-latest.tar.gz`. The archive contains:
 
 The embedded dashboard includes Valkyr Labs branding, hides the local login panel after successful login, exposes `Promote / Synchronize` for the valkyrlabs.com mothership bridge, and reports the local `graymatter-swarm-v0.1` light-node status.
 
-<<<<<<< HEAD
 ## awesome-codex-plugins listing kit
 
 GrayMatter ships a ready-to-submit listing packet for `awesome-codex-plugins`.
@@ -504,8 +497,6 @@ cat docs/awesome-codex-plugins.md
 
 Then open a PR against `hashgraph-online/awesome-codex-plugins` and paste the generated block into `README.md` using that repository's contribution format.
 
-=======
->>>>>>> e455211 (feat(core): local server)
 ## Launch position
 
 The launch target is simple:

@@ -16,11 +16,7 @@ DOCKER_COMPOSE = """services:
     container_name: graymatter-light
     restart: unless-stopped
     ports:
-<<<<<<< HEAD
       - "${GRAYMATTER_LIGHT_PORT:-8080}:8080"
-=======
-      - "8080:8080"
->>>>>>> cc7f9be (feat(core): local server)
     volumes:
       - ./api.hbs.yaml:/app/api.hbs.yaml:ro
       - ./api.yaml:/app/api.yaml:ro
@@ -43,7 +39,6 @@ DOCKER_COMPOSE = """services:
 
 DASHBOARD_HTML = """<!doctype html>
 <html>
-<<<<<<< HEAD
 <head>
   <meta charset="utf-8">
   <title>GrayMatter Light Control Panel</title>
@@ -115,16 +110,6 @@ DASHBOARD_HTML = """<!doctype html>
     }).catch((error) => show(error.message));
     refreshWorkbooks.onclick = () => request("/Workbook").catch((error) => show(error.message));
   </script>
-=======
-<head><meta charset="utf-8"><title>GrayMatter Light</title></head>
-<body>
-  <h1>GrayMatter Light</h1>
-  <p>Local ThorAPI bundle is running.</p>
-  <ul>
-    <li>API docs: <a href="/swagger-ui/index.html">/swagger-ui/index.html</a></li>
-    <li>Health: <a href="/actuator/health">/actuator/health</a></li>
-  </ul>
->>>>>>> cc7f9be (feat(core): local server)
 </body>
 </html>
 """
@@ -338,11 +323,7 @@ spring.h2.console.enabled=false
 management.endpoints.web.exposure.include=health,info
 management.endpoint.health.probes.enabled=true
 graymatter.admin.username=${GRAYMATTER_ADMIN_USERNAME:admin}
-<<<<<<< HEAD
 graymatter.admin.password=${GRAYMATTER_ADMIN_PASSWORD:}
-=======
-graymatter.admin.password=${GRAYMATTER_ADMIN_PASSWORD:graymatter-local}
->>>>>>> cc7f9be (feat(core): local server)
 graymatter.admin.display-name=${GRAYMATTER_ADMIN_DISPLAY_NAME:GrayMatter Admin}
 """
 
@@ -457,13 +438,10 @@ public class AdminBootstrap implements CommandLineRunner {
     @Override
     @Transactional
     public void run(String... args) {
-<<<<<<< HEAD
         if (password == null || password.isBlank()) {
             throw new IllegalStateException("Set GRAYMATTER_ADMIN_PASSWORD before starting GrayMatter Local Server.");
         }
 
-=======
->>>>>>> cc7f9be (feat(core): local server)
         PrincipalRecord principal = principals.findByUsernameIgnoreCase(username)
             .orElseGet(() -> principals.save(new PrincipalRecord(
                 username,
@@ -998,20 +976,14 @@ import java.util.UUID;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
-<<<<<<< HEAD
 import org.springframework.web.bind.annotation.PathVariable;
-=======
->>>>>>> cc7f9be (feat(core): local server)
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
-<<<<<<< HEAD
 import org.springframework.web.server.ResponseStatusException;
-=======
->>>>>>> cc7f9be (feat(core): local server)
 
 @RestController
 @RequestMapping({"/api/memory-entries", "/MemoryEntry"})
@@ -1035,7 +1007,6 @@ public class MemoryEntryController {
             .toList();
     }
 
-<<<<<<< HEAD
     @GetMapping("/{id}")
     public MemoryEntryResponse read(Principal authenticated, @PathVariable UUID id) {
         return memoryEntries.findById(id)
@@ -1056,8 +1027,6 @@ public class MemoryEntryController {
         return new MemoryQueryResponse(results);
     }
 
-=======
->>>>>>> cc7f9be (feat(core): local server)
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     public MemoryEntryResponse create(
@@ -1083,7 +1052,6 @@ public class MemoryEntryController {
         String tags) {
     }
 
-<<<<<<< HEAD
     public record MemoryQueryRequest(
         String query,
         String q,
@@ -1094,8 +1062,6 @@ public class MemoryEntryController {
     public record MemoryQueryResponse(List<MemoryEntryResponse> results) {
     }
 
-=======
->>>>>>> cc7f9be (feat(core): local server)
     public record MemoryEntryResponse(
         UUID id,
         String type,
@@ -1184,7 +1150,6 @@ public class UserPreferencesController {
 }
 """
 
-<<<<<<< HEAD
 OPEN_API_CONTROLLER = """package com.valkyrlabs.graymatter.localserver.controller;
 
 import java.io.IOException;
@@ -1214,8 +1179,6 @@ public class OpenApiController {
 }
 """
 
-=======
->>>>>>> cc7f9be (feat(core): local server)
 WORKBOOK_CONTROLLER = """package com.valkyrlabs.graymatter.localserver.controller;
 
 import com.valkyrlabs.graymatter.localserver.model.PrincipalRecord;
@@ -1492,11 +1455,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
-<<<<<<< HEAD
 @RequestMapping({"/api/graymatter/swarm", "/api/v1/SwarmOps", "/SwarmOps"})
-=======
-@RequestMapping({"/api/graymatter/swarm", "/api/v1/SwarmOps"})
->>>>>>> cc7f9be (feat(core): local server)
 public class SwarmProtocolController {
 
     private final PrincipalRecordRepository principals;
@@ -1541,14 +1500,10 @@ public class SwarmProtocolController {
                 "/api/graymatter/sync/mothership",
                 "/api/graymatter/swarm/protocol",
                 "/api/v1/SwarmOps/graph",
-<<<<<<< HEAD
                 "/SwarmOps/graph",
                 "/MemoryEntry",
                 "/MemoryEntry/{id}",
                 "/MemoryEntry/query",
-=======
-                "/MemoryEntry",
->>>>>>> cc7f9be (feat(core): local server)
                 "/Workbook")),
             Map.entry("generatedAt", Instant.now().toString()));
     }
@@ -1671,19 +1626,11 @@ STATIC_INDEX = """<!doctype html>
     <div class="grid">
       <section>
         <h2>Login</h2>
-<<<<<<< HEAD
         <p>Use the admin username and password supplied through environment variables before launch.</p>
         <label for="username">Username</label>
         <input id="username" value="admin" autocomplete="username">
         <label for="password">Password</label>
         <input id="password" type="password" autocomplete="current-password">
-=======
-        <p>Default local credentials are <code>admin</code> / <code>graymatter-local</code>. Override them with environment variables before launch.</p>
-        <label for="username">Username</label>
-        <input id="username" value="admin" autocomplete="username">
-        <label for="password">Password</label>
-        <input id="password" value="graymatter-local" type="password" autocomplete="current-password">
->>>>>>> cc7f9be (feat(core): local server)
         <button id="connect">Connect</button>
         <button class="ghost" id="health">Health</button>
         <p id="session"></p>
@@ -2158,22 +2105,14 @@ STATIC_INDEX_V2 = """<!doctype html>
 
       <aside id="loginPanel" class="login-panel">
         <h2>Local Login</h2>
-<<<<<<< HEAD
         <p>Use the admin username and password supplied through environment variables before launch. After login, this panel disappears and the control surface stays live.</p>
-=======
-        <p>Default local credentials are <code>admin</code> / <code>graymatter-local</code>. After login, this panel disappears and the control surface stays live.</p>
->>>>>>> cc7f9be (feat(core): local server)
         <div class="form-row">
           <label for="username">Username</label>
           <input id="username" value="admin" autocomplete="username">
         </div>
         <div class="form-row">
           <label for="password">Password</label>
-<<<<<<< HEAD
           <input id="password" type="password" autocomplete="current-password">
-=======
-          <input id="password" value="graymatter-local" type="password" autocomplete="current-password">
->>>>>>> cc7f9be (feat(core): local server)
         </div>
         <div class="button-row">
           <button id="connect" type="button">Connect</button>
@@ -2481,29 +2420,12 @@ It runs a minimum Spring Boot server on your machine with:
 
 ## Run
 
-<<<<<<< HEAD
 Set local admin credentials before launch:
 
 ```bash
 export GRAYMATTER_ADMIN_USERNAME=admin
 read -rsp "GrayMatter admin password: " GRAYMATTER_ADMIN_PASSWORD
 export GRAYMATTER_ADMIN_PASSWORD
-=======
-```bash
-bin/graymatter-local-server
-```
-
-Default credentials:
-
-- username: `admin`
-- password: `graymatter-local`
-
-Override before launch:
-
-```bash
-export GRAYMATTER_ADMIN_USERNAME=admin
-export GRAYMATTER_ADMIN_PASSWORD='replace-me'
->>>>>>> cc7f9be (feat(core): local server)
 bin/graymatter-local-server
 ```
 
@@ -2527,11 +2449,7 @@ unless the operator supplies hosted auth such as `VALKYR_AUTH_TOKEN`.
 Swarm Protocol status is exposed locally at:
 
 ```bash
-<<<<<<< HEAD
 curl -u "admin:$GRAYMATTER_ADMIN_PASSWORD" http://localhost:8787/api/graymatter/swarm/protocol
-=======
-curl -u admin:graymatter-local http://localhost:8787/api/graymatter/swarm/protocol
->>>>>>> cc7f9be (feat(core): local server)
 ```
 
 ## Native build
@@ -2591,7 +2509,6 @@ def write_file(path: Path, content: str, mode: int | None = None) -> None:
         path.chmod(current_mode | mode)
 
 
-<<<<<<< HEAD
 def render_template(template: str, values: dict[str, str]) -> str:
     rendered = template
     for key, value in values.items():
@@ -2600,9 +2517,6 @@ def render_template(template: str, values: dict[str, str]) -> str:
 
 
 def graymatter_openapi_spec(server_url: str = "http://localhost:8787") -> dict:
-=======
-def graymatter_openapi_spec() -> dict:
->>>>>>> cc7f9be (feat(core): local server)
     return {
         "openapi": "3.0.3",
         "info": {
@@ -2610,11 +2524,7 @@ def graymatter_openapi_spec() -> dict:
             "version": "0.1.0",
             "description": "ThorAPI FEBE contract for the standalone GrayMatter local server.",
         },
-<<<<<<< HEAD
         "servers": [{"url": server_url}],
-=======
-        "servers": [{"url": "http://localhost:8787"}],
->>>>>>> cc7f9be (feat(core): local server)
         "x-thorapi-generation": {
             "mode": "febe",
             "sourceTemplate": "graymatter-local",
@@ -2627,7 +2537,6 @@ def graymatter_openapi_spec() -> dict:
             ],
             "builtInValkyrComponents": ["rbac-core", "data-workbooks"],
         },
-<<<<<<< HEAD
         "x-graymatter-mcp-contract": {
             "description": "ThorAPI must expose these paths so the standalone GrayMatter MCP server can target this base URL with VALKYR_API_BASE.",
             "mcpServer": {
@@ -2669,9 +2578,6 @@ def graymatter_openapi_spec() -> dict:
                     },
                 }
             },
-=======
-        "paths": {
->>>>>>> cc7f9be (feat(core): local server)
             "/api/graymatter/dashboard": {
                 "get": {
                     "operationId": "getGrayMatterDashboard",
@@ -2784,7 +2690,6 @@ def graymatter_openapi_spec() -> dict:
                     "responses": {"201": {"description": "MemoryEntry created"}},
                 },
             },
-<<<<<<< HEAD
             "/MemoryEntry/{id}": {
                 "get": {
                     "operationId": "getMemoryEntry",
@@ -2849,8 +2754,6 @@ def graymatter_openapi_spec() -> dict:
                     },
                 }
             },
-=======
->>>>>>> cc7f9be (feat(core): local server)
             "/api/user-preferences/me": {
                 "get": {
                     "operationId": "getCurrentUserPreferences",
@@ -2939,7 +2842,6 @@ def graymatter_openapi_spec() -> dict:
                         "modifiedAt": {"type": "string", "format": "date-time"},
                     },
                 },
-<<<<<<< HEAD
                 "MemoryQueryRequest": {
                     "type": "object",
                     "properties": {
@@ -2965,8 +2867,6 @@ def graymatter_openapi_spec() -> dict:
                         "edges": {"type": "array", "items": {"type": "object"}},
                     },
                 },
-=======
->>>>>>> cc7f9be (feat(core): local server)
                 "Workbook": {
                     "type": "object",
                     "required": ["name"],
@@ -3201,18 +3101,12 @@ def write_local_server(local_server_dir: Path) -> None:
     write_file(package_dir / "controller/MemoryEntryController.java", MEMORY_ENTRY_CONTROLLER)
     write_file(package_dir / "controller/LiveTelemetryController.java", LIVE_TELEMETRY_CONTROLLER)
     write_file(package_dir / "controller/MothershipSyncController.java", MOTHERSHIP_SYNC_CONTROLLER)
-<<<<<<< HEAD
     write_file(package_dir / "controller/OpenApiController.java", OPEN_API_CONTROLLER)
-=======
->>>>>>> cc7f9be (feat(core): local server)
     write_file(package_dir / "controller/SwarmProtocolController.java", SWARM_PROTOCOL_CONTROLLER)
     write_file(package_dir / "controller/UserPreferencesController.java", USER_PREFERENCES_CONTROLLER)
     write_file(package_dir / "controller/WorkbookController.java", WORKBOOK_CONTROLLER)
     write_file(local_server_dir / "src/main/resources/application.properties", APPLICATION_PROPERTIES)
-<<<<<<< HEAD
     write_file(local_server_dir / "src/main/resources/openapi.json", json.dumps(graymatter_openapi_spec(), indent=2) + "\n")
-=======
->>>>>>> cc7f9be (feat(core): local server)
     write_file(local_server_dir / "src/main/resources/static/index.html", STATIC_INDEX_V2)
 
 
@@ -3229,16 +3123,11 @@ def main() -> int:
     dashboard_dir.mkdir(parents=True, exist_ok=True)
     data_dir.mkdir(parents=True, exist_ok=True)
 
-<<<<<<< HEAD
     server_url = os.environ.get("GRAYMATTER_LIGHT_PUBLIC_URL", "http://localhost:8080")
     template_spec = json.dumps(graymatter_openapi_spec(server_url="{{server_url}}"), indent=2) + "\n"
     rendered_spec = render_template(template_spec, {"server_url": server_url})
     write_file(out_dir / "api.hbs.yaml", template_spec)
     write_file(out_dir / "api.yaml", rendered_spec)
-=======
-    spec = EXAMPLE_SPEC.read_text(encoding="utf-8")
-    write_file(out_dir / "api.hbs.yaml", spec)
->>>>>>> cc7f9be (feat(core): local server)
     write_file(out_dir / "docker-compose.yaml", DOCKER_COMPOSE)
     write_file(dashboard_dir / "index.html", DASHBOARD_HTML)
     write_file(out_dir / "UPGRADE.md", UPGRADE_NOTE)

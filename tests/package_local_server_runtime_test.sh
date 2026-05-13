@@ -2,19 +2,12 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-<<<<<<< HEAD
 TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/gm-local-server-runtime.XXXXXX")"
 DIST_DIR="$TMP_DIR/dist"
 TARBALL="$DIST_DIR/graymatter-local-server-latest.tar.gz"
 PORT="${GRAYMATTER_RUNTIME_TEST_PORT:-8790}"
 LOGIN_FIELD="GRAYMATTER_ADMIN_$(printf '%s' 'PASSWORD')"
 LOCAL_LOGIN_CODE="$(uuidgen | tr '[:upper:]' '[:lower:]' | tr -d '-')"
-=======
-TMP_DIR="$ROOT/.tmp-test-local-server-runtime"
-DIST_DIR="$TMP_DIR/dist"
-TARBALL="$DIST_DIR/graymatter-local-server-latest.tar.gz"
-PORT="${GRAYMATTER_RUNTIME_TEST_PORT:-8790}"
->>>>>>> cc7f9be (feat(core): local server)
 SERVER_PID=""
 
 cleanup() {
@@ -22,10 +15,7 @@ cleanup() {
     kill "$SERVER_PID" >/dev/null 2>&1 || true
     wait "$SERVER_PID" >/dev/null 2>&1 || true
   fi
-<<<<<<< HEAD
   rm -rf "$TMP_DIR" >/dev/null 2>&1 || true
-=======
->>>>>>> cc7f9be (feat(core): local server)
 }
 trap cleanup EXIT
 
@@ -41,10 +31,6 @@ wait_for_health() {
   return 1
 }
 
-<<<<<<< HEAD
-=======
-rm -rf "$TMP_DIR"
->>>>>>> cc7f9be (feat(core): local server)
 mkdir -p "$DIST_DIR"
 
 "$ROOT/scripts/package-local-server" \
@@ -63,32 +49,22 @@ grep -q '^graymatter-local-server/lib/graymatter-local-server.jar$' "$TMP_DIR/co
 
 (
   cd "$TMP_DIR/graymatter-local-server"
-<<<<<<< HEAD
   env \
     SERVER_PORT="$PORT" \
     "$LOGIN_FIELD=$LOCAL_LOGIN_CODE" \
     GRAYMATTER_DB_URL="jdbc:h2:mem:graymatter-runtime;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1" \
-=======
-  SERVER_PORT="$PORT" \
-  GRAYMATTER_DB_URL="jdbc:h2:mem:graymatter-runtime;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1" \
->>>>>>> cc7f9be (feat(core): local server)
     ./bin/graymatter-local-server
 ) >"$TMP_DIR/server.log" 2>&1 &
 SERVER_PID="$!"
 
 wait_for_health
 
-<<<<<<< HEAD
 curl -fsS -u "admin:$LOCAL_LOGIN_CODE" "http://localhost:$PORT/api/graymatter/dashboard" \
-=======
-curl -fsS -u admin:graymatter-local "http://localhost:$PORT/api/graymatter/dashboard" \
->>>>>>> cc7f9be (feat(core): local server)
   > "$TMP_DIR/dashboard.json"
 grep -q '"generationMode":"thorapi-febe"' "$TMP_DIR/dashboard.json"
 grep -q 'LiveTelemetryPanel' "$TMP_DIR/dashboard.json"
 grep -q 'Live Telemetry' "$TMP_DIR/dashboard.json"
 
-<<<<<<< HEAD
 curl -fsS -u "admin:$LOCAL_LOGIN_CODE" "http://localhost:$PORT/api-docs" \
   > "$TMP_DIR/api-docs.json"
 grep -q '"x-graymatter-mcp-contract"' "$TMP_DIR/api-docs.json"
@@ -102,15 +78,6 @@ curl -fsS -u "admin:$LOCAL_LOGIN_CODE" "http://localhost:$PORT/api/graymatter/sy
   | grep -q '"target":"https://valkyrlabs.com"'
 
 curl -fsS -u "admin:$LOCAL_LOGIN_CODE" "http://localhost:$PORT/api/graymatter/telemetry/status" > "$TMP_DIR/telemetry.json"
-=======
-curl -fsS -u admin:graymatter-local "http://localhost:$PORT/api/graymatter/swarm/protocol" \
-  | grep -q '"protocolVersion":"graymatter-swarm-v0.1"'
-
-curl -fsS -u admin:graymatter-local "http://localhost:$PORT/api/graymatter/sync/status" \
-  | grep -q '"target":"https://valkyrlabs.com"'
-
-curl -fsS -u admin:graymatter-local "http://localhost:$PORT/api/graymatter/telemetry/status" > "$TMP_DIR/telemetry.json"
->>>>>>> cc7f9be (feat(core): local server)
 grep -q '"panel":"Live Telemetry"' "$TMP_DIR/telemetry.json"
 grep -q '"section":"System Equalizer"' "$TMP_DIR/telemetry.json"
 grep -q '"id":"memory.entries"' "$TMP_DIR/telemetry.json"
@@ -120,17 +87,12 @@ if grep -q '"metrics":\[\]' "$TMP_DIR/telemetry.json"; then
   exit 1
 fi
 
-<<<<<<< HEAD
 curl -fsS -u "admin:$LOCAL_LOGIN_CODE" \
-=======
-curl -fsS -u admin:graymatter-local \
->>>>>>> cc7f9be (feat(core): local server)
   -X POST \
   "http://localhost:$PORT/api/graymatter/sync/mothership" > "$TMP_DIR/sync-response.json"
 grep -q '"status":"PROMOTION_PREPARED"' "$TMP_DIR/sync-response.json"
 grep -q "VALKYR_AUTH_TOKEN" "$TMP_DIR/sync-response.json"
 
-<<<<<<< HEAD
 curl -fsS -u "admin:$LOCAL_LOGIN_CODE" \
   -H 'Content-Type: application/json' \
   -d '{"type":"decision","text":"Runtime test memory","tags":"runtime"}' \
@@ -160,26 +122,11 @@ curl -fsS -u "admin:$LOCAL_LOGIN_CODE" "http://localhost:$PORT/SwarmOps/graph" \
   | grep -q '"protocolVersion":"graymatter-swarm-v0.1"'
 
 curl -fsS -u "admin:$LOCAL_LOGIN_CODE" \
-=======
-curl -fsS -u admin:graymatter-local \
-  -H 'Content-Type: application/json' \
-  -d '{"type":"decision","text":"Runtime test memory","tags":"runtime"}' \
-  "http://localhost:$PORT/MemoryEntry" >/dev/null
-
-curl -fsS -u admin:graymatter-local "http://localhost:$PORT/MemoryEntry?q=runtime" \
-  | grep -q "Runtime test memory"
-
-curl -fsS -u admin:graymatter-local \
->>>>>>> cc7f9be (feat(core): local server)
   -H 'Content-Type: application/json' \
   -d '{"name":"Runtime Workbook","status":"WorkbookOpen"}' \
   "http://localhost:$PORT/Workbook" >/dev/null
 
-<<<<<<< HEAD
 curl -fsS -u "admin:$LOCAL_LOGIN_CODE" "http://localhost:$PORT/Workbook" \
-=======
-curl -fsS -u admin:graymatter-local "http://localhost:$PORT/Workbook" \
->>>>>>> cc7f9be (feat(core): local server)
   | grep -q "Runtime Workbook"
 
 echo "package_local_server_runtime_test: ok"

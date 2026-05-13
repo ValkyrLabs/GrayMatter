@@ -1,0 +1,46 @@
+{
+  "key": "graymatter-local",
+  "name": "GrayMatter Local Server",
+  "description": "Standalone downloadable GrayMatter application generated from ValkyrAI app-factory inputs.",
+  "deployProfile": "web-plus-api",
+  "generationMode": "thorapi-febe",
+  "workflow": {
+    "defaultFlow": "graymatter-local-bootstrap"
+  },
+  "billingModel": "one-time",
+  "sourceTemplate": "graymatter-local",
+  "sharedModules": {
+    "auth": {
+      "provider": "thorapi-session",
+      "roles": [
+        "owner",
+        "admin",
+        "member"
+      ]
+    },
+    "workflow": {
+      "engine": "mcp.workflow.execute",
+      "defaultFlow": "graymatter-local-bootstrap"
+    },
+    "swarm": {
+      "protocol": "graymatter-swarm-v0.1",
+      "component": "swarm-protocol"
+    },
+    "promotion": {
+      "target": "https://valkyrlabs.com",
+      "component": "mothership-sync"
+    }
+  },
+  "openApiSchemaRef": "./openapi.json",
+  "customComponents": [
+    "GrayMatterDashboard",
+    "MemoryEntryWorkbench",
+    "MothershipPromotionBridge",
+    "SwarmProtocolBridge",
+    "LiveTelemetryPanel"
+  ],
+  "builtInValkyrComponents": [
+    "rbac-core",
+    "data-workbooks"
+  ]
+}

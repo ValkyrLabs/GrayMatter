@@ -88,6 +88,7 @@ A developer should be able to:
 
 This repo now includes:
 - `examples/graymatter-light-thorapi-bundle.yaml` as a minimal local bundle surface
+<<<<<<< HEAD
 - `scripts/gm-light-json-smoke` as a JSON-file fallback smoke test for the local payload shape
 - `scripts/gm-light-bootstrap` to generate the app-factory bundle and local server source
 - `scripts/gm-light-up` to start the actual ThorAPI-backed Light instance with Docker Compose
@@ -97,6 +98,13 @@ This repo now includes:
 `gm-light-up` creates the api.hbs.yaml template at `.graymatter-light/api.hbs.yaml`, rendered `.graymatter-light/api.yaml`, `docker-compose.yaml`, and `dashboard/index.html`, then runs the ThorAPI image with `THORAPI_TEMPLATE=/app/api.hbs.yaml` and `THORAPI_SPEC=/app/api.yaml`. The default image is `ghcr.io/valkyrlabs/thorapi:latest`; use `--image` or `THORAPI_IMAGE` when running a private, pinned, or locally built ThorAPI image. The generated ThorAPI contract includes `Principal`, `UserPreferences`, `MemoryEntry`, `Workbook`, `/MemoryEntry/{id}`, `/MemoryEntry/query`, `/SwarmOps/graph`, `/api-docs`, and an explicit `x-graymatter-mcp-contract` section that maps the MCP tools to their backing REST paths. The `.graymatter-light/.graymatter-light-env` file sets `VALKYR_API_BASE` and `GRAYMATTER_LIGHT_MODE=true`, so `gm-write`, `gm-query`, lower-level `graymatter_api.sh`, and the standalone MCP server connect to the running local instance instead of hosted api-0.
 
 The generated local server archive remains the downloadable Spring Boot path. It includes RBAC-backed login, `Principal`, `UserPreferences`, `MemoryEntry`, a minimal Data Workbooks `/Workbook` API, a Valkyr Labs-branded dashboard, a mothership promotion bridge, and a local GrayMatter SWARM v0.1 adapter. The generated `application-bundle/` records the ValkyrAI app-factory template, ThorAPI FEBE OpenAPI contract, custom components, and built-in `rbac-core` / `data-workbooks` references.
+=======
+- `scripts/gm-light-smoke` as a runnable local write/query smoke test
+- `scripts/gm-light-bootstrap` to generate the app-factory bundle and local server source
+- `scripts/package-local-server` to produce `dist/graymatter-local-server-latest.tar.gz`
+
+The generated local server includes RBAC-backed login, `Principal`, `UserPreferences`, `MemoryEntry`, a minimal Data Workbooks `/Workbook` API, a Valkyr Labs-branded dashboard, a mothership promotion bridge, and a local GrayMatter SWARM v0.1 adapter. The generated `application-bundle/` records the ValkyrAI app-factory template, ThorAPI FEBE OpenAPI contract, custom components, and built-in `rbac-core` / `data-workbooks` references.
+>>>>>>> e455211 (feat(core): local server)
 
 ## Local-to-full bridge
 

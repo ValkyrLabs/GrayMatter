@@ -1,0 +1,671 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GrayMatter Local Server</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #061018;
+      --surface: rgba(9, 22, 33, 0.82);
+      --surface-strong: rgba(12, 31, 46, 0.92);
+      --surface-soft: rgba(255, 255, 255, 0.055);
+      --line: rgba(128, 190, 212, 0.26);
+      --line-strong: rgba(82, 221, 255, 0.54);
+      --text: #f5fbff;
+      --muted: #9fb5c2;
+      --accent: #53dfff;
+      --accent-2: #ffc17d;
+      --ok: #74f0bd;
+      --danger: #ff8a8a;
+      --shadow: rgba(0, 8, 16, 0.34);
+    }
+
+    body.light {
+      color-scheme: light;
+      --bg: #f7fafc;
+      --surface: rgba(255, 255, 255, 0.86);
+      --surface-strong: rgba(255, 255, 255, 0.96);
+      --surface-soft: rgba(15, 34, 46, 0.055);
+      --line: rgba(15, 34, 46, 0.14);
+      --line-strong: rgba(2, 132, 199, 0.34);
+      --text: #0d1821;
+      --muted: #5d7180;
+      --accent: #067ca7;
+      --accent-2: #b95b16;
+      --ok: #0f8f64;
+      --danger: #b4232a;
+      --shadow: rgba(12, 35, 50, 0.14);
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      color: var(--text);
+      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background:
+        radial-gradient(circle at 10% 12%, rgba(83, 223, 255, 0.22), transparent 24rem),
+        radial-gradient(circle at 84% 8%, rgba(255, 193, 125, 0.16), transparent 22rem),
+        linear-gradient(160deg, var(--bg), #081722 48%, var(--bg));
+    }
+    body.light {
+      background:
+        radial-gradient(circle at 10% 12%, rgba(2, 132, 199, 0.12), transparent 24rem),
+        radial-gradient(circle at 84% 8%, rgba(185, 91, 22, 0.1), transparent 22rem),
+        linear-gradient(160deg, #f8fafc, #e8f2f7 48%, #f7fafc);
+    }
+    button, input, textarea { font: inherit; }
+    button {
+      min-height: 42px;
+      border: 1px solid var(--line-strong);
+      border-radius: 8px;
+      background: linear-gradient(120deg, var(--accent), #8df1ff 62%, var(--accent-2));
+      color: #061018;
+      font-weight: 760;
+      padding: 0 14px;
+      cursor: pointer;
+      transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+    }
+    button:hover { transform: translateY(-1px); box-shadow: 0 12px 28px var(--shadow); }
+    button.secondary {
+      color: var(--text);
+      background: var(--surface-soft);
+      border-color: var(--line);
+    }
+    a { color: inherit; }
+    code {
+      color: var(--ok);
+      background: var(--surface-soft);
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 0.08rem 0.32rem;
+    }
+
+    .shell {
+      width: min(1240px, calc(100% - 32px));
+      margin: 0 auto;
+      padding: 28px 0 44px;
+    }
+    .topbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 18px;
+      margin-bottom: 26px;
+    }
+    .brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 12px;
+      min-width: 0;
+      text-decoration: none;
+    }
+    .brand svg {
+      width: 44px;
+      height: 44px;
+      flex: 0 0 auto;
+      filter: drop-shadow(0 10px 22px rgba(83, 223, 255, 0.25));
+    }
+    .brand strong {
+      display: block;
+      font-size: 1rem;
+      letter-spacing: 0;
+    }
+    .brand span {
+      display: block;
+      color: var(--muted);
+      font-size: 0.78rem;
+      margin-top: 2px;
+    }
+    .top-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 10px; }
+    .hero {
+      display: grid;
+      grid-template-columns: minmax(0, 1.24fr) minmax(320px, 0.76fr);
+      gap: 18px;
+      align-items: stretch;
+      margin-bottom: 18px;
+    }
+    .hero-copy, .panel, .login-panel, .mode-card {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: linear-gradient(155deg, var(--surface-strong), var(--surface));
+      box-shadow: 0 18px 44px var(--shadow);
+    }
+    .hero-copy {
+      position: relative;
+      overflow: hidden;
+      min-height: 360px;
+      padding: clamp(22px, 4vw, 42px);
+    }
+    .hero-copy::after {
+      content: "";
+      position: absolute;
+      inset: auto 20px 20px auto;
+      width: min(360px, 48vw);
+      aspect-ratio: 1;
+      border: 1px dashed rgba(128, 190, 212, 0.34);
+      border-radius: 999px;
+      background:
+        linear-gradient(90deg, transparent 49.5%, rgba(83, 223, 255, 0.2) 50%, transparent 50.5%),
+        linear-gradient(0deg, transparent 49.5%, rgba(255, 193, 125, 0.16) 50%, transparent 50.5%);
+      opacity: 0.86;
+      pointer-events: none;
+    }
+    .overline {
+      margin: 0;
+      color: color-mix(in srgb, var(--accent) 72%, var(--text) 28%);
+      font-size: 0.76rem;
+      font-weight: 760;
+      text-transform: uppercase;
+      letter-spacing: 0.18em;
+    }
+    h1, h2, h3, p { margin-top: 0; }
+    h1 {
+      position: relative;
+      z-index: 1;
+      max-width: 12ch;
+      margin-bottom: 16px;
+      font-size: clamp(2.6rem, 7vw, 5.8rem);
+      line-height: 0.95;
+      letter-spacing: 0;
+    }
+    .hero-copy .lead {
+      position: relative;
+      z-index: 1;
+      max-width: 68ch;
+      color: var(--muted);
+      line-height: 1.72;
+      font-size: 1.02rem;
+    }
+    .session-banner {
+      display: none;
+      position: relative;
+      z-index: 1;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      width: min(620px, 100%);
+      margin-top: 26px;
+      padding: 14px 16px;
+      border: 1px solid var(--line-strong);
+      border-radius: 8px;
+      background: rgba(83, 223, 255, 0.08);
+    }
+    .authenticated .session-banner { display: flex; }
+    .authenticated #loginPanel { display: none; }
+    .login-panel { padding: 20px; }
+    .login-panel h2, .panel h2 {
+      margin: 0 0 12px;
+      font-size: 0.92rem;
+      text-transform: uppercase;
+      letter-spacing: 0.14em;
+      color: var(--ok);
+    }
+    .form-row { display: grid; gap: 8px; margin-top: 12px; }
+    label { color: var(--muted); font-size: 0.88rem; }
+    input, textarea {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(3, 12, 18, 0.58);
+      color: var(--text);
+      padding: 11px 12px;
+    }
+    body.light input, body.light textarea { background: rgba(255, 255, 255, 0.82); }
+    textarea { min-height: 116px; resize: vertical; }
+    .button-row { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
+    .session-note { color: var(--muted); min-height: 26px; margin: 14px 0 0; }
+    .mode-rail {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+      margin-bottom: 18px;
+    }
+    .mode-card { padding: 15px; min-height: 122px; }
+    .mode-card span, .metric span, .entry span {
+      display: block;
+      color: var(--muted);
+      font-size: 0.76rem;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+    }
+    .mode-card strong {
+      display: block;
+      margin-top: 8px;
+      font-size: 1.08rem;
+    }
+    .mode-card p { color: var(--muted); line-height: 1.5; margin: 8px 0 0; }
+    .dashboard-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1.2fr) minmax(300px, 0.8fr);
+      gap: 18px;
+      align-items: start;
+    }
+    .panel { padding: 20px; }
+    .panel.wide { grid-column: span 2; }
+    .panel p { color: var(--muted); line-height: 1.62; }
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 14px;
+    }
+    .metric {
+      min-height: 92px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--surface-soft);
+      padding: 12px;
+    }
+    .metric strong { display: block; margin-top: 10px; font-size: 1.34rem; }
+    .workspace-grid {
+      display: grid;
+      grid-template-columns: minmax(320px, 0.86fr) minmax(0, 1.14fr);
+      gap: 18px;
+      margin-top: 18px;
+    }
+    .entry-list { display: grid; gap: 10px; margin-top: 12px; }
+    .entry {
+      border: 1px solid var(--line);
+      border-left: 3px solid var(--accent-2);
+      border-radius: 8px;
+      background: var(--surface-soft);
+      padding: 12px;
+    }
+    .entry strong { display: block; margin: 4px 0 8px; }
+    .entry p { margin: 0; color: var(--muted); }
+    .status-lines { display: grid; gap: 9px; margin-top: 12px; }
+    .status-line {
+      display: flex;
+      justify-content: space-between;
+      gap: 14px;
+      border-bottom: 1px solid var(--line);
+      padding-bottom: 9px;
+      color: var(--muted);
+    }
+    .status-line strong { color: var(--text); text-align: right; }
+    .pill-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+    .pill {
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: var(--surface-soft);
+      color: var(--muted);
+      padding: 6px 10px;
+      font-size: 0.78rem;
+    }
+    .sync-output {
+      min-height: 92px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(3, 12, 18, 0.42);
+      color: var(--muted);
+      padding: 12px;
+      overflow: auto;
+    }
+    body.light .sync-output { background: rgba(255, 255, 255, 0.72); }
+    .journey {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 12px;
+    }
+    .journey div {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--surface-soft);
+      padding: 12px;
+      min-height: 108px;
+    }
+    .journey strong { display: block; margin: 8px 0; }
+    .journey p { margin: 0; color: var(--muted); font-size: 0.92rem; }
+    @media (max-width: 980px) {
+      .hero, .dashboard-grid, .workspace-grid { grid-template-columns: 1fr; }
+      .panel.wide { grid-column: auto; }
+      .mode-rail, .metrics, .journey { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+    @media (max-width: 640px) {
+      .shell { width: min(100% - 20px, 1240px); padding-top: 16px; }
+      .topbar { align-items: flex-start; flex-direction: column; }
+      .top-actions { justify-content: flex-start; }
+      .hero-copy { min-height: 0; }
+      .mode-rail, .metrics, .journey { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <header class="topbar">
+      <a class="brand" href="https://valkyrlabs.com" target="_blank" rel="noopener noreferrer" aria-label="Open Valkyr Labs">
+        <svg viewBox="0 0 64 64" role="img" aria-label="Valkyr Labs logo">
+          <circle cx="32" cy="32" r="32" fill="#0d1b2a"/>
+          <circle cx="32" cy="32" r="29" fill="none" stroke="#fff" stroke-width="4"/>
+          <rect x="20" y="20" width="30" height="18" fill="#ffa500" stroke="#fff" stroke-width="2" rx="2"/>
+          <rect x="22" y="22" width="26" height="14" fill="#ffbd45"/>
+          <rect x="29" y="38" width="8" height="18" fill="#ffa500" stroke="#fff" stroke-width="2"/>
+          <path d="M29 43h8M29 48h8M29 53h8" stroke="#fff" stroke-width="1.3"/>
+        </svg>
+        <span><strong>Valkyr Labs</strong><span>GrayMatter Local Server</span></span>
+      </a>
+      <nav class="top-actions" aria-label="Primary actions">
+        <button class="secondary" id="themeToggle" type="button">Light / Full</button>
+        <button class="secondary" id="health" type="button">Health</button>
+        <a href="https://valkyrlabs.com" target="_blank" rel="noopener noreferrer"><button class="secondary" type="button">Full GrayMatter</button></a>
+      </nav>
+    </header>
+
+    <section class="hero">
+      <div class="hero-copy">
+        <p class="overline">GrayMatter Light Bundle</p>
+        <h1>Memory first. Promotion ready.</h1>
+        <p class="lead">
+          This standalone GrayMatter server brings the Valkyr control panel into the local/light runtime:
+          RBAC, Principal identity, UserPreferences, durable MemoryEntry records, Data Workbooks, Swarm Protocol,
+          and a clean path to promote or synchronize with the valkyrlabs.com mothership.
+        </p>
+        <div class="session-banner">
+          <div>
+            <strong id="sessionTitle">Connected</strong>
+            <p class="session-note" id="sessionBannerText">Local dashboard is authenticated.</p>
+          </div>
+          <button class="secondary" id="refreshAll" type="button">Refresh Console</button>
+        </div>
+      </div>
+
+      <aside id="loginPanel" class="login-panel">
+        <h2>Local Login</h2>
+        <p>Default local credentials are <code>admin</code> / <code>graymatter-local</code>. After login, this panel disappears and the control surface stays live.</p>
+        <div class="form-row">
+          <label for="username">Username</label>
+          <input id="username" value="admin" autocomplete="username">
+        </div>
+        <div class="form-row">
+          <label for="password">Password</label>
+          <input id="password" value="graymatter-local" type="password" autocomplete="current-password">
+        </div>
+        <div class="button-row">
+          <button id="connect" type="button">Connect</button>
+          <button class="secondary" id="loginHealth" type="button">Health</button>
+        </div>
+        <p class="session-note" id="session">Connect to inspect local GrayMatter state.</p>
+      </aside>
+    </section>
+
+    <section class="mode-rail" aria-label="Bundle capability summary">
+      <div class="mode-card"><span>Mode</span><strong>Local Light</strong><p>Private H2-backed runtime on this machine.</p></div>
+      <div class="mode-card"><span>Full Path</span><strong>valkyrlabs.com</strong><p>Promotion bridge prepares the bundle for hosted GrayMatter.</p></div>
+      <div class="mode-card"><span>Generation</span><strong>ThorAPI FEBE</strong><p>Schema-first app bundle with custom and built-in Valkyr components.</p></div>
+      <div class="mode-card"><span>Swarm</span><strong>graymatter-swarm-v0.1</strong><p>Local light-node adapter exposed through SwarmOps-compatible endpoints.</p></div>
+    </section>
+
+    <section class="dashboard-grid">
+      <article class="panel">
+        <h2>Command Center</h2>
+        <p id="dashboard">Connect to load the GrayMatter control panel.</p>
+        <div class="metrics" id="metrics"></div>
+        <div class="pill-row" id="servicePills"></div>
+      </article>
+
+      <article class="panel">
+        <h2>Mothership Bridge</h2>
+        <p>Prepare the local light bundle and data summary for authenticated synchronization with <code>valkyrlabs.com</code>.</p>
+        <div class="status-lines" id="syncStatus"></div>
+        <div class="button-row">
+          <button id="promote" type="button">Promote / Synchronize</button>
+        </div>
+        <pre class="sync-output" id="syncOutput">Waiting for authenticated session.</pre>
+      </article>
+
+      <article class="panel wide">
+        <h2>Swarm Protocol</h2>
+        <p>GrayMatter Light exposes a local SWARM v0.1 light-node identity so the standalone bundle can be discovered, graphed, and promoted into the broader ValkyrAI system.</p>
+        <div class="status-lines" id="swarmStatus"></div>
+        <div class="pill-row" id="swarmPills"></div>
+      </article>
+
+      <article class="panel wide">
+        <h2>Live Telemetry</h2>
+        <p>Authenticated admin telemetry for the local light runtime. The System Equalizer is compact by default, but it still returns baseline metrics instead of hiding the panel.</p>
+        <div class="status-lines" id="telemetryStatus"></div>
+        <div class="metrics" id="telemetryMetrics"></div>
+      </article>
+    </section>
+
+    <section class="workspace-grid">
+      <article class="panel">
+        <h2>Memory Graph Workspace</h2>
+        <p>Capture durable local context now; the promotion bridge includes these counts in the mothership handoff.</p>
+        <div class="form-row">
+          <label for="type">Memory type</label>
+          <input id="type" value="context">
+        </div>
+        <div class="form-row">
+          <label for="tags">Tags</label>
+          <input id="tags" value="local,agent-memory,swarm">
+        </div>
+        <div class="form-row">
+          <label for="text">Memory text</label>
+          <textarea id="text">GrayMatter Light is ready to promote into the Valkyr Labs mothership.</textarea>
+        </div>
+        <div class="button-row">
+          <button id="save" type="button">Create Entry</button>
+          <button class="secondary" id="refresh" type="button">Refresh Memory</button>
+        </div>
+      </article>
+
+      <article class="panel">
+        <h2>Recent Memory</h2>
+        <div class="entry-list" id="entries"><p>Connect to load memory entries.</p></div>
+      </article>
+    </section>
+
+    <section class="panel" style="margin-top:18px">
+      <h2>GrayMatter-First Journey</h2>
+      <div class="journey">
+        <div><span class="overline">01</span><strong>Memory</strong><p>Durable MemoryEntry records and RBAC identity come first.</p></div>
+        <div><span class="overline">02</span><strong>Orchestration</strong><p>Swarm Protocol exposes the local node to ValkyrAI coordination.</p></div>
+        <div><span class="overline">03</span><strong>Generated App</strong><p>The bundle remains ThorAPI FEBE with custom dashboard and workbench surfaces.</p></div>
+        <div><span class="overline">04</span><strong>Launch</strong><p>Promote to full GrayMatter when hosted auth and RBAC scope are ready.</p></div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    (() => {
+      const $ = (id) => document.getElementById(id);
+      const elements = {
+        username: $("username"),
+        password: $("password"),
+        session: $("session"),
+        sessionTitle: $("sessionTitle"),
+        sessionBannerText: $("sessionBannerText"),
+        dashboard: $("dashboard"),
+        metrics: $("metrics"),
+        servicePills: $("servicePills"),
+        syncStatus: $("syncStatus"),
+        syncOutput: $("syncOutput"),
+        swarmStatus: $("swarmStatus"),
+        swarmPills: $("swarmPills"),
+        telemetryStatus: $("telemetryStatus"),
+        telemetryMetrics: $("telemetryMetrics"),
+        entries: $("entries"),
+        type: $("type"),
+        tags: $("tags"),
+        text: $("text")
+      };
+
+      const state = { dashboard: null, sync: null, swarm: null, telemetry: null };
+      const escapeHtml = (value) => String(value ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+      const authHeader = () => "Basic " + btoa(`${elements.username.value}:${elements.password.value}`);
+      const plainHeaders = () => ({ "Authorization": authHeader() });
+      const jsonHeaders = () => ({ ...plainHeaders(), "Content-Type": "application/json" });
+
+      async function requestJson(url, options = {}) {
+        const response = await fetch(url, options);
+        if (!response.ok) throw new Error(`${url} failed: ${response.status}`);
+        return response.json();
+      }
+
+      function renderDashboard(data) {
+        state.dashboard = data;
+        elements.sessionTitle.textContent = `Connected as ${data.principal.username}`;
+        elements.sessionBannerText.textContent = `${data.product} is running in ${data.generationMode} mode.`;
+        elements.dashboard.innerHTML = `
+          <strong>${escapeHtml(data.product)}</strong>
+          <p>Principal <code>${escapeHtml(data.principal.displayName)}</code> has RBAC roles <code>${escapeHtml(data.principal.roles.join(", "))}</code>.</p>
+          <p>Bundle <code>${escapeHtml(data.bundle.id)}</code> is generated through <code>${escapeHtml(data.bundle.generationMode)}</code> with local H2 storage.</p>
+        `;
+        elements.metrics.innerHTML = [
+          ["MemoryEntry", data.memoryEntryCount],
+          ["Data Workbooks", data.workbookCount],
+          ["RBAC", data.preferencesReady ? "Ready" : "Pending"],
+          ["Swarm", data.swarmProtocol.protocolVersion]
+        ].map(([label, value]) => `<div class="metric"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`).join("");
+        elements.servicePills.innerHTML = data.coreServices
+          .map((service) => `<span class="pill">${escapeHtml(service)}</span>`)
+          .join("");
+      }
+
+      function renderStatusLines(target, rows) {
+        target.innerHTML = rows
+          .map(([label, value]) => `<div class="status-line"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`)
+          .join("");
+      }
+
+      function renderSync(data) {
+        state.sync = data;
+        renderStatusLines(elements.syncStatus, [
+          ["State", data.state],
+          ["Target", data.target],
+          ["API", data.apiBase],
+          ["Auth", data.auth?.environmentVariable || data.requiresAuth || "VALKYR_AUTH_TOKEN"]
+        ]);
+      }
+
+      function renderSwarm(data) {
+        state.swarm = data;
+        renderStatusLines(elements.swarmStatus, [
+          ["Protocol", data.protocolVersion],
+          ["Node", data.node?.nodeId || "local"],
+          ["Role", data.node?.role || "light-node"],
+          ["State", data.state]
+        ]);
+        elements.swarmPills.innerHTML = (data.capabilities || [])
+          .map((capability) => `<span class="pill">${escapeHtml(capability)}</span>`)
+          .join("");
+      }
+
+      function renderTelemetry(data) {
+        state.telemetry = data;
+        renderStatusLines(elements.telemetryStatus, [
+          ["Panel", data.panel],
+          ["Section", data.section],
+          ["Mode", data.mode],
+          ["Admin", data.principal?.admin ? "yes" : "no"]
+        ]);
+        elements.telemetryMetrics.innerHTML = (data.metrics || [])
+          .map((metric) => `<div class="metric"><span>${escapeHtml(metric.label)}</span><strong>${escapeHtml(metric.value)} ${escapeHtml(metric.unit || "")}</strong></div>`)
+          .join("");
+      }
+
+      function renderEntries(data) {
+        elements.entries.innerHTML = data.length
+          ? data.map((entry) => `
+              <div class="entry">
+                <span>${escapeHtml(entry.type || "context")}</span>
+                <strong>${escapeHtml(entry.text || "Untitled Memory")}</strong>
+                <p>${escapeHtml(entry.tags || "local")}</p>
+              </div>`).join("")
+          : "<p>No memory entries yet. Create one to seed the local graph.</p>";
+      }
+
+      async function loadDashboard() {
+        const data = await requestJson("/api/graymatter/dashboard", { headers: plainHeaders() });
+        document.body.classList.add("authenticated");
+        elements.session.textContent = "";
+        renderDashboard(data);
+      }
+
+      async function loadSyncStatus() {
+        renderSync(await requestJson("/api/graymatter/sync/status", { headers: plainHeaders() }));
+      }
+
+      async function loadSwarm() {
+        renderSwarm(await requestJson("/api/graymatter/swarm/protocol", { headers: plainHeaders() }));
+      }
+
+      async function loadTelemetry() {
+        renderTelemetry(await requestJson("/api/graymatter/telemetry/status", { headers: plainHeaders() }));
+      }
+
+      async function loadEntries() {
+        renderEntries(await requestJson("/api/memory-entries", { headers: plainHeaders() }));
+      }
+
+      async function establishSession() {
+        try {
+          elements.session.textContent = "Connecting...";
+          await loadDashboard();
+          await Promise.all([loadSyncStatus(), loadSwarm(), loadTelemetry(), loadEntries()]);
+        } catch (error) {
+          document.body.classList.remove("authenticated");
+          elements.session.textContent = error.message;
+        }
+      }
+
+      async function checkHealth(target = elements.session) {
+        const response = await fetch("/actuator/health");
+        target.textContent = `Health ${response.status}`;
+      }
+
+      $("connect").onclick = establishSession;
+      $("refreshAll").onclick = establishSession;
+      $("refresh").onclick = async () => {
+        try { await loadEntries(); } catch (error) { elements.sessionBannerText.textContent = error.message; }
+      };
+      $("health").onclick = () => checkHealth(elements.sessionBannerText);
+      $("loginHealth").onclick = () => checkHealth(elements.session);
+      $("themeToggle").onclick = () => document.body.classList.toggle("light");
+
+      $("promote").onclick = async () => {
+        try {
+          const response = await requestJson("/api/graymatter/sync/mothership", {
+            method: "POST",
+            headers: plainHeaders()
+          });
+          elements.syncOutput.textContent = JSON.stringify(response, null, 2);
+          await loadSyncStatus();
+        } catch (error) {
+          elements.syncOutput.textContent = error.message;
+        }
+      };
+
+      $("save").onclick = async () => {
+        try {
+          await requestJson("/api/memory-entries", {
+            method: "POST",
+            headers: jsonHeaders(),
+            body: JSON.stringify({
+              type: elements.type.value,
+              tags: elements.tags.value,
+              text: elements.text.value,
+              sourceChannel: "graymatter-local-dashboard"
+            })
+          });
+          await loadDashboard();
+          await Promise.all([loadEntries(), loadSyncStatus(), loadSwarm(), loadTelemetry()]);
+        } catch (error) {
+          elements.sessionBannerText.textContent = error.message;
+        }
+      };
+    })();
+  </script>
+</body>
+</html>

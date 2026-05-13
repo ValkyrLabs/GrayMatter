@@ -1,0 +1,541 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "GrayMatter Local Runtime API",
+    "version": "0.1.0",
+    "description": "ThorAPI FEBE contract for the standalone GrayMatter local server."
+  },
+  "servers": [
+    {
+      "url": "http://localhost:8787"
+    }
+  ],
+  "x-thorapi-generation": {
+    "mode": "febe",
+    "sourceTemplate": "graymatter-local",
+    "customComponents": [
+      "GrayMatterDashboard",
+      "MemoryEntryWorkbench",
+      "MothershipPromotionBridge",
+      "SwarmProtocolBridge",
+      "LiveTelemetryPanel"
+    ],
+    "builtInValkyrComponents": [
+      "rbac-core",
+      "data-workbooks"
+    ]
+  },
+  "paths": {
+    "/api/graymatter/dashboard": {
+      "get": {
+        "operationId": "getGrayMatterDashboard",
+        "summary": "Returns the local GrayMatter dashboard model.",
+        "responses": {
+          "200": {
+            "description": "GrayMatter dashboard payload",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GrayMatterDashboard"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/graymatter/sync/status": {
+      "get": {
+        "operationId": "getGrayMatterMothershipSyncStatus",
+        "summary": "Return local-to-mothership promotion readiness.",
+        "responses": {
+          "200": {
+            "description": "Mothership sync status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MothershipSyncStatus"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/graymatter/sync/mothership": {
+      "post": {
+        "operationId": "promoteGrayMatterToMothership",
+        "summary": "Prepare a local GrayMatter light bundle for authenticated mothership synchronization.",
+        "responses": {
+          "202": {
+            "description": "Promotion package prepared",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MothershipSyncResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/graymatter/swarm/protocol": {
+      "get": {
+        "operationId": "getGrayMatterSwarmProtocol",
+        "summary": "Return the local GrayMatter SWARM v0.1 adapter state.",
+        "responses": {
+          "200": {
+            "description": "Swarm protocol status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SwarmProtocolStatus"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/graymatter/telemetry/status": {
+      "get": {
+        "operationId": "getGrayMatterLiveTelemetryStatus",
+        "summary": "Return authenticated local GrayMatter live telemetry metrics.",
+        "responses": {
+          "200": {
+            "description": "Live telemetry status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LiveTelemetryStatus"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/MemoryEntry": {
+      "get": {
+        "operationId": "listMemoryEntries",
+        "summary": "List MemoryEntry records for the authenticated Principal.",
+        "responses": {
+          "200": {
+            "description": "MemoryEntry records",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/MemoryEntry"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "createMemoryEntry",
+        "summary": "Create a MemoryEntry.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MemoryEntry"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "MemoryEntry created"
+          }
+        }
+      }
+    },
+    "/api/user-preferences/me": {
+      "get": {
+        "operationId": "getCurrentUserPreferences",
+        "summary": "Return UserPreferences for the authenticated Principal.",
+        "responses": {
+          "200": {
+            "description": "Current preferences"
+          }
+        }
+      }
+    },
+    "/Workbook": {
+      "get": {
+        "operationId": "listWorkbooks",
+        "summary": "List Data Workbooks for the authenticated Principal.",
+        "responses": {
+          "200": {
+            "description": "Workbook records",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Workbook"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "createWorkbook",
+        "summary": "Create a Data Workbook.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Workbook"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Workbook created"
+          }
+        }
+      }
+    },
+    "/Workbook/{id}": {
+      "get": {
+        "operationId": "getWorkbook",
+        "summary": "Return a single Data Workbook.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Workbook record"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Principal": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "username": {
+            "type": "string"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "roles": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "UserPreferences": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "username": {
+            "type": "string"
+          },
+          "theme": {
+            "type": "string"
+          },
+          "defaultMemoryScope": {
+            "type": "string"
+          }
+        }
+      },
+      "MemoryEntry": {
+        "type": "object",
+        "required": [
+          "text"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "type": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          },
+          "sourceChannel": {
+            "type": "string"
+          },
+          "tags": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "modifiedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "Workbook": {
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "description": "GridHeim Data Workbook surface bundled into the local GrayMatter server.",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string",
+            "example": "My Workbook"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "WorkbookOpen",
+              "WorkbookClosed",
+              "WorkbookArchived",
+              "WorkbookError",
+              "WorkbookInvalid"
+            ],
+            "default": "WorkbookOpen"
+          },
+          "ownerUsername": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "modifiedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "GrayMatterDashboard": {
+        "type": "object",
+        "properties": {
+          "product": {
+            "type": "string"
+          },
+          "generationMode": {
+            "type": "string"
+          },
+          "principal": {
+            "$ref": "#/components/schemas/Principal"
+          },
+          "coreServices": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "memoryEntryCount": {
+            "type": "integer"
+          },
+          "workbookCount": {
+            "type": "integer"
+          },
+          "bundle": {
+            "type": "object"
+          },
+          "mothership": {
+            "type": "object"
+          },
+          "swarmProtocol": {
+            "type": "object"
+          },
+          "storage": {
+            "type": "string"
+          }
+        }
+      },
+      "MothershipSyncStatus": {
+        "type": "object",
+        "properties": {
+          "state": {
+            "type": "string"
+          },
+          "target": {
+            "type": "string",
+            "example": "https://valkyrlabs.com"
+          },
+          "apiBase": {
+            "type": "string",
+            "example": "https://api-0.valkyrlabs.com/v1"
+          },
+          "applicationBundle": {
+            "type": "string"
+          },
+          "generationMode": {
+            "type": "string"
+          },
+          "memoryEntryCount": {
+            "type": "integer"
+          },
+          "workbookCount": {
+            "type": "integer"
+          },
+          "swarmProtocol": {
+            "type": "string"
+          }
+        }
+      },
+      "MothershipSyncResponse": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "example": "PROMOTION_PREPARED"
+          },
+          "message": {
+            "type": "string"
+          },
+          "target": {
+            "type": "string"
+          },
+          "apiBase": {
+            "type": "string"
+          },
+          "requiresAuth": {
+            "type": "string"
+          },
+          "payload": {
+            "type": "object"
+          },
+          "nextSteps": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "SwarmProtocolStatus": {
+        "type": "object",
+        "properties": {
+          "protocolVersion": {
+            "type": "string",
+            "example": "graymatter-swarm-v0.1"
+          },
+          "state": {
+            "type": "string"
+          },
+          "mothership": {
+            "type": "string"
+          },
+          "apiBase": {
+            "type": "string"
+          },
+          "node": {
+            "type": "object"
+          },
+          "nodes": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "edges": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "capabilities": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "endpoints": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "LiveTelemetryMetric": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "value": {},
+          "unit": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          }
+        }
+      },
+      "LiveTelemetryStatus": {
+        "type": "object",
+        "properties": {
+          "panel": {
+            "type": "string",
+            "example": "Live Telemetry"
+          },
+          "section": {
+            "type": "string",
+            "example": "System Equalizer"
+          },
+          "mode": {
+            "type": "string",
+            "example": "compact"
+          },
+          "principal": {
+            "type": "object"
+          },
+          "metrics": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LiveTelemetryMetric"
+            }
+          },
+          "sources": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -86,6 +86,8 @@ def decode_claims(token: str):
 
 def token_scope_state(token: str):
     claims = decode_claims(token)
+    if not claims:
+        return "unknown"
     roles = []
     for key in ("roles", "roleList", "authorities", "authorityList"):
         vals = claims.get(key, [])
@@ -123,7 +125,7 @@ token_permission_state = "unknown"
 if token_value:
     token_permission_state = token_scope_state(token_value)
     token_live_state = live_token_state(token_value)
-    if token_live_state == "invalid":
+    if token_live_state == "invalid" or token_permission_state == "read_only":
         health = "degraded"
 
 if os.getenv("GM_STATUS_FORMAT", "kv") == "json":
@@ -146,11 +148,12 @@ else:
     auth_kv = "env" if has_env_token else ("keychain" if keychain_token else "missing")
     if token_live_state == "invalid":
         auth_kv = f"{auth_kv}:invalid"
-    elif token_live_state == "valid" and token_permission_state == "read_only":
+    elif token_permission_state == "read_only":
         auth_kv = f"{auth_kv}:read_only"
     elif token_live_state == "valid" and token_permission_state == "write_capable":
         auth_kv = f"{auth_kv}:write_capable"
-    memory_layer = "ready" if fallback_state != "invalid" else "degraded"
+    auth_memory_ready = token_live_state != "invalid" and token_live_state != "missing" and token_permission_state != "read_only"
+    memory_layer = "ready" if fallback_state != "invalid" and auth_memory_ready else "degraded"
     graph_layer = strategic_layer = kpi_layer = "unknown"
     try:
         with open(openapi_path, "r", encoding="utf-8") as fh:

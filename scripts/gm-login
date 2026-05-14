@@ -156,18 +156,27 @@ APPLESCRIPT
     fi
   fi
 
-  read -r -s -p "GrayMatter password: " PASSWORD
-  printf '\n' >&2
-  printf '%s\n' "$PASSWORD"
+  if [[ -t 0 ]]; then
+    read -r -s -p "GrayMatter password: " PASSWORD
+    printf '\n' >&2
+    printf '%s\n' "$PASSWORD"
+    return 0
+  fi
+
+  if IFS= read -r PASSWORD; then
+    printf '%s\n' "$PASSWORD"
+    return 0
+  fi
+
+  return 1
 }
 
 if [[ -z "$PASSWORD" ]]; then
-  if [[ ! -t 0 ]]; then
+  if ! PASSWORD="$(prompt_password)" || [[ -z "$PASSWORD" ]]; then
     echo "GrayMatter password not found in env/keychain and interactive login is unavailable." >&2
     echo "Autonomous reauth is impossible from current machine state." >&2
     exit 4
   fi
-  PASSWORD="$(prompt_password)"
 fi
 
 set +e

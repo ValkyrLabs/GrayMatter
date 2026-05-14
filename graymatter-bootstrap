@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+BUNDLE="${GRAYMATTER_SKILL_BUNDLE:-${ROOT}/graymatter.skill}"
+
+if [[ -x "${ROOT}/scripts/gm-activate" && -f "${ROOT}/mcp-server/index.js" ]]; then
+  echo "GrayMatter runtime files are already present."
+  exit 0
+fi
+
+if [[ ! -f "$BUNDLE" ]]; then
+  echo "GrayMatter runtime files are missing and ${BUNDLE} was not found." >&2
+  echo "Reinstall from the GrayMatter release bundle or clone the full repository." >&2
+  exit 1
+fi
+
+python3 - "$ROOT" "$BUNDLE" <<'PY'
+from pathlib import Path
+import os
+import stat
+import sys
+import zipfile
+
+root = Path(sys.argv[1]).resolve()
+bundle = Path(sys.argv[2]).resolve()
+prefix = "graymatter/"
+
+with zipfile.ZipFile(bundle) as archive:
+    names = archive.namelist()
+    if "graymatter/SKILL.md" not in names:
+        raise SystemExit("graymatter.skill does not look like a GrayMatter skill bundle")
+
+    for info in archive.infolist():
+        if info.is_dir() or not info.filename.startswith(prefix):
+            continue
+
+        rel = Path(info.filename[len(prefix):])
+        if not rel.parts:
+            continue
+
+        target = (root / rel).resolve()
+        if target == root or root not in target.parents:
+            raise SystemExit(f"Refusing to extract outside skill root: {info.filename}")
+
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(archive.read(info))
+
+        mode = (info.external_attr >> 16) & 0o777
+        if mode:
+            os.chmod(target, mode)
+        elif rel.parts[0] == "scripts":
+            current = target.stat().st_mode
+            os.chmod(target, current | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+
+print("GrayMatter runtime files restored from graymatter.skill")
+PY

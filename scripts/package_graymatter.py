@@ -8,6 +8,8 @@ ROOT = Path(__file__).resolve().parent.parent
 OUT = ROOT / 'graymatter.skill'
 REQUIRED = [
     'SKILL.md',
+    'graymatter-bootstrap',
+    '.mcp.json',
     'scripts/gm-query',
     'scripts/gm-graph',
     'scripts/gm-write',
@@ -24,6 +26,9 @@ REQUIRED = [
     'scripts/gm-light-env',
     'scripts/package-local-server',
     'scripts/graymatter_api.sh',
+    'mcp-server/index.js',
+    'mcp-server/package.json',
+    'mcp-server/README.md',
     'examples/graymatter-light-thorapi-bundle.yaml',
     'references/public-release-checklist.md',
     'references/multi-agent-conventions.md',
@@ -64,7 +69,7 @@ def add_file(zf: zipfile.ZipFile, rel: str) -> None:
     info.compress_type = zipfile.ZIP_DEFLATED
 
     # Ensure shell entrypoints remain executable after install/unzip.
-    if rel.startswith('scripts/'):
+    if rel.startswith('scripts/') or rel == 'graymatter-bootstrap':
         info.external_attr = (0o100755 << 16)
 
     with src.open('rb') as fh:

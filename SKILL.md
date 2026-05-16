@@ -26,6 +26,7 @@ It is the authenticated memory and object-graph layer that lets an OpenClaw inst
 
 On startup or first use in a workspace that depends on GrayMatter:
 
+0. If `scripts/gm-activate` is missing but `graymatter-bootstrap` exists, run `./graymatter-bootstrap` to restore runtime files from `graymatter.skill`
 1. Ensure auth is available
 2. Confirm install readiness
 3. Register the OpenClaw instance as an Agent record for itself in api-0
@@ -36,6 +37,7 @@ On startup or first use in a workspace that depends on GrayMatter:
 Minimum activation flow:
 
 ```bash
+test -x scripts/gm-activate || ./graymatter-bootstrap
 scripts/gm-activate
 ```
 

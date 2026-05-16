@@ -44,6 +44,9 @@ set -euo pipefail
 out_file=""
 headers_file=""
 all_args="$*"
+if [[ -n "${TEST_CURL_LOG:-}" ]]; then
+  printf '%s\n' "$all_args" >>"${TEST_CURL_LOG}"
+fi
 while [[ $# -gt 0 ]]; do
   case "$1" in
     -o)
@@ -72,6 +75,27 @@ case "${TEST_CURL_SCENARIO:-success}" in
       printf 'HTTP/1.1 200 OK\n' >"${headers_file}"
     fi
     printf '200'
+    ;;
+  expired-token-must-refresh-first)
+    if [[ "$all_args" == *"/auth/login"* ]]; then
+      printf '{"%s":"%s"}\n' token refreshed-token >"${out_file}"
+      if [[ -n "$headers_file" ]]; then
+        printf 'HTTP/1.1 200 OK\nSet-Cookie: VALKYR_AUTH=refreshed-token; Path=/; HttpOnly\n' >"${headers_file}"
+      fi
+      printf '200'
+    elif [[ "$all_args" == *"expired-jwt-token"* ]]; then
+      printf '{"error":"EXPIRED_TOKEN_USED"}\n' >"${out_file}"
+      if [[ -n "$headers_file" ]]; then
+        printf 'HTTP/1.1 500 Internal Server Error\n' >"${headers_file}"
+      fi
+      printf '500'
+    else
+      printf '{"ok":true,"%s":"%s"}\n' token refreshed-token >"${out_file}"
+      if [[ -n "$headers_file" ]]; then
+        printf 'HTTP/1.1 200 OK\n' >"${headers_file}"
+      fi
+      printf '200'
+    fi
     ;;
   insufficient-funds)
     printf '{"error":"INSUFFICIENT_FUNDS","insufficientFunds":true}\n' >"${out_file}"
@@ -165,6 +189,8 @@ case "$cmd" in
     if [[ "$service" == "VALKYR_AUTH" && "$account" == "valor" ]]; then
       if [[ "${TEST_SECURITY_SCENARIO:-}" == "readonly-token" ]]; then
         printf 'eyJhbGciOiJub25lIn0.eyJyb2xlcyI6WyJFVkVSWU9ORSJdLCJzY29wZXMiOlsiU0NPUEVfc2NoZW1hLnJlYWQiXSwidXNlcm5hbWUiOiJ2YWxvciJ9.\n'
+      elif [[ "${TEST_SECURITY_SCENARIO:-}" == "expired-jwt-token" ]]; then
+        printf 'eyJhbGciOiJub25lIn0.eyJleHAiOjEsInJvbGVzIjpbIkFETUlOIl0sInNjb3BlcyI6WyJTQ09QRV9zY2hlbWEucmVhZCIsIlNDT1BFX3NjaGVtYS53cml0ZSJdLCJ1c2VybmFtZSI6InZhbG9yIn0.invalid\n'
       else
         printf 'expired-token\n'
       fi
@@ -184,6 +210,8 @@ case "$cmd" in
     if [[ "$service" == "VALKYR_AUTH" && "$account" == "default" ]]; then
       if [[ "${TEST_SECURITY_SCENARIO:-}" == "readonly-token" ]]; then
         printf 'eyJhbGciOiJub25lIn0.eyJyb2xlcyI6WyJFVkVSWU9ORSJdLCJzY29wZXMiOlsiU0NPUEVfc2NoZW1hLnJlYWQiXSwidXNlcm5hbWUiOiJ2YWxvciJ9.\n'
+      elif [[ "${TEST_SECURITY_SCENARIO:-}" == "expired-jwt-token" ]]; then
+        printf 'eyJhbGciOiJub25lIn0.eyJleHAiOjEsInJvbGVzIjpbIkFETUlOIl0sInNjb3BlcyI6WyJTQ09QRV9zY2hlbWEucmVhZCIsIlNDT1BFX3NjaGVtYS53cml0ZSJdLCJ1c2VybmFtZSI6InZhbG9yIn0.invalid\n'
       else
         printf 'expired-token\n'
       fi
@@ -333,8 +361,9 @@ with_fixture() {
   TEST_OPEN_LOG="${temp_root}/open.log"
   TEST_SECURITY_LOG="${temp_root}/security.log"
   TEST_CURL_STATE_FILE="${temp_root}/curl.state"
+  TEST_CURL_LOG="${temp_root}/curl.log"
   TEST_GM_LOGIN_LOG="${temp_root}/gm-login.log"
-  export TEST_OSASCRIPT_LOG TEST_POWERSHELL_LOG TEST_OPEN_LOG TEST_SECURITY_LOG TEST_CURL_STATE_FILE TEST_GM_LOGIN_LOG
+  export TEST_OSASCRIPT_LOG TEST_POWERSHELL_LOG TEST_OPEN_LOG TEST_SECURITY_LOG TEST_CURL_STATE_FILE TEST_CURL_LOG TEST_GM_LOGIN_LOG
 
   "${callback}" "${temp_root}" "${fake_bin}" "${script_copy}"
 }
@@ -472,6 +501,57 @@ test_missing_token_runs_login_before_request() {
   assert_contains "${output}" '{"ok":true}' "graymatter_api should run the original request after login"
 }
 
+test_expired_keychain_token_refreshes_before_original_request() {
+  local temp_root="$1"
+  local fake_bin="$2"
+  local script_copy="$3"
+
+  export TEST_CURL_SCENARIO="expired-token-must-refresh-first"
+  export TEST_SECURITY_SCENARIO="expired-jwt-token"
+  unset VALKYR_AUTH_TOKEN
+  unset GRAYMATTER_USERNAME
+  unset GRAYMATTER_PASSWORD
+  unset VALKYR_USERNAME
+  unset VALKYR_PASSWORD
+
+  local result
+  local status
+  local output
+
+  result="$(
+    PATH="${fake_bin}:/usr/bin:/bin" \
+    TMPDIR="${temp_root}" \
+    "${script_copy}" GET /MemoryEntry/stats 2>&1
+  )"
+  status=$?
+  output="$(printf '%s\n' "${result}")"
+
+  [[ "${status}" == "0" ]] || fail "graymatter_api should proactively refresh an expired keychain JWT before calling the target endpoint"
+  assert_contains "${output}" "$(printf '{"ok":true,"%s":"%s"}' token refreshed-token)" "graymatter_api should use the refreshed token for the original request"
+
+  local first_curl
+  first_curl="$(sed -n '1p' "${temp_root}/curl.log")"
+  assert_contains "${first_curl}" "/auth/login" "graymatter_api should call login before the original endpoint when the stored JWT is already expired"
+}
+
+test_curl_requests_use_default_timeouts() {
+  local temp_root="$1"
+  local fake_bin="$2"
+  local script_copy="$3"
+
+  export TEST_CURL_SCENARIO="success"
+
+  PATH="${fake_bin}:/usr/bin:/bin" \
+  TMPDIR="${temp_root}" \
+  VALKYR_AUTH_TOKEN=test-token \
+  "${script_copy}" GET /MemoryEntry/stats >/dev/null 2>&1
+
+  local curl_log
+  curl_log="$(cat "${temp_root}/curl.log")"
+  assert_contains "${curl_log}" "--connect-timeout 5" "graymatter_api should set a default connect timeout"
+  assert_contains "${curl_log}" "--max-time 20" "graymatter_api should set a default total request timeout"
+}
+
 test_success_uses_fallback_tempdir_when_default_tmp_fails() {
   local _temp_root="$1"
   local fake_bin="$2"
@@ -517,8 +597,9 @@ test_write_rejects_read_only_token_before_network_request() {
   TEST_OPEN_LOG="${temp_root}/open.log"
   TEST_SECURITY_LOG="${temp_root}/security.log"
   TEST_CURL_STATE_FILE="${temp_root}/curl.state"
+  TEST_CURL_LOG="${temp_root}/curl.log"
   TEST_GM_LOGIN_LOG="${temp_root}/gm-login.log"
-  export TEST_OSASCRIPT_LOG TEST_POWERSHELL_LOG TEST_OPEN_LOG TEST_SECURITY_LOG TEST_CURL_STATE_FILE TEST_GM_LOGIN_LOG
+  export TEST_OSASCRIPT_LOG TEST_POWERSHELL_LOG TEST_OPEN_LOG TEST_SECURITY_LOG TEST_CURL_STATE_FILE TEST_CURL_LOG TEST_GM_LOGIN_LOG
   export TEST_CURL_SCENARIO="success"
   export TEST_SECURITY_SCENARIO="readonly-token"
   export TEST_GM_LOGIN_SCENARIO="read-only"
@@ -557,8 +638,9 @@ test_light_mode_allows_local_request_without_token() {
   TEST_OPEN_LOG="${temp_root}/open.log"
   TEST_SECURITY_LOG="${temp_root}/security.log"
   TEST_CURL_STATE_FILE="${temp_root}/curl.state"
+  TEST_CURL_LOG="${temp_root}/curl.log"
   TEST_GM_LOGIN_LOG="${temp_root}/gm-login.log"
-  export TEST_OSASCRIPT_LOG TEST_POWERSHELL_LOG TEST_OPEN_LOG TEST_SECURITY_LOG TEST_CURL_STATE_FILE TEST_GM_LOGIN_LOG
+  export TEST_OSASCRIPT_LOG TEST_POWERSHELL_LOG TEST_OPEN_LOG TEST_SECURITY_LOG TEST_CURL_STATE_FILE TEST_CURL_LOG TEST_GM_LOGIN_LOG
   export TEST_CURL_SCENARIO="success"
   export TEST_SECURITY_SCENARIO="missing-token"
 
@@ -583,6 +665,8 @@ with_fixture test_insufficient_funds_shows_links_and_uses_macos_prompt
 with_fixture test_insufficient_funds_falls_back_to_windows_prompt
 with_fixture test_unauthorized_refreshes_token_from_keychain_credentials
 with_fixture test_missing_token_runs_login_before_request
+with_fixture test_expired_keychain_token_refreshes_before_original_request
+with_fixture test_curl_requests_use_default_timeouts
 with_fixture test_success_uses_fallback_tempdir_when_default_tmp_fails
 test_write_rejects_read_only_token_before_network_request
 test_light_mode_allows_local_request_without_token

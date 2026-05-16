@@ -54,6 +54,7 @@ else:
 
 has_env_token = bool(os.getenv("VALKYR_AUTH_TOKEN"))
 keychain_service = os.getenv("VALKYR_KEYCHAIN_SERVICE", "VALKYR_AUTH")
+username_service = os.getenv("VALKYR_USERNAME_KEYCHAIN_SERVICE", f"{keychain_service}_USERNAME")
 api_base = os.getenv("VALKYR_API_BASE", "https://api-0.valkyrlabs.com/v1").rstrip("/")
 keychain_token = False
 token_value = os.getenv("VALKYR_AUTH_TOKEN", "").strip()
@@ -61,13 +62,26 @@ resolved_token = (os.getenv("VALKYR_AUTH_TOKEN") or os.getenv("VALKYR_JWT_SESSIO
 
 if not has_env_token:
     try:
+        username_res = subprocess.run([
+            "security", "find-generic-password", "-a", "default", "-s", username_service, "-w"
+        ], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, check=False)
+        keychain_username = (username_res.stdout or "").strip()
+
+        if keychain_username:
+            keyed_res = subprocess.run([
+                "security", "find-generic-password", "-a", keychain_username, "-s", keychain_service, "-w"
+            ], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, check=False)
+            if keyed_res.returncode == 0 and (keyed_res.stdout or "").strip():
+                token_value = keyed_res.stdout.strip()
+                resolved_token = token_value
+
         res = subprocess.run([
             "security", "find-generic-password", "-a", "default", "-s", keychain_service, "-w"
         ], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, check=False)
-        token_value = res.stdout.strip()
-        # keychain_token = bool(token_value)
+        if not resolved_token:
+            token_value = res.stdout.strip()
+            resolved_token = token_value
         
-        resolved_token = (res.stdout or "").strip()
         keychain_token = bool(resolved_token)
     except Exception:
         keychain_token = False
@@ -234,7 +248,7 @@ else:
         auth_kv = f"{auth_kv}:read_only"
     elif token_live_state == "valid" and token_permission_state == "write_capable":
         auth_kv = f"{auth_kv}:write_capable"
-    auth_memory_ready = token_live_state != "invalid" and token_live_state != "missing" and token_permission_state != "read_only"
+    auth_memory_ready = token_live_state == "valid" and token_permission_state == "write_capable"
     memory_layer = "ready" if fallback_state != "invalid" and auth_memory_ready else "degraded"
 #     memory_layer = "ready" if fallback_state != "invalid" else "degraded"
 #    memory_layer = "ready" if fallback_state != "invalid" and token_state == "ok" else "degraded"

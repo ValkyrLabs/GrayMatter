@@ -23,6 +23,9 @@ BUY_CREDITS_URL="${VALKYR_BUY_CREDITS_URL:-https://valkyrlabs.com/buy-credits}"
 HUMAN_SIGNUP_URL="${VALKYR_HUMAN_SIGNUP_URL:-https://valkyrlabs.com/funnel/white-paper}"
 LOGIN_PATH="${GRAYMATTER_LOGIN_PATH:-/auth/login}"
 FALLBACK_TMPDIR="${GRAYMATTER_TMPDIR:-${SCRIPT_DIR}/../tmp}"
+CURL_CONNECT_TIMEOUT="${GRAYMATTER_CURL_CONNECT_TIMEOUT:-5}"
+CURL_MAX_TIME="${GRAYMATTER_CURL_MAX_TIME:-20}"
+TOKEN_REFRESH_SKEW_SECONDS="${GRAYMATTER_TOKEN_REFRESH_SKEW_SECONDS:-60}"
 
 portable_mktemp() {
   local template="${1:-graymatter.XXXXXX}"
@@ -100,6 +103,22 @@ token_is_clearly_read_only() {
 
     (non_trivial_roles | length) == 0 and (non_readonly_scopes | length) == 0
   ' >/dev/null 2>&1 <<<"$claims"
+}
+
+token_expires_soon() {
+  local token="${1:-}"
+  local claims=""
+  local now=""
+
+  command -v jq >/dev/null 2>&1 || return 1
+  claims="$(token_claims_json "$token" 2>/dev/null)" || return 1
+  now="$(date +%s)"
+
+  jq -e \
+    --argjson now "$now" \
+    --argjson skew "$TOKEN_REFRESH_SKEW_SECONDS" \
+    '(.exp? | type == "number") and (.exp <= ($now + $skew))' \
+    >/dev/null 2>&1 <<<"$claims"
 }
 
 method_requires_write_access() {
@@ -297,7 +316,10 @@ refresh_token() {
 
   set +e
   login_status="$(
-    curl -sS -o "$login_body" -D "$login_headers" -w "%{http_code}" \
+    curl -sS \
+      --connect-timeout "$CURL_CONNECT_TIMEOUT" \
+      --max-time "$CURL_MAX_TIME" \
+      -o "$login_body" -D "$login_headers" -w "%{http_code}" \
       -X POST "${BASE%/}/${LOGIN_PATH#/}" \
       -H "accept: application/json" \
       -H "content-type: application/json" \
@@ -327,6 +349,14 @@ refresh_token() {
   return 0
 }
 
+if [[ -n "$TOKEN" ]] && token_expires_soon "$TOKEN"; then
+  if refresh_token && [[ -n "$TOKEN" ]] && ! token_expires_soon "$TOKEN"; then
+    :
+  elif run_login && [[ -n "$TOKEN" ]] && ! token_expires_soon "$TOKEN"; then
+    :
+  fi
+fi
+
 if method_requires_write_access && [[ -n "$TOKEN" ]] && token_is_clearly_read_only "$TOKEN"; then
   if refresh_token && [[ -n "$TOKEN" ]] && ! token_is_clearly_read_only "$TOKEN"; then
     :
@@ -351,6 +381,8 @@ perform_request() {
 
   CURL_ARGS=(
     -sS
+    --connect-timeout "$CURL_CONNECT_TIMEOUT"
+    --max-time "$CURL_MAX_TIME"
     -o "$RESPONSE_FILE"
     -D "$RESPONSE_HEADERS"
     -w "%{http_code}"

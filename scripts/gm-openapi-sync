@@ -6,13 +6,18 @@ ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 OUT_JSON="${1:-${ROOT}/tmp/api-docs.json}"
 mkdir -p "$(dirname "$OUT_JSON")"
 
-python3 - "$OUT_JSON" <<'PY'
-import json, sys, urllib.request
-out = sys.argv[1]
-url = 'https://api-0.valkyrlabs.com/v1/api-docs'
-with urllib.request.urlopen(url) as r:
-    data = json.load(r)
-with open(out, 'w', encoding='utf-8') as f:
-    json.dump(data, f, indent=2)
-print(out)
-PY
+TMP_JSON="$(mktemp -t graymatter-api-docs.XXXXXX)"
+cleanup() {
+  rm -f "$TMP_JSON"
+}
+trap cleanup EXIT
+
+"${SCRIPT_DIR}/graymatter_api.sh" GET /api-docs >"$TMP_JSON"
+
+if command -v jq >/dev/null 2>&1; then
+  jq . "$TMP_JSON" >"$OUT_JSON"
+else
+  cp "$TMP_JSON" "$OUT_JSON"
+fi
+
+printf '%s\n' "$OUT_JSON"

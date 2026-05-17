@@ -54,9 +54,10 @@ for needle in [
 with zipfile.ZipFile(root / "graymatter.skill") as archive:
     names = set(archive.namelist())
     require("graymatter/SKILL.md" in names, "graymatter.skill must include SKILL.md")
+    require("graymatter/graymatter-bootstrap" in names, "graymatter.skill must include sparse-install bootstrap")
     require("graymatter/scripts/gm-activate" in names, "graymatter.skill must include activation")
     require("graymatter/scripts/gm-light-up" in names, "graymatter.skill must include Light launcher")
-    require(not any(name.startswith("graymatter/mcp-server/") for name in names), "standalone skill must stay skill-only")
+    require("graymatter/mcp-server/index.js" in names, "graymatter.skill must include the MCP server runtime for plugin installs")
 
 print("release_surfaces_test: ok")
 PY

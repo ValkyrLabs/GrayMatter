@@ -184,19 +184,35 @@ def token_scope_state(token: str):
     claims = decode_claims(token)
     if not claims:
         return "unknown"
-    roles = []
-    for key in ("roles", "roleList", "authorities", "authorityList"):
+
+    raw_markers = []
+    for key in ("scope", "scp"):
+        value = claims.get(key)
+        if isinstance(value, str):
+            raw_markers.extend([s.strip().lower() for s in value.replace(",", " ").split() if s.strip()])
+        elif isinstance(value, list):
+            raw_markers.extend([str(s).strip().lower() for s in value if str(s).strip()])
+
+    for key in ("scopes", "roles", "roleList", "authorities", "authorityList"):
         vals = claims.get(key, [])
         if isinstance(vals, list):
-            roles.extend([v for v in vals if isinstance(v, str)])
-    scopes = claims.get("scopes", [])
-    if not isinstance(scopes, list):
-        scopes = []
-    non_trivial_roles = [r for r in set(roles) if r not in {"EVERYONE", "FREE"}]
-    non_readonly_scopes = [s for s in set(scopes) if s != "SCOPE_schema.read"]
-    if non_trivial_roles or non_readonly_scopes:
+            raw_markers.extend([str(v).strip().lower() for v in vals if str(v).strip()])
+
+    if not raw_markers:
+        return "unknown"
+
+    read_only_markers = {"read", "readonly", "schema-read", "schema:read", "memory:read", "scope_schema.read"}
+    write_markers = {"write", "memory:write", "contentdata:write", "admin", "owner"}
+
+    has_read_only = any(m in marker for marker in raw_markers for m in read_only_markers)
+    has_write = any(m in marker for marker in raw_markers for m in write_markers)
+
+    if has_write:
         return "write_capable"
-    return "read_only"
+    if has_read_only:
+        return "read_only"
+
+    return "unknown"
 
 
 def live_token_state(token: str):

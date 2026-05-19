@@ -165,8 +165,8 @@ Rule:
 ## Account signup and credits
 
 For a new GrayMatter account, use:
-- Signup: <https://api-0.valkyrlabs.com/v1/auth/signup>
-- Credits and recharge: <https://api-0.valkyrlabs.com/v1/credits>
+- Signup and activation: <https://valkyrlabs.com/graymatter/activate?source=graymatter&intent=signup&operation=memory_query>
+- Credits and recharge: <https://valkyrlabs.com/graymatter/credits?source=graymatter&intent=recharge&operation=memory_query>
 
 Commercial model:
 - fresh signups should receive **500 starter credits** automatically
@@ -417,10 +417,8 @@ Observed requirement:
 - after starter credits are exhausted, the user must recharge credits to continue full GrayMatter functionality
 
 Useful links:
-- signup: <https://api-0.valkyrlabs.com/v1/auth/signup>
-- credits and recharge: <https://api-0.valkyrlabs.com/v1/credits>
-- buy credits: <https://valkyrlabs.com/buy-credits>
-- human signup form: <https://valkyrlabs.com/funnel/white-paper>
+- signup and activation: <https://valkyrlabs.com/graymatter/activate?source=graymatter&intent=signup&operation=memory_query>
+- credits and recharge: <https://valkyrlabs.com/graymatter/credits?source=graymatter&intent=recharge&operation=memory_query>
 
 CLI behavior on `INSUFFICIENT_FUNDS`:
 - prints both buy and signup links in stderr

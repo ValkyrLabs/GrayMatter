@@ -391,8 +391,8 @@ test_insufficient_funds_falls_back_to_windows_prompt() {
   export TEST_CURL_SCENARIO="insufficient-funds"
   export TEST_OSASCRIPT_STATUS="1"
   export TEST_POWERSHELL_STATUS="0"
-  export VALKYR_BUY_CREDITS_URL="https://valkyrlabs.com/buy-credits"
-  export VALKYR_HUMAN_SIGNUP_URL="https://valkyrlabs.com/funnel/white-paper"
+  export VALKYR_BUY_CREDITS_URL="https://valkyrlabs.com/graymatter/credits?source=graymatter&intent=recharge&operation=memory_query"
+  export VALKYR_HUMAN_SIGNUP_URL="https://valkyrlabs.com/graymatter/activate?source=graymatter&intent=signup&operation=memory_query"
 
   local result
   local status

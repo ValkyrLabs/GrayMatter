@@ -3,6 +3,8 @@
 
 const http = require('node:http');
 const readline = require('node:readline');
+const { execFileSync } = require('node:child_process');
+const path = require('node:path');
 const { URL } = require('node:url');
 
 const DEFAULT_API_BASE = 'https://api-0.valkyrlabs.com/v1';
@@ -183,6 +185,9 @@ function createGrayMatterMcpServer(options = {}) {
   const apiBase = withoutTrailingSlash(options.apiBase || process.env.VALKYR_API_BASE || DEFAULT_API_BASE);
   const widgetDomain = withoutTrailingSlash(options.widgetDomain || process.env.GRAYMATTER_WIDGET_DOMAIN || DEFAULT_WIDGET_DOMAIN);
   const fetchImpl = options.fetch || globalThis.fetch;
+  const loginProvider = options.loginProvider || runLoginCommand;
+  const loginCommand = options.loginCommand || process.env.GRAYMATTER_LOGIN_COMMAND || path.join(__dirname, '..', 'scripts', 'gm-login');
+  const processToken = options.token || process.env.VALKYR_AUTH_TOKEN || process.env.VALKYR_JWT_SESSION || '';
 
   if (typeof fetchImpl !== 'function') {
     throw new Error('Global fetch is required. Use Node 20 or newer.');
@@ -216,7 +221,9 @@ function createGrayMatterMcpServer(options = {}) {
         const rpcResponse = await handleRpc(rpcRequest, {
           apiBase,
           fetchImpl,
-          token: authTokenFrom(req),
+          ...authContextFrom(req, processToken),
+          loginCommand,
+          loginProvider,
           widgetDomain
         });
 
@@ -240,6 +247,8 @@ function createRpcContext(options = {}) {
   const apiBase = withoutTrailingSlash(options.apiBase || process.env.VALKYR_API_BASE || DEFAULT_API_BASE);
   const widgetDomain = withoutTrailingSlash(options.widgetDomain || process.env.GRAYMATTER_WIDGET_DOMAIN || DEFAULT_WIDGET_DOMAIN);
   const fetchImpl = options.fetch || globalThis.fetch;
+  const loginProvider = options.loginProvider || runLoginCommand;
+  const loginCommand = options.loginCommand || process.env.GRAYMATTER_LOGIN_COMMAND || path.join(__dirname, '..', 'scripts', 'gm-login');
 
   if (typeof fetchImpl !== 'function') {
     throw new Error('Global fetch is required. Use Node 20 or newer.');
@@ -249,6 +258,9 @@ function createRpcContext(options = {}) {
     apiBase,
     fetchImpl,
     token: options.token || process.env.VALKYR_AUTH_TOKEN || process.env.VALKYR_JWT_SESSION || '',
+    requestScopedToken: false,
+    loginCommand,
+    loginProvider,
     widgetDomain
   };
 }
@@ -556,6 +568,17 @@ function overviewWidgetHtml() {
 }
 
 async function apiRequest(context, method, endpoint, body) {
+  try {
+    return await apiRequestOnce(context, method, endpoint, body);
+  } catch (error) {
+    if (!isRefreshableAuthError(error) || !(await refreshAuth(context))) {
+      throw error;
+    }
+    return apiRequestOnce(context, method, endpoint, body);
+  }
+}
+
+async function apiRequestOnce(context, method, endpoint, body) {
   const headers = {
     accept: 'application/json'
   };
@@ -592,6 +615,66 @@ async function apiRequest(context, method, endpoint, body) {
   }
 
   return payload;
+}
+
+async function refreshAuth(context) {
+  if (!context || context.requestScopedToken || typeof context.loginProvider !== 'function') {
+    return false;
+  }
+
+  try {
+    const token = await context.loginProvider(context);
+    if (!token || typeof token !== 'string') {
+      return false;
+    }
+    context.token = token;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function isRefreshableAuthError(error) {
+  if (!error || error.name !== 'ApiRequestError' || error.status !== 401) {
+    return false;
+  }
+
+  const payload = error.payload;
+  const text = typeof payload === 'string' ? payload : JSON.stringify(payload || {});
+  return /SESSION_EXPIRED|TOKEN_EXPIRED|expired|missing auth|unauthorized/i.test(text);
+}
+
+function runLoginCommand(context) {
+  const loginCommand = context.loginCommand || process.env.GRAYMATTER_LOGIN_COMMAND || path.join(__dirname, '..', 'scripts', 'gm-login');
+  const output = execFileSync(loginCommand, ['env'], {
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      VALKYR_API_BASE: context.apiBase
+    },
+    stdio: ['ignore', 'pipe', 'pipe'],
+    timeout: Number(process.env.GRAYMATTER_LOGIN_TIMEOUT_MS || 30000)
+  });
+  return parseExportedToken(output);
+}
+
+function parseExportedToken(output) {
+  const text = String(output || '');
+  const patterns = [
+    /^export\s+VALKYR_AUTH_TOKEN="([^"]+)"$/m,
+    /^export\s+VALKYR_JWT_SESSION="([^"]+)"$/m,
+    /^VALKYR_AUTH_TOKEN=([^\n]+)$/m,
+    /^VALKYR_JWT_SESSION=([^\n]+)$/m
+  ];
+
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (match && match[1]) {
+      return match[1].trim();
+    }
+  }
+
+  return '';
 }
 
 function buildRecoveryResult(error, operation, context) {
@@ -852,13 +935,13 @@ function summarizeOpenApi(spec) {
   };
 }
 
-function authTokenFrom(req) {
+function authContextFrom(req, processToken = '') {
   const headerToken = req.headers['x-valkyr-token'];
   if (Array.isArray(headerToken)) {
-    return headerToken[0] || process.env.VALKYR_AUTH_TOKEN || '';
+    return { token: headerToken[0] || '', requestScopedToken: Boolean(headerToken[0]) };
   }
   if (headerToken) {
-    return headerToken;
+    return { token: headerToken, requestScopedToken: true };
   }
 
   const authHeader = Array.isArray(req.headers.authorization)
@@ -866,10 +949,10 @@ function authTokenFrom(req) {
     : req.headers.authorization;
   const bearerMatch = typeof authHeader === 'string' ? authHeader.match(/^Bearer\s+(.+)$/i) : null;
   if (bearerMatch) {
-    return bearerMatch[1].trim();
+    return { token: bearerMatch[1].trim(), requestScopedToken: true };
   }
 
-  return process.env.VALKYR_AUTH_TOKEN || '';
+  return { token: processToken || process.env.VALKYR_AUTH_TOKEN || process.env.VALKYR_JWT_SESSION || '', requestScopedToken: false };
 }
 
 function apiUrl(apiBase, endpoint) {

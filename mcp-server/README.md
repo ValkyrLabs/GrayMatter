@@ -28,6 +28,8 @@ The repo-level `.mcp.json` points Codex at `node mcp-server/index.js --stdio`.
 | --- | --- | --- | --- |
 | `VALKYR_AUTH_TOKEN` | Recommended | none | Bearer token from `scripts/gm-login`. Can also be passed per request through `X-Valkyr-Token`. |
 | `VALKYR_API_BASE` | No | `https://api-0.valkyrlabs.com/v1` | API base to target. Use hosted api-0, a self-hosted api-0, or a local GrayMatter Light ThorAPI instance. |
+| `GRAYMATTER_LOGIN_COMMAND` | No | `../scripts/gm-login` | Login helper used to refresh process-scoped auth after api-0 returns `SESSION_EXPIRED`. |
+| `GRAYMATTER_LOGIN_TIMEOUT_MS` | No | `30000` | Maximum time allowed for the autonomous login helper during MCP auth recovery. |
 | `GRAYMATTER_WIDGET_DOMAIN` | No | `https://graymatter.valkyrlabs.com` | Public widget origin advertised in Apps SDK resource metadata for ChatGPT app review. |
 | `PORT` | No | `3333` | HTTP port to listen on. |
 
@@ -123,6 +125,8 @@ Add an HTTP MCP server entry that points at the message endpoint:
 ## Per-Request Auth
 
 For multi-tenant deployments, do not set a shared `VALKYR_AUTH_TOKEN`. Pass each user's token through `X-Valkyr-Token` so all api-0 calls stay scoped to that user's RBAC permissions.
+
+When the server is using process-scoped auth from `VALKYR_AUTH_TOKEN`, `VALKYR_JWT_SESSION`, or the plugin launch environment, a `401 SESSION_EXPIRED` response triggers one autonomous `gm-login env` refresh and retries the original request with the new token. Per-request `X-Valkyr-Token` or bearer credentials are never replaced by process credentials, so tenant-scoped calls remain isolated.
 
 ## Production Notes
 

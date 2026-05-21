@@ -408,6 +408,13 @@ test_insufficient_funds_shows_links_and_uses_macos_prompt() {
   [[ "${status}" == "22" ]] || fail "graymatter_api should return 22 for HTTP errors"
   assert_contains "${output}" "Insufficient credits. Buy credits: https://example.com/buy" "graymatter_api should print buy-credits guidance"
   assert_contains "${output}" "Need an account? Sign up here: https://example.com/signup" "graymatter_api should print signup guidance"
+  assert_contains "${output}" "source=graymatter" "graymatter_api should preserve source attribution in activation links"
+  assert_contains "${output}" "intent=recharge" "graymatter_api should tag buy-credit activation intent"
+  assert_contains "${output}" "intent=signup" "graymatter_api should tag signup activation intent"
+  assert_contains "${output}" "operation=memory_query" "graymatter_api should preserve the credit-gated operation"
+  assert_contains "${output}" "install_id=" "graymatter_api should include the install id for returnable activation"
+  assert_contains "${output}" "request_path=%2FMemoryEntry%2Fstats" "graymatter_api should include the blocked request path"
+  assert_contains "${output}" "Activation context:" "graymatter_api should print terminal fallback activation context"
   assert_file_exists "${temp_root}/osascript.log" "graymatter_api should trigger macOS prompt when available"
   assert_file_missing "${temp_root}/powershell.log" "graymatter_api should not invoke Windows prompt when macOS prompt succeeds"
 }

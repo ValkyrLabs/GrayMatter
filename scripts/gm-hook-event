@@ -1,41 +1,88 @@
-#!/usr/bin/env python3
-import argparse
-import json
-import os
-import sys
-from pathlib import Path
+#!/usr/bin/env bash
+set -euo pipefail
 
-sys.path.insert(0, os.path.dirname(__file__))
-from graymatter_fallback import append
+usage() {
+  cat >&2 <<'EOF'
+Usage: gm-hook-event <event> <text> [--owner owner] [--session session] [--spool path]
+EOF
+}
 
+EVENT="${1:-}"
+TEXT="${2:-}"
+if [[ -z "$EVENT" || -z "$TEXT" ]]; then
+  usage
+  exit 1
+fi
+shift 2
 
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description="Record an OpenClaw hook event into GrayMatter fallback spool"
-    )
-    parser.add_argument("event", help="Hook event name (for example: pre_tool or post_tool)")
-    parser.add_argument("text", help="Short event summary")
-    parser.add_argument("--owner", default=os.getenv("GRAYMATTER_OWNER", "valor"))
-    parser.add_argument("--session", default=os.getenv("OPENCLAW_SESSION_KEY", "unknown"))
-    parser.add_argument("--spool", default="memory/graymatter-fallback.json")
-    return parser.parse_args()
+OWNER="${GRAYMATTER_OWNER:-valor}"
+SESSION="${OPENCLAW_SESSION_KEY:-unknown}"
+SPOOL="memory/graymatter-fallback.json"
 
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --owner)
+      OWNER="${2:-}"
+      shift 2
+      ;;
+    --session)
+      SESSION="${2:-}"
+      shift 2
+      ;;
+    --spool)
+      SPOOL="${2:-}"
+      shift 2
+      ;;
+    *)
+      echo "Unknown gm-hook-event option: $1" >&2
+      usage
+      exit 1
+      ;;
+  esac
+done
 
-def main() -> int:
-    args = parse_args()
-    spool = Path(os.getcwd()) / args.spool
-    payload = {
-        "type": "hookEvent",
-        "event": args.event,
-        "text": args.text,
-        "owner": args.owner,
-        "session": args.session,
-        "reason": "OpenClaw hook capture",
-    }
-    append(spool, payload)
-    print(json.dumps({"ok": True, "spool": str(spool), "event": args.event}))
-    return 0
+ROOT_DIR="${ROOT_DIR:-$(pwd)}"
+if [[ "$SPOOL" = /* ]]; then
+  SPOOL_PATH="$SPOOL"
+else
+  SPOOL_PATH="$ROOT_DIR/$SPOOL"
+fi
+NOW="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+mkdir -p "$(dirname "$SPOOL_PATH")"
+TMP="${SPOOL_PATH}.$$"
+if [[ ! -f "$SPOOL_PATH" ]]; then
+  printf '{"timestamp":"%s","source":"chat","status":"pending_replay","items":[]}\n' "$NOW" >"$SPOOL_PATH"
+fi
 
+jq -n \
+  --slurpfile current "$SPOOL_PATH" \
+  --arg now "$NOW" \
+  --arg event "$EVENT" \
+  --arg text "$TEXT" \
+  --arg owner "$OWNER" \
+  --arg session "$SESSION" '
+    def normalized:
+      ($current[0] // null) as $data
+      | if ($data | type) == "object" then
+          $data | .items = ((.items // []) | if type == "array" then . else [] end)
+        elif ($data | type) == "array" then
+          {timestamp:$now, source:"chat", status:"pending_replay", items:$data}
+        else
+          {timestamp:$now, source:"chat", status:"pending_replay", items:[]}
+        end;
+    normalized
+    | .timestamp = $now
+    | .source = (.source // "chat")
+    | .status = "pending_replay"
+    | .items += [{
+        type:"hookEvent",
+        event:$event,
+        text:$text,
+        owner:$owner,
+        session:$session,
+        reason:"OpenClaw hook capture"
+      }]
+  ' >"$TMP"
+mv "$TMP" "$SPOOL_PATH"
 
-if __name__ == "__main__":
-    raise SystemExit(main())
+jq -n --arg spool "$SPOOL_PATH" --arg event "$EVENT" '{ok:true, spool:$spool, event:$event}'

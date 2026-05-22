@@ -1,22 +1,58 @@
-#!/usr/bin/env python3
-import os
-import sys
-from pathlib import Path
+#!/usr/bin/env bash
+set -euo pipefail
 
-sys.path.insert(0, os.path.dirname(__file__))
-from graymatter_fallback import append
+if [[ $# -lt 3 ]]; then
+  echo "Usage: gm-fallback-append <type> <text> <owner> [reason]" >&2
+  exit 1
+fi
 
-if len(sys.argv) < 4:
-    print("Usage: gm-fallback-append <type> <text> <owner> [reason]", file=sys.stderr)
-    sys.exit(1)
+TYPE="$1"
+TEXT="$2"
+OWNER="$3"
+REASON="${4:-GrayMatter write fallback}"
+ROOT_DIR="${ROOT_DIR:-$(pwd)}"
+SPOOL="${GRAYMATTER_FALLBACK_SPOOL:-${ROOT_DIR}/memory/graymatter-fallback.json}"
+NOW="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
 
-type_, text, owner = sys.argv[1], sys.argv[2], sys.argv[3]
-reason = sys.argv[4] if len(sys.argv) > 4 else "GrayMatter write fallback"
+command -v jq >/dev/null 2>&1 || {
+  echo "gm-fallback-append requires jq" >&2
+  exit 1
+}
 
-path = Path(os.getcwd()) / "memory" / "graymatter-fallback.json"
-append(path, {
-    "type": type_,
-    "text": text,
-    "owner": owner,
-    "reason": reason,
-})
+mkdir -p "$(dirname "$SPOOL")"
+TMP="${SPOOL}.$$"
+
+if [[ -f "$SPOOL" ]]; then
+  jq -n \
+    --slurpfile current "$SPOOL" \
+    --arg now "$NOW" \
+    --arg type "$TYPE" \
+    --arg text "$TEXT" \
+    --arg owner "$OWNER" \
+    --arg reason "$REASON" '
+      def normalized:
+        ($current[0] // null) as $data
+        | if ($data | type) == "object" then
+            $data | .items = ((.items // []) | if type == "array" then . else [] end)
+          elif ($data | type) == "array" then
+            {timestamp:$now, source:"chat", status:"pending_replay", items:$data}
+          else
+            {timestamp:$now, source:"chat", status:"pending_replay", items:[]}
+          end;
+      normalized
+      | .timestamp = $now
+      | .source = (.source // "chat")
+      | .status = "pending_replay"
+      | .items += [{type:$type, text:$text, owner:$owner, reason:$reason}]
+    ' >"$TMP"
+else
+  jq -n \
+    --arg now "$NOW" \
+    --arg type "$TYPE" \
+    --arg text "$TEXT" \
+    --arg owner "$OWNER" \
+    --arg reason "$REASON" \
+    '{timestamp:$now, source:"chat", status:"pending_replay", items:[{type:$type, text:$text, owner:$owner, reason:$reason}]}' >"$TMP"
+fi
+
+mv "$TMP" "$SPOOL"

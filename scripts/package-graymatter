@@ -1,0 +1,132 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+OUT="$ROOT/graymatter.skill"
+
+REQUIRED=(
+  SKILL.md
+  skills/graymatter/SKILL.md
+  scripts/gm-query
+  scripts/gm-graph
+  scripts/gm-write
+  scripts/gm-login
+  scripts/gm-activate
+  scripts/gm-install-check
+  scripts/gm-smoke
+  scripts/gm-status
+  scripts/gm-openapi-sync
+  scripts/gm-openapi-summary
+  scripts/gm-mcp-contract
+  scripts/gm-entity
+  scripts/gm-register-agent
+  scripts/gm-fallback-append
+  scripts/gm-hook-event
+  scripts/gm-light-bootstrap
+  scripts/gm-light-up
+  scripts/gm-light-env
+  scripts/gm-light-json-smoke
+  scripts/package-local-server
+  scripts/graymatter_api.sh
+  examples/graymatter-light-thorapi-bundle.yaml
+  references/public-release-checklist.md
+  references/multi-agent-conventions.md
+)
+
+TEMPLATE_FILES=()
+while IFS= read -r rel; do
+  TEMPLATE_FILES+=("$rel")
+done < <(cd "$ROOT" && find templates/graymatter-light-bootstrap -type f | sort)
+
+OPTIONAL_REPO_ONLY=(
+  scripts/gm-light-json-smoke
+  examples/memoryentry-basic.json
+  examples/memoryentry-decision.json
+  examples/memoryentry-todo.json
+  examples/memoryentry-artifact.json
+  examples/graymatter-light-memoryentry.yaml
+)
+
+command -v zip >/dev/null 2>&1 || {
+  echo "scripts/package-graymatter requires zip" >&2
+  exit 1
+}
+
+missing=()
+for rel in "${REQUIRED[@]}" "${TEMPLATE_FILES[@]}"; do
+  [[ -f "$ROOT/$rel" ]] || missing+=("$rel")
+done
+if [[ ${#missing[@]} -gt 0 ]]; then
+  echo "Missing required files:" >&2
+  printf '  - %s\n' "${missing[@]}" >&2
+  exit 1
+fi
+
+for rel in "${REQUIRED[@]}" "${TEMPLATE_FILES[@]}"; do
+  if [[ -L "$ROOT/$rel" ]]; then
+    echo "Symlink not allowed in package: $rel" >&2
+    exit 1
+  fi
+done
+
+grep -q 'name: graymatter' "$ROOT/SKILL.md" || {
+  echo "SKILL.md is missing expected name frontmatter" >&2
+  exit 1
+}
+grep -q 'description:' "$ROOT/SKILL.md" || {
+  echo "SKILL.md is missing expected description frontmatter" >&2
+  exit 1
+}
+
+TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/graymatter-skill.XXXXXX")"
+trap 'rm -rf "$TMP_DIR"' EXIT
+mkdir -p "$TMP_DIR/graymatter"
+
+for rel in "${REQUIRED[@]}" "${TEMPLATE_FILES[@]}"; do
+  mkdir -p "$TMP_DIR/graymatter/$(dirname "$rel")"
+  cp "$ROOT/$rel" "$TMP_DIR/graymatter/$rel"
+  if [[ "$rel" == scripts/* ]]; then
+    chmod 755 "$TMP_DIR/graymatter/$rel"
+  fi
+  touch -t 198001010000 "$TMP_DIR/graymatter/$rel"
+done
+
+rm -f "$OUT"
+(cd "$TMP_DIR" && zip -X -q -r "$OUT" graymatter)
+
+packaged=()
+while IFS= read -r rel; do
+  case "$rel" in
+    */) ;;
+    *) packaged+=("$rel") ;;
+  esac
+done < <(zipinfo -1 "$OUT" | sort)
+expected_file="$TMP_DIR/expected.txt"
+for rel in "${REQUIRED[@]}" "${TEMPLATE_FILES[@]}"; do
+  printf 'graymatter/%s\n' "$rel"
+done | sort >"$expected_file"
+
+if ! diff -u "$expected_file" <(printf '%s\n' "${packaged[@]}") >/dev/null; then
+  echo "Packaged archive contents did not match expected manifest" >&2
+  echo "Expected:" >&2
+  sed 's/^/  /' "$expected_file" >&2
+  echo "Actual:" >&2
+  printf '%s\n' "${packaged[@]}" | sed 's/^/  /' >&2
+  exit 1
+fi
+
+printf 'Packaged %s\n' "$OUT"
+printf 'Archive contents verified:\n'
+printf '  - %s\n' "${packaged[@]}"
+
+missing_optional=()
+for rel in "${OPTIONAL_REPO_ONLY[@]}"; do
+  [[ -e "$ROOT/$rel" ]] || missing_optional+=("$rel")
+done
+if [[ ${#missing_optional[@]} -gt 0 ]]; then
+  echo "Optional repo assets missing:" >&2
+  printf '  - %s\n' "${missing_optional[@]}" >&2
+else
+  printf 'Optional repo assets present:\n'
+  printf '  - %s\n' "${OPTIONAL_REPO_ONLY[@]}"
+fi

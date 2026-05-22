@@ -1,257 +1,235 @@
-#!/usr/bin/env python3
-import base64
-import json
-import os
-import subprocess
-import sys
-import time
-import base64
-from pathlib import Path
-from urllib import request, error
+#!/usr/bin/env bash
+set -euo pipefail
 
-sys.path.insert(0, os.path.dirname(__file__))
-try:
-    from graymatter_fallback import load
-except ModuleNotFoundError:
-    def load(path):
-        if not Path(path).exists():
-            return {"status": "absent", "items": []}
-        try:
-            with open(path, "r", encoding="utf-8") as fh:
-                data = json.load(fh)
-            if not isinstance(data, dict):
-                return {"status": "invalid", "items": []}
-            items = data.get("items", [])
-            if not isinstance(items, list):
-                items = []
-            return {"status": data.get("status", "present"), "items": items}
-        except Exception:
-            return {"status": "invalid", "items": []}
+have() {
+  command -v "$1" >/dev/null 2>&1
+}
 
-root = Path(os.getenv("ROOT_DIR", os.getcwd()))
-fallback_path = root / "memory" / "graymatter-fallback.json"
-openapi_path = root / "tmp" / "openapi.json"
+ROOT_DIR="${ROOT_DIR:-$(pwd)}"
+FALLBACK_PATH="$ROOT_DIR/memory/graymatter-fallback.json"
+OPENAPI_PATH="$ROOT_DIR/tmp/openapi.json"
+KEYCHAIN_SERVICE="${VALKYR_KEYCHAIN_SERVICE:-VALKYR_AUTH}"
+API_BASE="${VALKYR_API_BASE:-https://api-0.valkyrlabs.com/v1}"
+API_BASE="${API_BASE%/}"
 
-payload = load(fallback_path)
-if isinstance(payload, list):
-    pending_writes = len(payload)
-    fallback_state = "present"
-elif isinstance(payload, dict):
-    pending_writes = len(payload.get("items", [])) if isinstance(payload.get("items"), list) else 0
-    fallback_state = payload.get("status", "present")
-    if fallback_state == "invalid":
-        try:
-            with open(fallback_path, "r", encoding="utf-8") as fh:
-                raw = json.load(fh)
-            if isinstance(raw, list):
-                pending_writes = len(raw)
-                fallback_state = "present"
-        except Exception:
-            pass
-else:
-    pending_writes = 0
-    fallback_state = "invalid"
+decode_base64_url() {
+  local value="${1:-}"
+  local padded="$value"
+  local remainder=$(( ${#padded} % 4 ))
+  case "$remainder" in
+    2) padded="${padded}==" ;;
+    3) padded="${padded}=" ;;
+    1) padded="${padded}===" ;;
+  esac
+  padded="$(printf '%s' "$padded" | tr '_-' '/+')"
+  printf '%s' "$padded" | base64 --decode 2>/dev/null || printf '%s' "$padded" | base64 -D 2>/dev/null
+}
 
-has_env_token = bool(os.getenv("VALKYR_AUTH_TOKEN"))
-keychain_service = os.getenv("VALKYR_KEYCHAIN_SERVICE", "VALKYR_AUTH")
-api_base = os.getenv("VALKYR_API_BASE", "https://api-0.valkyrlabs.com/v1").rstrip("/")
-keychain_token = False
-token_value = os.getenv("VALKYR_AUTH_TOKEN", "").strip()
-resolved_token = (os.getenv("VALKYR_AUTH_TOKEN") or os.getenv("VALKYR_JWT_SESSION") or "").strip()
+token_claims_json() {
+  local token="${1:-}"
+  local payload=""
+  [[ -n "$token" ]] || return 1
+  payload="$(printf '%s' "$token" | cut -d'.' -f2)"
+  [[ -n "$payload" && "$payload" != "$token" ]] || return 1
+  decode_base64_url "$payload"
+}
 
-if not has_env_token:
-    try:
-        res = subprocess.run([
-            "security", "find-generic-password", "-a", "default", "-s", keychain_service, "-w"
-        ], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, check=False)
-        token_value = res.stdout.strip()
-        # keychain_token = bool(token_value)
-        
-        resolved_token = (res.stdout or "").strip()
-        keychain_token = bool(resolved_token)
-    except Exception:
-        keychain_token = False
-
-def _decode_jwt_payload(token: str):
-    if token.count(".") < 2:
-        return {}
-    try:
-        payload = token.split(".")[1]
-        payload += "=" * (-len(payload) % 4)
-        raw = base64.urlsafe_b64decode(payload.encode("utf-8"))
-        parsed = json.loads(raw.decode("utf-8"))
-        return parsed if isinstance(parsed, dict) else {}
-    except Exception:
-        return {}
-
-def _token_health(token: str):
-    if not token:
-        return "missing"
-
-    claims = _decode_jwt_payload(token)
-    exp = claims.get("exp")
-    if isinstance(exp, (int, float)) and float(exp) <= time.time():
-        return "expired"
-
-    scopes = []
-    raw_scope = claims.get("scope") or claims.get("scp")
-    if isinstance(raw_scope, str):
-        scopes.extend([s.strip().lower() for s in raw_scope.replace(",", " ").split() if s.strip()])
-    elif isinstance(raw_scope, list):
-        scopes.extend([str(s).strip().lower() for s in raw_scope if str(s).strip()])
-
-    roles = claims.get("roles")
-    if isinstance(roles, list):
-        scopes.extend([str(r).strip().lower() for r in roles if str(r).strip()])
-
-    read_only_markers = {"read", "readonly", "schema-read", "schema:read", "memory:read"}
-    write_markers = {"write", "memory:write", "contentdata:write", "admin", "owner"}
-    has_read_only = any(m in scope for scope in scopes for m in read_only_markers)
-    has_write = any(m in scope for scope in scopes for m in write_markers)
-    if has_read_only and not has_write:
-        return "read_only"
-
-    return "ok"
-
-def _token_live_valid(token: str):
-    if not token:
-        return False
-    auth_me_url = f"{api_base}/auth/me"
-    try:
-        res = subprocess.run(
-            [
-                "curl",
-                "-sS",
-                "-o",
-                "/dev/null",
-                "-w",
-                "%{http_code}",
-                "--connect-timeout",
-                "5",
-                "--max-time",
-                "10",
-                "-H",
-                f"Authorization: Bearer {token}",
-                auth_me_url,
-            ],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
-            text=True,
-            check=False,
+token_health_state() {
+  local token="${1:-}"
+  local claims=""
+  local now=""
+  [[ -n "$token" ]] || {
+    printf 'missing\n'
+    return 0
+  }
+  claims="$(token_claims_json "$token" 2>/dev/null)" || {
+    printf 'ok\n'
+    return 0
+  }
+  now="$(date +%s)"
+  jq -r --argjson now "$now" '
+    def values:
+      [
+        (.scope // empty),
+        (.scp // empty),
+        (.roles // empty)
+      ];
+    def flatten_values:
+      values
+      | map(
+          if type == "string" then gsub(","; " ") | split(" ")
+          elif type == "array" then map(tostring)
+          else []
+          end
         )
-        code = (res.stdout or "").strip()
-        return code == "200"
-    except Exception:
-        return False
+      | (add // [])
+      | map(ascii_downcase | gsub("^\\s+|\\s+$"; ""))
+      | map(select(length > 0));
+    def has_marker($markers):
+      any(flatten_values[]?; . as $scope | any($markers[]; $scope | contains(.)));
 
-token_state = _token_health(resolved_token)
-if token_state == "ok" and resolved_token and not _token_live_valid(resolved_token):
-    token_state = "invalid"
+    if ((.exp? | type) == "number" and .exp <= $now) then
+      "expired"
+    elif has_marker(["read", "readonly", "schema-read", "schema:read", "memory:read"])
+      and (has_marker(["write", "memory:write", "contentdata:write", "admin", "owner"]) | not)
+    then
+      "read_only"
+    else
+      "ok"
+    end
+  ' <<<"$claims"
+}
 
-auth_state = "env_token" if has_env_token else ("keychain_token" if keychain_token else "missing")
-health = "error" if fallback_state == "invalid" else ("degraded" if auth_state == "missing" or pending_writes > 0 or token_state in {"expired", "invalid", "read_only"} else "ok")
+token_permission_state() {
+  local token="${1:-}"
+  local claims=""
+  [[ -n "$token" ]] || {
+    printf 'unknown\n'
+    return 0
+  }
+  claims="$(token_claims_json "$token" 2>/dev/null)" || {
+    printf 'unknown\n'
+    return 0
+  }
+  jq -r '
+    def roles:
+      [(.roles // []), (.roleList // []), (.authorities // []), (.authorityList // [])]
+      | map(if type == "array" then . else [] end)
+      | add
+      | map(select(type == "string"))
+      | unique;
+    def scopes:
+      (.scopes // [])
+      | if type == "array" then map(select(type == "string")) else [] end
+      | unique;
+    def non_trivial_roles:
+      roles | map(select(. != "EVERYONE" and . != "FREE"));
+    def non_readonly_scopes:
+      scopes | map(select(. != "SCOPE_schema.read"));
+    if ((non_trivial_roles | length) > 0 or (non_readonly_scopes | length) > 0) then
+      "write_capable"
+    else
+      "read_only"
+    end
+  ' <<<"$claims"
+}
 
+token_live_state() {
+  local token="${1:-}"
+  local code=""
+  [[ -n "$token" ]] || {
+    printf 'missing\n'
+    return 0
+  }
+  code="$(curl -sS -o /dev/null -w '%{http_code}' --connect-timeout 5 --max-time 10 \
+    -H "Authorization: Bearer $token" \
+    -H 'accept: application/json' \
+    "$API_BASE/auth/me" 2>/dev/null || true)"
+  case "$code" in
+    2*) printf 'valid\n' ;;
+    401|403) printf 'invalid\n' ;;
+    *) printf 'unknown\n' ;;
+  esac
+}
 
-def decode_claims(token: str):
-    parts = token.split(".")
-    if len(parts) < 2:
-        return {}
-    payload = parts[1]
-    payload += "=" * ((4 - len(payload) % 4) % 4)
-    try:
-        raw = base64.urlsafe_b64decode(payload.encode("utf-8"))
-        parsed = json.loads(raw.decode("utf-8"))
-        return parsed if isinstance(parsed, dict) else {}
-    except Exception:
-        return {}
+fallback_status_json() {
+  if [[ ! -f "$FALLBACK_PATH" ]]; then
+    jq -nc --arg path "$FALLBACK_PATH" '{state:"absent", pendingWrites:0, path:$path}'
+    return 0
+  fi
+  jq -nc --slurpfile data "$FALLBACK_PATH" --arg path "$FALLBACK_PATH" '
+    ($data[0] // null) as $payload
+    | if ($payload | type) == "array" then
+        {state:"present", pendingWrites:($payload | length), path:$path}
+      elif ($payload | type) == "object" then
+        {state:($payload.status // "present"), pendingWrites:(($payload.items // []) | if type == "array" then length else 0 end), path:$path}
+      else
+        {state:"invalid", pendingWrites:0, path:$path}
+      end
+  ' 2>/dev/null || jq -nc --arg path "$FALLBACK_PATH" '{state:"invalid", pendingWrites:0, path:$path}'
+}
 
+openapi_layer_state() {
+  local path="$1"
+  local query="$2"
+  if [[ ! -f "$OPENAPI_PATH" ]]; then
+    printf 'missing\n'
+    return 0
+  fi
+  jq -e "$query" "$OPENAPI_PATH" >/dev/null 2>&1 && printf 'ready\n' || printf 'missing\n'
+}
 
-def token_scope_state(token: str):
-    claims = decode_claims(token)
-    if not claims:
-        return "unknown"
-    roles = []
-    for key in ("roles", "roleList", "authorities", "authorityList"):
-        vals = claims.get(key, [])
-        if isinstance(vals, list):
-            roles.extend([v for v in vals if isinstance(v, str)])
-    scopes = claims.get("scopes", [])
-    if not isinstance(scopes, list):
-        scopes = []
-    non_trivial_roles = [r for r in set(roles) if r not in {"EVERYONE", "FREE"}]
-    non_readonly_scopes = [s for s in set(scopes) if s != "SCOPE_schema.read"]
-    if non_trivial_roles or non_readonly_scopes:
-        return "write_capable"
-    return "read_only"
+TOKEN="${VALKYR_AUTH_TOKEN:-${VALKYR_JWT_SESSION:-}}"
+HAS_ENV_TOKEN=false
+[[ -n "${VALKYR_AUTH_TOKEN:-}" ]] && HAS_ENV_TOKEN=true
+KEYCHAIN_TOKEN=false
 
+if [[ -z "$TOKEN" ]] && have security; then
+  TOKEN="$(security find-generic-password -a default -s "$KEYCHAIN_SERVICE" -w 2>/dev/null || true)"
+  [[ -n "$TOKEN" ]] && KEYCHAIN_TOKEN=true
+fi
 
-def live_token_state(token: str):
-    req = request.Request(
-        f"{api_base}/auth/me",
-        headers={"Authorization": f"Bearer {token}", "accept": "application/json"},
-        method="GET",
-    )
-    try:
-        with request.urlopen(req, timeout=8) as resp:
-            if 200 <= resp.status < 300:
-                return "valid"
-            return "invalid"
-    except error.HTTPError:
-        return "invalid"
-    except Exception:
-        return "unknown"
+AUTH_STATE="missing"
+if [[ "$HAS_ENV_TOKEN" == "true" ]]; then
+  AUTH_STATE="env_token"
+elif [[ "$KEYCHAIN_TOKEN" == "true" ]]; then
+  AUTH_STATE="keychain_token"
+fi
 
+TOKEN_STATE="$(token_health_state "$TOKEN")"
+TOKEN_LIVE_STATE="$(token_live_state "$TOKEN")"
+TOKEN_PERMISSION_STATE="$(token_permission_state "$TOKEN")"
+FALLBACK_JSON="$(fallback_status_json)"
+FALLBACK_STATE="$(jq -r '.state' <<<"$FALLBACK_JSON")"
+PENDING_WRITES="$(jq -r '.pendingWrites' <<<"$FALLBACK_JSON")"
 
-token_live_state = "missing"
-token_permission_state = "unknown"
-if token_value:
-    token_permission_state = token_scope_state(token_value)
-    token_live_state = live_token_state(token_value)
-    if token_live_state == "invalid" or token_permission_state == "read_only":
-        health = "degraded"
+HEALTH="ok"
+if [[ "$FALLBACK_STATE" == "invalid" ]]; then
+  HEALTH="error"
+elif [[ "$AUTH_STATE" == "missing" || "$PENDING_WRITES" != "0" || "$TOKEN_STATE" =~ ^(expired|invalid|read_only)$ || "$TOKEN_LIVE_STATE" == "invalid" || "$TOKEN_PERMISSION_STATE" == "read_only" ]]; then
+  HEALTH="degraded"
+fi
 
-if os.getenv("GM_STATUS_FORMAT", "kv") == "json":
-    print(json.dumps({
-        "graymatter": {
-            "health": health,
-            "auth": auth_state,
-            "token": {
-                "liveState": token_live_state,
-                "permissionState": token_permission_state,
-            },
-            "fallback": {
-                "path": str(fallback_path),
-                "state": fallback_state,
-                "pendingWrites": pending_writes,
-            },
-        }
-    }, indent=2))
-else:
-    auth_kv = "env" if has_env_token else ("keychain" if keychain_token else "missing")
-    if token_live_state == "invalid":
-        auth_kv = f"{auth_kv}:invalid"
-    elif token_permission_state == "read_only":
-        auth_kv = f"{auth_kv}:read_only"
-    elif token_live_state == "valid" and token_permission_state == "write_capable":
-        auth_kv = f"{auth_kv}:write_capable"
-    auth_memory_ready = token_live_state != "invalid" and token_live_state != "missing" and token_permission_state != "read_only"
-    memory_layer = "ready" if fallback_state != "invalid" and auth_memory_ready else "degraded"
-#     memory_layer = "ready" if fallback_state != "invalid" else "degraded"
-#    memory_layer = "ready" if fallback_state != "invalid" and token_state == "ok" else "degraded"
-    graph_layer = strategic_layer = kpi_layer = "unknown"
-    try:
-        with open(openapi_path, "r", encoding="utf-8") as fh:
-            spec = json.load(fh)
-        paths = spec.get("paths", {}) if isinstance(spec, dict) else {}
-        graph_layer = "ready" if "/SwarmOps/graph" in paths else "missing"
-        strategic_layer = "ready" if "/StrategicRecord" in paths else "missing"
-        kpi_layer = "ready" if "/KPIRecord" in paths else "missing"
-    except Exception:
-        graph_layer = strategic_layer = kpi_layer = "missing"
+if [[ "${GM_STATUS_FORMAT:-kv}" == "json" ]]; then
+  jq -nc \
+    --arg health "$HEALTH" \
+    --arg auth "$AUTH_STATE" \
+    --arg live "$TOKEN_LIVE_STATE" \
+    --arg permission "$TOKEN_PERMISSION_STATE" \
+    --arg path "$FALLBACK_PATH" \
+    --arg state "$FALLBACK_STATE" \
+    --argjson pending "$PENDING_WRITES" \
+    '{
+      graymatter: {
+        health:$health,
+        auth:$auth,
+        token:{liveState:$live, permissionState:$permission},
+        fallback:{path:$path, state:$state, pendingWrites:$pending}
+      }
+    }'
+else
+  AUTH_KV="missing"
+  [[ "$HAS_ENV_TOKEN" == "true" ]] && AUTH_KV="env"
+  [[ "$HAS_ENV_TOKEN" != "true" && "$KEYCHAIN_TOKEN" == "true" ]] && AUTH_KV="keychain"
+  if [[ "$TOKEN_LIVE_STATE" == "invalid" ]]; then
+    AUTH_KV="${AUTH_KV}:invalid"
+  elif [[ "$TOKEN_PERMISSION_STATE" == "read_only" ]]; then
+    AUTH_KV="${AUTH_KV}:read_only"
+  elif [[ "$TOKEN_LIVE_STATE" == "valid" && "$TOKEN_PERMISSION_STATE" == "write_capable" ]]; then
+    AUTH_KV="${AUTH_KV}:write_capable"
+  fi
 
-    print(f"graymatter_auth={auth_kv}")
-    print(f"graymatter_token_state={token_state}")
-    print(f"memory_layer={memory_layer}")
-    print(f"graph_layer={graph_layer}")
-    print(f"strategic_layer={strategic_layer}")
-    print(f"kpi_layer={kpi_layer}")
+  AUTH_MEMORY_READY=false
+  if [[ "$TOKEN_LIVE_STATE" != "invalid" && "$TOKEN_LIVE_STATE" != "missing" && "$TOKEN_PERMISSION_STATE" != "read_only" ]]; then
+    AUTH_MEMORY_READY=true
+  fi
+  MEMORY_LAYER="degraded"
+  [[ "$FALLBACK_STATE" != "invalid" && "$AUTH_MEMORY_READY" == "true" ]] && MEMORY_LAYER="ready"
+
+  printf 'graymatter_auth=%s\n' "$AUTH_KV"
+  printf 'graymatter_token_state=%s\n' "$TOKEN_STATE"
+  printf 'memory_layer=%s\n' "$MEMORY_LAYER"
+  printf 'graph_layer=%s\n' "$(openapi_layer_state /SwarmOps/graph '.paths | has("/SwarmOps/graph")')"
+  printf 'strategic_layer=%s\n' "$(openapi_layer_state /StrategicRecord '.paths | has("/StrategicRecord")')"
+  printf 'kpi_layer=%s\n' "$(openapi_layer_state /KPIRecord '.paths | has("/KPIRecord")')"
+fi

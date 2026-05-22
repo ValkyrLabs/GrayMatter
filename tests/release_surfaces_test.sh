@@ -3,60 +3,50 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-python3 - "$ROOT" <<'PY'
-import json
-import sys
-import zipfile
-from pathlib import Path
+require() {
+  if ! "$@"; then
+    echo "release surface check failed: $*" >&2
+    exit 1
+  fi
+}
 
-root = Path(sys.argv[1])
+require jq -e '.name == "graymatter"' "$ROOT/.codex-plugin/plugin.json" >/dev/null
+require jq -e '.skills == "./skills/"' "$ROOT/.codex-plugin/plugin.json" >/dev/null
+require jq -e '.mcpServers == "./.mcp.json"' "$ROOT/.codex-plugin/plugin.json" >/dev/null
+require jq -e '.keywords | index("mcp")' "$ROOT/.codex-plugin/plugin.json" >/dev/null
+require jq -e '.interface.capabilities | index("Interactive")' "$ROOT/.codex-plugin/plugin.json" >/dev/null
+require jq -e '.interface.longDescription | contains("mcp-server")' "$ROOT/.codex-plugin/plugin.json" >/dev/null
 
-def require(condition, message):
-    if not condition:
-        raise SystemExit(message)
+require jq -e '.mcpServers.graymatter.command == "node"' "$ROOT/.mcp.json" >/dev/null
+require jq -e '.mcpServers.graymatter.args == ["mcp-server/index.js", "--stdio"]' "$ROOT/.mcp.json" >/dev/null
 
-plugin = json.loads((root / ".codex-plugin/plugin.json").read_text(encoding="utf-8"))
-require(plugin["name"] == "graymatter", "plugin name must be graymatter")
-require(plugin.get("skills") == "./", "Codex plugin must expose the standalone skill")
-require(plugin.get("mcpServers") == "./.mcp.json", "Codex plugin must expose MCP server config")
-require("mcp" in plugin.get("keywords", []), "Codex plugin keywords must include mcp")
-require("Interactive" in plugin["interface"]["capabilities"], "Codex plugin must advertise interactive MCP capability")
-require("mcp-server" in plugin["interface"]["longDescription"], "Codex plugin description must mention the MCP server")
+require jq -e '.scripts.start == "node index.js"' "$ROOT/mcp-server/package.json" >/dev/null
+require jq -e '.scripts.stdio == "node index.js --stdio"' "$ROOT/mcp-server/package.json" >/dev/null
+require jq -e '.engines.node == ">=20"' "$ROOT/mcp-server/package.json" >/dev/null
 
-mcp_config = json.loads((root / ".mcp.json").read_text(encoding="utf-8"))
-server = mcp_config["mcpServers"]["graymatter"]
-require(server["command"] == "node", "MCP server must launch with node")
-require(server["args"] == ["mcp-server/index.js", "--stdio"], "MCP server must launch the stdio transport")
+for needle in OpenClaw scripts/gm-activate scripts/gm-login mcp-server/; do
+  grep -q "$needle" "$ROOT/SKILL.md" || {
+    echo "SKILL.md missing $needle" >&2
+    exit 1
+  }
+done
 
-pkg = json.loads((root / "mcp-server/package.json").read_text(encoding="utf-8"))
-require(pkg["scripts"]["start"] == "node index.js", "MCP package must retain HTTP/SSE start script")
-require(pkg["scripts"]["stdio"] == "node index.js --stdio", "MCP package must expose stdio start script")
-require(pkg["engines"]["node"] == ">=20", "MCP server must declare Node 20+")
+for needle in "Ready-to-rock release surfaces" "MCP service" "Codex plugin" "Standalone OpenClaw skill"; do
+  grep -q "$needle" "$ROOT/README.md" || {
+    echo "README missing release surface: $needle" >&2
+    exit 1
+  }
+done
 
-skill = (root / "SKILL.md").read_text(encoding="utf-8")
-for needle in [
-    "OpenClaw",
-    "scripts/gm-activate",
-    "scripts/gm-login",
-    "mcp-server/",
-]:
-    require(needle in skill, f"SKILL.md missing {needle}")
+ZIP_LIST="$(mktemp "${TMPDIR:-/tmp}/graymatter-skill-list.XXXXXX")"
+trap 'rm -f "$ZIP_LIST"' EXIT
+unzip -Z1 "$ROOT/graymatter.skill" >"$ZIP_LIST"
+grep -q '^graymatter/SKILL.md$' "$ZIP_LIST"
+grep -q '^graymatter/scripts/gm-activate$' "$ZIP_LIST"
+grep -q '^graymatter/scripts/gm-light-up$' "$ZIP_LIST"
+if grep -q '^graymatter/mcp-server/' "$ZIP_LIST"; then
+  echo "standalone skill must stay skill-only" >&2
+  exit 1
+fi
 
-readme = (root / "README.md").read_text(encoding="utf-8")
-for needle in [
-    "Ready-to-rock release surfaces",
-    "MCP service",
-    "Codex plugin",
-    "Standalone OpenClaw skill",
-]:
-    require(needle in readme, f"README missing release surface: {needle}")
-
-with zipfile.ZipFile(root / "graymatter.skill") as archive:
-    names = set(archive.namelist())
-    require("graymatter/SKILL.md" in names, "graymatter.skill must include SKILL.md")
-    require("graymatter/scripts/gm-activate" in names, "graymatter.skill must include activation")
-    require("graymatter/scripts/gm-light-up" in names, "graymatter.skill must include Light launcher")
-    require(not any(name.startswith("graymatter/mcp-server/") for name in names), "standalone skill must stay skill-only")
-
-print("release_surfaces_test: ok")
-PY
+echo "release_surfaces_test: ok"

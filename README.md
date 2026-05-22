@@ -138,12 +138,12 @@ Rule:
 - `scripts/gm-entity` — generic helper for listing, reading, and writing arbitrary schema entities
 - `scripts/gm-register-agent` — register or refresh the OpenClaw server as an Agent in api-0
 - `scripts/gm-mcp-contract` — emit the portable MCP memory-tool contract schema used by agent/IDE adapters
-- `scripts/gm-light-bootstrap` — generate the local GrayMatter app bundle and server source scaffold
+- `scripts/gm-light-bootstrap` — copy and render the local GrayMatter app bundle and server source scaffold from bash-friendly templates
 - `scripts/gm-light-up` — generate and start the local ThorAPI-backed GrayMatter Light instance
 - `scripts/gm-light-env` — print the environment exports that point skill scripts at the running Light instance
 - `scripts/gm-light-json-smoke` — JSON-file fallback smoke test for Light payload shape without ThorAPI
 - `scripts/package-local-server` — package the standalone downloadable GrayMatter Local Server archive
-- `scripts/package_graymatter.py` — deterministic validation and packaging
+- `scripts/package-graymatter` — deterministic validation and packaging
 - `mcp-server/` — standalone HTTP/SSE and Apps SDK `/mcp` server for GrayMatter memory, graph, entity, schema, and overview tools
 - `docs/architecture.md` — architecture and operating model
 - `docs/openai-app-directory-submission.md` — Apps SDK submission checklist and copy
@@ -454,7 +454,7 @@ If the live docs cannot be fetched, use the last cached copy temporarily, but tr
 Rebuild the packaged skill with:
 
 ```bash
-python3 scripts/package_graymatter.py
+scripts/package-graymatter
 ```
 
 Run an actual local ThorAPI-backed Light instance with:

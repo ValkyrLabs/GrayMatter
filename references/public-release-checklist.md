@@ -32,7 +32,7 @@ Use this checklist before publishing or handing the skill to customers.
 
 ## Release artifact
 
-- `python3 scripts/package_graymatter.py` passes
+- `scripts/package-graymatter` passes
 - `graymatter.skill` includes all required scripts
 - archive contents were verified after packaging
 - at least one fresh install path was tested

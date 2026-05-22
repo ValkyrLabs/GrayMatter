@@ -1,98 +1,97 @@
-#!/usr/bin/env python3
-"""Package GrayMatter Local Server as a downloadable archive."""
-from __future__ import annotations
+#!/usr/bin/env bash
+set -euo pipefail
 
-import argparse
-import os
-import shutil
-import subprocess
-import tarfile
-from pathlib import Path
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+BOOTSTRAP="$ROOT/scripts/gm-light-bootstrap"
+ARCHIVE_NAME="graymatter-local-server-latest.tar.gz"
+OUT_DIR="$ROOT/dist"
+WORK_DIR="$ROOT/.tmp-local-server-package"
 
-ROOT = Path(__file__).resolve().parent.parent
-BOOTSTRAP = ROOT / "scripts/gm-light-bootstrap"
-ARCHIVE_NAME = "graymatter-local-server-latest.tar.gz"
+usage() {
+  cat >&2 <<'EOF'
+Usage: package-local-server [--out-dir dir] [--work-dir dir]
+EOF
+}
 
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --out-dir)
+      OUT_DIR="${2:-}"
+      shift 2
+      ;;
+    --work-dir)
+      WORK_DIR="${2:-}"
+      shift 2
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "Unknown package-local-server option: $1" >&2
+      usage
+      exit 1
+      ;;
+  esac
+done
 
-def run(command: list[str], cwd: Path | None = None) -> None:
-    subprocess.run(command, cwd=cwd, check=True)
+copytree() {
+  local source="$1"
+  local target="$2"
+  rm -rf "$target"
+  mkdir -p "$(dirname "$target")"
+  cp -R "$source" "$target"
+}
 
+run_maven_build() {
+  local source_dir="$1"
+  local package_dir="$2"
 
-def copytree(source: Path, target: Path) -> None:
-    if target.exists():
-        shutil.rmtree(target)
-    shutil.copytree(source, target, symlinks=False)
+  case "${GRAYMATTER_SKIP_SERVER_BUILD:-}" in
+    1|true|TRUE|yes|YES) return 0 ;;
+  esac
 
-
-def build_jar(source_dir: Path, package_dir: Path) -> None:
-    if os.environ.get("GRAYMATTER_SKIP_SERVER_BUILD", "").lower() in {"1", "true", "yes"}:
-        return
-
-    if (source_dir / "mvnw").is_file():
-        run(["./mvnw", "-q", "-DskipTests", "package"], cwd=source_dir)
-    elif shutil.which("mvn"):
-        run(["mvn", "-q", "-DskipTests", "package"], cwd=source_dir)
-    else:
-        print("Maven unavailable; packaging source-only GrayMatter Local Server.")
-        return
-
-    jars = sorted(
-        jar for jar in (source_dir / "target").glob("graymatter-local-server-*.jar")
-        if "sources" not in jar.name and "javadoc" not in jar.name
-    )
-    if not jars:
-        raise SystemExit("Build completed but no graymatter-local-server jar was produced")
-
-    lib_dir = package_dir / "lib"
-    lib_dir.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(jars[-1], lib_dir / "graymatter-local-server.jar")
-
-
-def create_archive(package_dir: Path, target: Path) -> None:
-    with tarfile.open(target, "w:gz") as archive:
-        for path in sorted(package_dir.rglob("*")):
-            arcname = Path("graymatter-local-server") / path.relative_to(package_dir)
-            archive.add(path, arcname=str(arcname), recursive=False)
-
-
-def main() -> int:
-    parser = argparse.ArgumentParser(description="Package GrayMatter Local Server")
-    parser.add_argument("--out-dir", default=str(ROOT / "dist"))
-    parser.add_argument("--work-dir", default=str(ROOT / ".tmp-local-server-package"))
-    args = parser.parse_args()
-
-    out_dir = Path(args.out_dir).resolve()
-    work_dir = Path(args.work_dir).resolve()
-    bundle_dir = work_dir / "bundle"
-    package_dir = work_dir / "graymatter-local-server"
-
-    if work_dir.exists():
-        shutil.rmtree(work_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
-    work_dir.mkdir(parents=True, exist_ok=True)
-
-    run([str(BOOTSTRAP), str(bundle_dir)])
-
-    package_dir.mkdir(parents=True, exist_ok=True)
-    copytree(bundle_dir / "local-server", package_dir / "source")
-    shutil.copy2(package_dir / "source/README.md", package_dir / "README.md")
-    shutil.copy2(package_dir / "source/manifest.json", package_dir / "manifest.json")
-    copytree(bundle_dir / "application-bundle", package_dir / "application-bundle")
-    copytree(package_dir / "source/bin", package_dir / "bin")
-
-    build_jar(package_dir / "source", package_dir)
-    source_target_dir = package_dir / "source/target"
-    if source_target_dir.exists():
-        shutil.rmtree(source_target_dir)
-
-    archive_path = out_dir / ARCHIVE_NAME
-    if archive_path.exists():
-        archive_path.unlink()
-    create_archive(package_dir, archive_path)
-
-    print(f"Packaged {archive_path}")
+  if [[ -x "$source_dir/mvnw" ]]; then
+    (cd "$source_dir" && ./mvnw -q -DskipTests package)
+  elif command -v mvn >/dev/null 2>&1; then
+    (cd "$source_dir" && mvn -q -DskipTests package)
+  else
+    echo "Maven unavailable; packaging source-only GrayMatter Local Server." >&2
     return 0
+  fi
 
+  local jar
+  jar="$(find "$source_dir/target" -maxdepth 1 -type f -name 'graymatter-local-server-*.jar' ! -name '*sources*' ! -name '*javadoc*' | sort | tail -n 1)"
+  if [[ -z "$jar" ]]; then
+    echo "Build completed but no graymatter-local-server jar was produced" >&2
+    exit 1
+  fi
 
-if __name__ == "__main__":
-    raise SystemExit(main())
+  mkdir -p "$package_dir/lib"
+  cp "$jar" "$package_dir/lib/graymatter-local-server.jar"
+}
+
+mkdir -p "$OUT_DIR"
+rm -rf "$WORK_DIR"
+mkdir -p "$WORK_DIR"
+
+BUNDLE_DIR="$WORK_DIR/bundle"
+PACKAGE_DIR="$WORK_DIR/graymatter-local-server"
+
+"$BOOTSTRAP" "$BUNDLE_DIR"
+
+mkdir -p "$PACKAGE_DIR"
+copytree "$BUNDLE_DIR/local-server" "$PACKAGE_DIR/source"
+cp "$PACKAGE_DIR/source/README.md" "$PACKAGE_DIR/README.md"
+cp "$PACKAGE_DIR/source/manifest.json" "$PACKAGE_DIR/manifest.json"
+copytree "$BUNDLE_DIR/application-bundle" "$PACKAGE_DIR/application-bundle"
+copytree "$PACKAGE_DIR/source/bin" "$PACKAGE_DIR/bin"
+
+run_maven_build "$PACKAGE_DIR/source" "$PACKAGE_DIR"
+rm -rf "$PACKAGE_DIR/source/target"
+
+ARCHIVE_PATH="$OUT_DIR/$ARCHIVE_NAME"
+rm -f "$ARCHIVE_PATH"
+(cd "$WORK_DIR" && tar -czf "$ARCHIVE_PATH" graymatter-local-server)
+
+printf 'Packaged %s\n' "$ARCHIVE_PATH"

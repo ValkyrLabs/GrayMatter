@@ -1,0 +1,25 @@
+services:
+  graymatter-light:
+    image: "${THORAPI_IMAGE:-ghcr.io/valkyrlabs/thorapi:latest}"
+    container_name: graymatter-light
+    restart: unless-stopped
+    ports:
+      - "${GRAYMATTER_LIGHT_PORT:-8080}:8080"
+    volumes:
+      - ./api.hbs.yaml:/app/api.hbs.yaml:ro
+      - ./api.yaml:/app/api.yaml:ro
+      - ./dashboard:/app/dashboard:ro
+      - ./data:/data
+    environment:
+      - SPRING_DATASOURCE_URL=jdbc:h2:file:/data/graymatter;MODE=PostgreSQL;AUTO_SERVER=TRUE
+      - SPRING_DATASOURCE_DRIVER_CLASS_NAME=org.h2.Driver
+      - SPRING_DATASOURCE_USERNAME=sa
+      - SPRING_DATASOURCE_PASSWORD=
+      - THORAPI_TEMPLATE=/app/api.hbs.yaml
+      - THORAPI_SPEC=/app/api.yaml
+      - THORAPI_STATIC_DIR=/app/dashboard
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/actuator/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 20

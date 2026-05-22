@@ -108,28 +108,6 @@ token_is_clearly_read_only() {
     return $?
   fi
 
-  if command -v python3 >/dev/null 2>&1; then
-    CLAIMS_JSON="$claims" python3 - <<'PY'
-import json, os, sys
-try:
-    claims = json.loads(os.environ["CLAIMS_JSON"])
-except Exception:
-    sys.exit(1)
-roles = []
-for key in ("roles", "roleList", "authorities", "authorityList"):
-    value = claims.get(key) or []
-    if isinstance(value, list):
-        roles.extend(item for item in value if isinstance(item, str))
-scopes = claims.get("scopes") or []
-if not isinstance(scopes, list):
-    scopes = []
-non_trivial_roles = [role for role in set(roles) if role not in ("EVERYONE", "FREE")]
-non_readonly_scopes = [scope for scope in set(scopes) if isinstance(scope, str) and scope != "SCOPE_schema.read"]
-sys.exit(0 if not non_trivial_roles and not non_readonly_scopes else 1)
-PY
-    return $?
-  fi
-
   return 1
 }
 
@@ -147,20 +125,6 @@ token_expires_soon() {
       --argjson skew "$TOKEN_REFRESH_SKEW_SECONDS" \
       '(.exp? | type == "number") and (.exp <= ($now + $skew))' \
       >/dev/null 2>&1 <<<"$claims"
-    return $?
-  fi
-
-  if command -v python3 >/dev/null 2>&1; then
-    CLAIMS_JSON="$claims" NOW_SECONDS="$now" SKEW_SECONDS="$TOKEN_REFRESH_SKEW_SECONDS" python3 - <<'PY'
-import json, os, sys
-try:
-    exp = json.loads(os.environ["CLAIMS_JSON"]).get("exp")
-    now = int(os.environ["NOW_SECONDS"])
-    skew = int(os.environ["SKEW_SECONDS"])
-except Exception:
-    sys.exit(1)
-sys.exit(0 if isinstance(exp, (int, float)) and exp <= now + skew else 1)
-PY
     return $?
   fi
 

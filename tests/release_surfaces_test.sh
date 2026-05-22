@@ -44,9 +44,7 @@ unzip -Z1 "$ROOT/graymatter.skill" >"$ZIP_LIST"
 grep -q '^graymatter/SKILL.md$' "$ZIP_LIST"
 grep -q '^graymatter/scripts/gm-activate$' "$ZIP_LIST"
 grep -q '^graymatter/scripts/gm-light-up$' "$ZIP_LIST"
-if grep -q '^graymatter/mcp-server/' "$ZIP_LIST"; then
-  echo "standalone skill must stay skill-only" >&2
-  exit 1
-fi
+grep -q '^graymatter/mcp-server/index.js$' "$ZIP_LIST"
+grep -q '^graymatter/.mcp.json$' "$ZIP_LIST"
 
 echo "release_surfaces_test: ok"

@@ -16,6 +16,8 @@ GrayMatter ships as three related but independently usable surfaces:
 - **Codex plugin**: `.codex-plugin/plugin.json` exposes this repo as the `graymatter` plugin with the standalone skill plus `.mcp.json`, so Codex can discover both the instructions and the MCP server.
 - **Standalone OpenClaw skill**: `graymatter.skill` packages `SKILL.md` and the required scripts for OpenClaw install, activation, hosted api-0 use, and GrayMatter Light local mode.
 
+If a GitHub sparse/root install only brings down root files, run `./graymatter-bootstrap` from the installed GrayMatter directory. It restores `scripts/` and `mcp-server/` from the bundled `graymatter.skill` archive so end-user installs do not depend on a full repo clone.
+
 ## What GrayMatter is for
 
 GrayMatter is the memory and context layer for business-native agent systems.
@@ -163,8 +165,8 @@ Rule:
 ## Account signup and credits
 
 For a new GrayMatter account, use:
-- Signup: <https://api-0.valkyrlabs.com/v1/auth/signup>
-- Credits and recharge: <https://api-0.valkyrlabs.com/v1/credits>
+- Signup and activation: <https://valkyrlabs.com/graymatter/activate?source=graymatter&intent=signup&operation=memory_query>
+- Credits and recharge: <https://valkyrlabs.com/graymatter/credits?source=graymatter&intent=recharge&operation=memory_query>
 
 Commercial model:
 - fresh signups should receive **500 starter credits** automatically
@@ -415,10 +417,8 @@ Observed requirement:
 - after starter credits are exhausted, the user must recharge credits to continue full GrayMatter functionality
 
 Useful links:
-- signup: <https://api-0.valkyrlabs.com/v1/auth/signup>
-- credits and recharge: <https://api-0.valkyrlabs.com/v1/credits>
-- buy credits: <https://valkyrlabs.com/buy-credits>
-- human signup form: <https://valkyrlabs.com/funnel/white-paper>
+- signup and activation: <https://valkyrlabs.com/graymatter/activate?source=graymatter&intent=signup&operation=memory_query>
+- credits and recharge: <https://valkyrlabs.com/graymatter/credits?source=graymatter&intent=recharge&operation=memory_query>
 
 CLI behavior on `INSUFFICIENT_FUNDS`:
 - prints both buy and signup links in stderr

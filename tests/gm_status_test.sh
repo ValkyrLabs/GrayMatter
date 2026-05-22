@@ -25,7 +25,7 @@ chmod +x "$TMP_DIR/gm-status"
 out="$(ROOT_DIR="$TMP_DIR" VALKYR_API_BASE="http://127.0.0.1:9/v1" VALKYR_AUTH_TOKEN=test "$TMP_DIR/gm-status")"
 
 echo "$out" | grep -q '^graymatter_auth=env$'
-echo "$out" | grep -q '^memory_layer=ready$'
+echo "$out" | grep -q '^memory_layer=degraded$'
 echo "$out" | grep -q '^graph_layer=ready$'
 echo "$out" | grep -q '^strategic_layer=ready$'
 echo "$out" | grep -q '^kpi_layer=ready$'

@@ -190,13 +190,13 @@ if jq -e 'length > 2 or ((has("runtime") and has("sourceChannel")) | not)' <<<"$
 fi
 
 if [[ -n "$TAGS_RAW" ]]; then
-  PAYLOAD="$(jq -nc --arg type "$TYPE" --arg text "$TEXT" --arg sourceChannel "$SOURCE_CHANNEL" --arg tagsRaw "$TAGS_RAW" '{type:$type,text:$text,sourceChannel:$sourceChannel,tags:($tagsRaw | split(",") | map(gsub("^\\s+|\\s+$";"")) | map(select(length > 0)))}')"
+  PAYLOAD="$(jq -nc --arg type "$TYPE" --arg text "$TEXT" --arg sourceChannel "$SOURCE_CHANNEL" --arg tagsRaw "$TAGS_RAW" '{type:$type,text:$text,source:$sourceChannel,tags:($tagsRaw | split(",") | map(gsub("^\\s+|\\s+$";"")) | map(select(length > 0)))}')"
 else
-  PAYLOAD="$(jq -nc --arg type "$TYPE" --arg text "$TEXT" --arg sourceChannel "$SOURCE_CHANNEL" '{type:$type,text:$text,sourceChannel:$sourceChannel}')"
+  PAYLOAD="$(jq -nc --arg type "$TYPE" --arg text "$TEXT" --arg sourceChannel "$SOURCE_CHANNEL" '{type:$type,text:$text,source:$sourceChannel}')"
 fi
 
 set +e
-RESPONSE="$(${SCRIPT_DIR}/graymatter_api.sh POST /MemoryEntry "$PAYLOAD" 2>&1)"
+RESPONSE="$(${SCRIPT_DIR}/graymatter_api.sh POST /MemoryEntry/write "$PAYLOAD" 2>&1)"
 STATUS=$?
 set -e
 
@@ -207,8 +207,8 @@ fi
 
 if [[ -n "$TAGS_RAW" ]] && printf '%s' "$RESPONSE" | grep -Eqi 'tags|tag|relation'; then
   echo "Tagged write failed, retrying without tags due to backend tag persistence issue" >&2
-  FALLBACK_PAYLOAD="$(jq -nc --arg type "$TYPE" --arg text "$TEXT" --arg sourceChannel "$SOURCE_CHANNEL" '{type:$type,text:$text,sourceChannel:$sourceChannel}')"
-  exec "${SCRIPT_DIR}/graymatter_api.sh" POST /MemoryEntry "$FALLBACK_PAYLOAD"
+  FALLBACK_PAYLOAD="$(jq -nc --arg type "$TYPE" --arg text "$TEXT" --arg sourceChannel "$SOURCE_CHANNEL" '{type:$type,text:$text,source:$sourceChannel}')"
+  exec "${SCRIPT_DIR}/graymatter_api.sh" POST /MemoryEntry/write "$FALLBACK_PAYLOAD"
 fi
 
 TEXT_LEN=${#TEXT}

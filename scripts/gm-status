@@ -220,7 +220,7 @@ else
   fi
 
   AUTH_MEMORY_READY=false
-  if [[ "$TOKEN_LIVE_STATE" != "invalid" && "$TOKEN_LIVE_STATE" != "missing" && "$TOKEN_PERMISSION_STATE" != "read_only" ]]; then
+  if [[ "$TOKEN_LIVE_STATE" == "valid" && "$TOKEN_PERMISSION_STATE" == "write_capable" ]]; then
     AUTH_MEMORY_READY=true
   fi
   MEMORY_LAYER="degraded"

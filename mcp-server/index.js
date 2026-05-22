@@ -7,6 +7,9 @@ const { URL } = require('node:url');
 
 const DEFAULT_API_BASE = 'https://api-0.valkyrlabs.com/v1';
 const DEFAULT_WIDGET_DOMAIN = 'https://graymatter.valkyrlabs.com';
+const DEFAULT_BUY_CREDITS_URL = 'https://valkyrlabs.com/buy-credits';
+const DEFAULT_SIGNUP_URL = 'https://valkyrlabs.com/funnel/white-paper';
+const DEFAULT_LOGIN_PATH = '/auth/login';
 const DEFAULT_PORT = 3333;
 const APP_UI_RESOURCE_URI = 'ui://graymatter/overview.html';
 const APP_CONNECT_DOMAINS = ['https://api-0.valkyrlabs.com'];
@@ -320,18 +323,30 @@ async function callTool(params, context) {
   const name = params.name;
   const args = params.arguments || {};
 
+  const execute = async (operation, requestFn) => {
+    try {
+      return toolResult(await requestFn());
+    } catch (error) {
+      const recovery = buildRecoveryResult(error, operation, context);
+      if (recovery) {
+        return recovery;
+      }
+      throw error;
+    }
+  };
+
   switch (name) {
     case 'memory_write':
-      return toolResult(await apiRequest(context, 'POST', 'MemoryEntry', buildMemoryWritePayload(args)));
+      return execute('memory_write', () => apiRequest(context, 'POST', 'MemoryEntry', buildMemoryWritePayload(args)));
     case 'memory_read':
       requireString(args.id, 'id');
-      return toolResult(await apiRequest(context, 'GET', `MemoryEntry/${encodeURIComponent(args.id)}`));
+      return execute('memory_read', () => apiRequest(context, 'GET', `MemoryEntry/${encodeURIComponent(args.id)}`));
     case 'memory_query':
       requireString(args.query, 'query');
-      return toolResult(await apiRequest(context, 'POST', 'MemoryEntry/query', buildMemoryQueryPayload(args)));
+      return execute('memory_query', () => apiRequest(context, 'POST', 'MemoryEntry/query', buildMemoryQueryPayload(args)));
     case 'graph_get': {
       const graphPath = args.path ? `SwarmOps/graph/${trimSlashes(args.path)}` : 'SwarmOps/graph';
-      return toolResult(await apiRequest(context, 'GET', graphPath));
+      return execute('graph_get', () => apiRequest(context, 'GET', graphPath));
     }
     case 'entity_list': {
       requireEntityType(args.entityType);
@@ -339,22 +354,22 @@ async function callTool(params, context) {
       if (args.limit !== undefined) query.set('limit', String(args.limit));
       if (args.offset !== undefined) query.set('offset', String(args.offset));
       const suffix = query.toString() ? `?${query}` : '';
-      return toolResult(await apiRequest(context, 'GET', `${args.entityType}${suffix}`));
+      return execute('entity_list', () => apiRequest(context, 'GET', `${args.entityType}${suffix}`));
     }
     case 'entity_get':
       requireEntityType(args.entityType);
       requireString(args.id, 'id');
-      return toolResult(await apiRequest(context, 'GET', `${args.entityType}/${encodeURIComponent(args.id)}`));
+      return execute('entity_get', () => apiRequest(context, 'GET', `${args.entityType}/${encodeURIComponent(args.id)}`));
     case 'entity_create':
       requireEntityType(args.entityType);
       if (!args.body || typeof args.body !== 'object' || Array.isArray(args.body)) {
         throw new Error('body must be an object');
       }
-      return toolResult(await apiRequest(context, 'POST', args.entityType, args.body));
+      return execute('entity_create', () => apiRequest(context, 'POST', args.entityType, args.body));
     case 'show_graymatter_overview':
       return overviewToolResult();
     case 'schema_summary':
-      return toolResult(summarizeOpenApi(await apiRequest(context, 'GET', 'api-docs')));
+      return execute('schema_summary', async () => summarizeOpenApi(await apiRequest(context, 'GET', 'api-docs')));
     default:
       throw new Error(`Unknown tool: ${name}`);
   }
@@ -567,10 +582,105 @@ async function apiRequest(context, method, endpoint, body) {
     const message = payload && typeof payload.message === 'string'
       ? payload.message
       : `api-0 request failed with HTTP ${response.status}`;
-    throw new Error(message);
+    const error = new Error(message);
+    error.name = 'ApiRequestError';
+    error.status = response.status;
+    error.payload = payload;
+    error.method = method;
+    error.endpoint = endpoint;
+    throw error;
   }
 
   return payload;
+}
+
+function buildRecoveryResult(error, operation, context) {
+  if (!error || error.name !== 'ApiRequestError') {
+    return null;
+  }
+
+  const signal = classifyRecoveryReason(error);
+  if (!signal) {
+    return null;
+  }
+
+  const buyCreditsUrl = process.env.VALKYR_BUY_CREDITS_URL || DEFAULT_BUY_CREDITS_URL;
+  const signupUrl = process.env.VALKYR_HUMAN_SIGNUP_URL || DEFAULT_SIGNUP_URL;
+  const loginUrl = apiUrl(context.apiBase, process.env.GRAYMATTER_LOGIN_PATH || DEFAULT_LOGIN_PATH);
+  const retryable = signal.reason === 'insufficient_credits' || signal.reason === 'missing_auth';
+
+  const structuredContent = {
+    ok: false,
+    reason: signal.reason,
+    blockedOperation: operation,
+    message: signal.message,
+    buyCreditsUrl,
+    signupUrl,
+    loginUrl,
+    retryable
+  };
+
+  return {
+    structuredContent,
+    content: [
+      {
+        type: 'text',
+        text: JSON.stringify(structuredContent)
+      }
+    ],
+    _meta: {
+      openai: {
+        recovery: {
+          reason: signal.reason,
+          blockedOperation: operation,
+          retryable,
+          urls: { buyCreditsUrl, signupUrl, loginUrl }
+        },
+        debug: {
+          status: error.status,
+          endpoint: error.endpoint,
+          method: error.method,
+          rawMessage: error.message
+        }
+      }
+    }
+  };
+}
+
+function classifyRecoveryReason(error) {
+  const payload = error.payload;
+  const bodyText = typeof payload === 'string' ? payload : JSON.stringify(payload || {});
+  const upperText = bodyText.toUpperCase();
+  const lowerText = bodyText.toLowerCase();
+
+  if (error.status === 402 || upperText.includes('INSUFFICIENT_FUNDS') || lowerText.includes('insufficient') && lowerText.includes('credit')) {
+    return {
+      reason: 'insufficient_credits',
+      message: 'GrayMatter needs credits before this operation can continue. Buy credits or sign up, then retry.'
+    };
+  }
+
+  if (error.status === 401) {
+    return {
+      reason: 'missing_auth',
+      message: 'Authentication is missing or expired. Sign in, then retry.'
+    };
+  }
+
+  if (error.status === 403) {
+    if (lowerText.includes('read-only') || lowerText.includes('readonly') || lowerText.includes('write') && lowerText.includes('forbidden')) {
+      return {
+        reason: 'read_only_auth',
+        message: 'This credential is read-only for the requested operation. Use a write-capable token.'
+      };
+    }
+    return {
+      reason: 'missing_auth',
+      message: 'Access was denied. Sign in with the correct account or workspace access, then retry.'
+    };
+  }
+
+  return null;
 }
 
 function buildMemoryWritePayload(args) {

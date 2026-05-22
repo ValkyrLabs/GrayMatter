@@ -19,10 +19,13 @@ USERNAME_SERVICE="${VALKYR_USERNAME_KEYCHAIN_SERVICE:-${KEYCHAIN_SERVICE}_USERNA
 PASSWORD_SERVICE="${VALKYR_PASSWORD_KEYCHAIN_SERVICE:-${KEYCHAIN_SERVICE}_PASSWORD}"
 USERNAME=${GRAYMATTER_USERNAME:-${VALKYR_USERNAME:-}}
 PASSWORD=${GRAYMATTER_PASSWORD:-${VALKYR_PASSWORD:-}}
-BUY_CREDITS_URL="${VALKYR_BUY_CREDITS_URL:-https://valkyrlabs.com/buy-credits}"
-HUMAN_SIGNUP_URL="${VALKYR_HUMAN_SIGNUP_URL:-https://valkyrlabs.com/funnel/white-paper}"
+BUY_CREDITS_URL="${VALKYR_BUY_CREDITS_URL:-https://valkyrlabs.com/graymatter/credits?source=graymatter&intent=recharge&operation=memory_query}"
+HUMAN_SIGNUP_URL="${VALKYR_HUMAN_SIGNUP_URL:-https://valkyrlabs.com/graymatter/activate?source=graymatter&intent=signup&operation=memory_query}"
 LOGIN_PATH="${GRAYMATTER_LOGIN_PATH:-/auth/login}"
 FALLBACK_TMPDIR="${GRAYMATTER_TMPDIR:-${SCRIPT_DIR}/../tmp}"
+CURL_CONNECT_TIMEOUT="${GRAYMATTER_CURL_CONNECT_TIMEOUT:-5}"
+CURL_MAX_TIME="${GRAYMATTER_CURL_MAX_TIME:-20}"
+TOKEN_REFRESH_SKEW_SECONDS="${GRAYMATTER_TOKEN_REFRESH_SKEW_SECONDS:-60}"
 
 portable_mktemp() {
   local template="${1:-graymatter.XXXXXX}"
@@ -100,6 +103,22 @@ token_is_clearly_read_only() {
 
     (non_trivial_roles | length) == 0 and (non_readonly_scopes | length) == 0
   ' >/dev/null 2>&1 <<<"$claims"
+}
+
+token_expires_soon() {
+  local token="${1:-}"
+  local claims=""
+  local now=""
+
+  command -v jq >/dev/null 2>&1 || return 1
+  claims="$(token_claims_json "$token" 2>/dev/null)" || return 1
+  now="$(date +%s)"
+
+  jq -e \
+    --argjson now "$now" \
+    --argjson skew "$TOKEN_REFRESH_SKEW_SECONDS" \
+    '(.exp? | type == "number") and (.exp <= ($now + $skew))' \
+    >/dev/null 2>&1 <<<"$claims"
 }
 
 method_requires_write_access() {
@@ -246,9 +265,14 @@ elseif ($result -eq "No") { Start-Process $signupUrl }
 
 RESPONSE_FILE="$(portable_mktemp graymatter-response.XXXXXX)"
 RESPONSE_HEADERS="$(portable_mktemp graymatter-headers.XXXXXX)"
+STATEFUL_COOKIE_JAR=""
+STATEFUL_XSRF_TOKEN=""
 cleanup() {
   rm -f "$RESPONSE_FILE"
   rm -f "$RESPONSE_HEADERS"
+  if [[ -n "$STATEFUL_COOKIE_JAR" ]]; then
+    rm -f "$STATEFUL_COOKIE_JAR"
+  fi
 }
 trap cleanup EXIT
 
@@ -297,7 +321,10 @@ refresh_token() {
 
   set +e
   login_status="$(
-    curl -sS -o "$login_body" -D "$login_headers" -w "%{http_code}" \
+    curl -sS \
+      --connect-timeout "$CURL_CONNECT_TIMEOUT" \
+      --max-time "$CURL_MAX_TIME" \
+      -o "$login_body" -D "$login_headers" -w "%{http_code}" \
       -X POST "${BASE%/}/${LOGIN_PATH#/}" \
       -H "accept: application/json" \
       -H "content-type: application/json" \
@@ -327,6 +354,62 @@ refresh_token() {
   return 0
 }
 
+prepare_stateful_auth_for_write() {
+  if [[ -z "$USERNAME" || -z "$PASSWORD" || "$LIGHT_MODE" == "true" ]]; then
+    return 1
+  fi
+
+  local login_body
+  local login_headers
+  local login_status
+  login_body="$(portable_mktemp graymatter-login-body.XXXXXX)"
+  login_headers="$(portable_mktemp graymatter-login-headers.XXXXXX)"
+  STATEFUL_COOKIE_JAR="$(portable_mktemp graymatter-login-cookie.XXXXXX)"
+
+  set +e
+  login_status="$(
+    curl -sS \
+      --connect-timeout "$CURL_CONNECT_TIMEOUT" \
+      --max-time "$CURL_MAX_TIME" \
+      -o "$login_body" -D "$login_headers" -c "$STATEFUL_COOKIE_JAR" \
+      -w "%{http_code}" \
+      -X POST "${BASE%/}/${LOGIN_PATH#/}" \
+      -H "accept: application/json" \
+      -H "content-type: application/json" \
+      --data "$(jq -nc --arg username "$USERNAME" --arg password "$PASSWORD" '{username:$username,password:$password}')"
+  )"
+  local curl_status=$?
+  set -e
+
+  if (( curl_status != 0 )) || [[ ! "$login_status" =~ ^[0-9]{3}$ ]] || (( login_status >= 400 )); then
+    rm -f "$login_body" "$login_headers"
+    return 1
+  fi
+
+  local refreshed_token
+  refreshed_token=$(extract_token_from_login_response "$login_body" "$login_headers")
+  if [[ -z "$refreshed_token" && -s "$STATEFUL_COOKIE_JAR" ]]; then
+    refreshed_token=$(awk '$6 == "VALKYR_AUTH" {print $7}' "$STATEFUL_COOKIE_JAR" | tail -n 1)
+  fi
+  STATEFUL_XSRF_TOKEN="$(awk '$6 == "XSRF-TOKEN" {print $7}' "$STATEFUL_COOKIE_JAR" | tail -n 1)"
+  rm -f "$login_body" "$login_headers"
+
+  if [[ -n "$refreshed_token" ]]; then
+    TOKEN=$refreshed_token
+    store_token "$TOKEN"
+  fi
+
+  [[ -s "$STATEFUL_COOKIE_JAR" && -n "$STATEFUL_XSRF_TOKEN" ]]
+}
+
+if [[ -n "$TOKEN" ]] && token_expires_soon "$TOKEN"; then
+  if refresh_token && [[ -n "$TOKEN" ]] && ! token_expires_soon "$TOKEN"; then
+    :
+  elif run_login && [[ -n "$TOKEN" ]] && ! token_expires_soon "$TOKEN"; then
+    :
+  fi
+fi
+
 if method_requires_write_access && [[ -n "$TOKEN" ]] && token_is_clearly_read_only "$TOKEN"; then
   if refresh_token && [[ -n "$TOKEN" ]] && ! token_is_clearly_read_only "$TOKEN"; then
     :
@@ -345,12 +428,23 @@ perform_request() {
     COMMON_HEADERS+=(
       -H "Authorization: Bearer ${TOKEN}"
       -H "VALKYR_AUTH: ${TOKEN}"
-      -H "Cookie: VALKYR_AUTH=${TOKEN}"
+    )
+    if [[ -z "$STATEFUL_COOKIE_JAR" ]]; then
+      COMMON_HEADERS+=(
+        -H "Cookie: VALKYR_AUTH=${TOKEN}"
+      )
+    fi
+  fi
+  if [[ -n "$STATEFUL_XSRF_TOKEN" ]]; then
+    COMMON_HEADERS+=(
+      -H "X-XSRF-TOKEN: ${STATEFUL_XSRF_TOKEN}"
     )
   fi
 
   CURL_ARGS=(
     -sS
+    --connect-timeout "$CURL_CONNECT_TIMEOUT"
+    --max-time "$CURL_MAX_TIME"
     -o "$RESPONSE_FILE"
     -D "$RESPONSE_HEADERS"
     -w "%{http_code}"
@@ -358,6 +452,12 @@ perform_request() {
     "$URL"
     "${COMMON_HEADERS[@]}"
   )
+
+  if [[ -n "$STATEFUL_COOKIE_JAR" && -s "$STATEFUL_COOKIE_JAR" ]]; then
+    CURL_ARGS+=(
+      -b "$STATEFUL_COOKIE_JAR"
+    )
+  fi
 
   if [[ -n "$BODY" ]]; then
     CURL_ARGS+=(
@@ -371,6 +471,10 @@ perform_request() {
   CURL_STATUS=$?
   set -e
 }
+
+if method_requires_write_access; then
+  prepare_stateful_auth_for_write || true
+fi
 
 perform_request
 

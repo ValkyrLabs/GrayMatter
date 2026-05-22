@@ -757,3 +757,109 @@ test('tool errors return JSON-RPC errors instead of HTTP failures', async () => 
     server.close();
   }
 });
+
+test('hosted mode restricts CORS to configured connector origins', async () => {
+  const server = createGrayMatterMcpServer({
+    apiBase: 'https://api-0.example.test/v1',
+    deploymentMode: 'hosted-multi-tenant',
+    allowedOrigins: ['https://chatgpt.com', 'https://graymatter.example.test']
+  });
+  const baseUrl = await listen(server);
+
+  try {
+    const allowed = await fetch(`${baseUrl}/health/auth`, {
+      headers: { origin: 'https://chatgpt.com' }
+    });
+    const allowedBody = await allowed.json();
+    assert.equal(allowed.headers.get('access-control-allow-origin'), 'https://chatgpt.com');
+    assert.equal(allowedBody.deploymentMode, 'hosted-multi-tenant');
+    assert.equal(allowedBody.xValkyrTokenAccepted, false);
+    assert.equal(allowedBody.processTokenAccepted, false);
+
+    const denied = await fetch(`${baseUrl}/health/auth`, {
+      headers: { origin: 'https://evil.example.test' }
+    });
+    assert.equal(denied.status, 200);
+    assert.equal(denied.headers.get('access-control-allow-origin'), null);
+  } finally {
+    server.close();
+  }
+});
+
+test('hosted mode rejects X-Valkyr-Token while preserving bearer auth', async () => {
+  const fakeApi = createFakeApi(async (_req, res, record) => {
+    assert.equal(record.headers.authorization, 'Bearer hosted-bearer');
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ id: 'mem-hosted' }));
+  });
+
+  const apiBase = await listen(fakeApi.server);
+  const server = createGrayMatterMcpServer({
+    apiBase: `${apiBase}/v1`,
+    deploymentMode: 'hosted-multi-tenant',
+    allowedOrigins: ['https://chatgpt.com'],
+    token: 'process-token-must-not-be-used'
+  });
+  const baseUrl = await listen(server);
+
+  try {
+    const rejected = await postRpc(baseUrl, {
+      jsonrpc: '2.0',
+      id: 'unsafe-header-token',
+      method: 'tools/call',
+      params: { name: 'memory_read', arguments: { id: 'mem-hosted' } }
+    }, { 'X-Valkyr-Token': 'raw-header-token', origin: 'https://chatgpt.com' }, '/mcp');
+
+    assert.equal(rejected.status, 401);
+    assert.match(rejected.body.error, /X-Valkyr-Token is disabled/);
+    assert.equal(rejected.body.error.includes('raw-header-token'), false);
+    assert.equal(fakeApi.requests.length, 0);
+
+    const accepted = await postRpc(baseUrl, {
+      jsonrpc: '2.0',
+      id: 'bearer-hosted',
+      method: 'tools/call',
+      params: { name: 'memory_read', arguments: { id: 'mem-hosted' } }
+    }, { authorization: 'Bearer hosted-bearer', origin: 'https://chatgpt.com' }, '/mcp');
+
+    assert.equal(accepted.status, 200);
+    assert.equal(accepted.body.result.content[0].text, JSON.stringify({ id: 'mem-hosted' }));
+    assert.equal(fakeApi.requests.length, 1);
+  } finally {
+    server.close();
+    fakeApi.server.close();
+  }
+});
+
+test('hosted multi-tenant mode does not fall back to a process-wide token', async () => {
+  const fakeApi = createFakeApi(async (_req, res, record) => {
+    assert.equal(record.headers.authorization, undefined);
+    res.writeHead(401, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ message: 'missing auth' }));
+  });
+
+  const apiBase = await listen(fakeApi.server);
+  const server = createGrayMatterMcpServer({
+    apiBase: `${apiBase}/v1`,
+    deploymentMode: 'hosted-multi-tenant',
+    allowedOrigins: ['https://chatgpt.com'],
+    token: 'shared-process-token'
+  });
+  const baseUrl = await listen(server);
+
+  try {
+    const result = await postRpc(baseUrl, {
+      jsonrpc: '2.0',
+      id: 'no-process-token',
+      method: 'tools/call',
+      params: { name: 'memory_read', arguments: { id: 'mem-hosted' } }
+    }, { origin: 'https://chatgpt.com' }, '/mcp');
+
+    assert.equal(result.status, 200);
+    assert.equal(result.body.result.structuredContent.reason, 'missing_auth');
+    assert.equal(fakeApi.requests.length, 1);
+  } finally {
+    server.close();
+    fakeApi.server.close();
+  }
+});

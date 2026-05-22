@@ -272,12 +272,21 @@ store_keychain() {
     echo "macOS security CLI not available for keychain mode" >&2
     exit 3
   fi
-  security add-generic-password -U -a "$USERNAME" -s "$KEYCHAIN_SERVICE" -w "$AUTH_TOKEN" >/dev/null
-  security add-generic-password -U -a default -s "$KEYCHAIN_SERVICE" -w "$AUTH_TOKEN" >/dev/null
-  security add-generic-password -U -a default -s "$USERNAME_SERVICE" -w "$USERNAME" >/dev/null
-  security add-generic-password -U -a "$USERNAME" -s "$PASSWORD_SERVICE" -w "$PASSWORD" >/dev/null
+  replace_keychain_secret "$USERNAME" "$KEYCHAIN_SERVICE" "$AUTH_TOKEN"
+  replace_keychain_secret default "$KEYCHAIN_SERVICE" "$AUTH_TOKEN"
+  replace_keychain_secret default "$USERNAME_SERVICE" "$USERNAME"
+  replace_keychain_secret "$USERNAME" "$PASSWORD_SERVICE" "$PASSWORD"
   echo "Stored GrayMatter VALKYR_AUTH token securely in macOS/iCloud Keychain service ${KEYCHAIN_SERVICE}" >&2
   echo "Stored GrayMatter credentials securely in macOS/iCloud Keychain" >&2
+}
+
+replace_keychain_secret() {
+  local account="$1"
+  local service="$2"
+  local value="$3"
+
+  security delete-generic-password -a "$account" -s "$service" >/dev/null 2>&1 || true
+  security add-generic-password -U -a "$account" -s "$service" -w "$value" >/dev/null
 }
 
 case "$OUT_MODE" in

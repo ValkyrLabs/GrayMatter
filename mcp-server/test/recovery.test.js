@@ -63,7 +63,10 @@ test('memory_query returns structured recovery for insufficient credits', async 
 test('memory_query returns auth recovery for 401', async () => {
   const fakeApi = createFakeApi(401, { message: 'token expired' });
   const apiBase = await listen(fakeApi);
-  const server = createGrayMatterMcpServer({ apiBase: `${apiBase}/v1` });
+  const server = createGrayMatterMcpServer({
+    apiBase: `${apiBase}/v1`,
+    loginProvider: async () => ''
+  });
   const baseUrl = await listen(server);
 
   try {

@@ -462,8 +462,111 @@ test('Apps SDK bearer auth is accepted on /mcp and forwarded to api-0', async ()
 
     res.writeHead(200, { 'content-type': 'application/json' });
     res.end(JSON.stringify({ id: 'mem-99' }));
+  });
+
+  const apiBase = await listen(fakeApi.server);
+  const server = createGrayMatterMcpServer({ apiBase: `${apiBase}/v1` });
+  const baseUrl = await listen(server);
+
+  try {
+    const result = await postRpc(baseUrl, {
+      jsonrpc: '2.0',
+      id: 'bearer-auth',
+      method: 'tools/call',
+      params: { name: 'memory_read', arguments: { id: 'mem-99' } }
+    }, { authorization: 'Bearer apps-sdk-token' }, '/mcp');
+
+    assert.equal(result.status, 200);
+    assert.equal(result.body.result.content[0].text, JSON.stringify({ id: 'mem-99' }));
+    assert.equal(fakeApi.requests.length, 1);
+  } finally {
+    server.close();
+    fakeApi.server.close();
+  }
 });
-                                
+
+test('MCP process auth reauthenticates once on SESSION_EXPIRED and retries', async () => {
+  const fakeApi = createFakeApi(async (_req, res, record) => {
+    if (fakeApi.requests.length === 1) {
+      assert.equal(record.headers.authorization, 'Bearer expired-process-token');
+      res.writeHead(401, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({
+        error: 'SESSION_EXPIRED',
+        message: 'Session expired or replaced by another login. Please sign in again to obtain a fresh token.'
+      }));
+      return;
+    }
+
+    assert.equal(record.headers.authorization, 'Bearer refreshed-process-token');
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ id: 'mem-99', recovered: true }));
+  });
+
+  const apiBase = await listen(fakeApi.server);
+  const server = createGrayMatterMcpServer({
+    apiBase: `${apiBase}/v1`,
+    token: 'expired-process-token',
+    loginProvider: async () => 'refreshed-process-token'
+  });
+  const baseUrl = await listen(server);
+
+  try {
+    const result = await postRpc(baseUrl, {
+      jsonrpc: '2.0',
+      id: 'reauth',
+      method: 'tools/call',
+      params: { name: 'memory_read', arguments: { id: 'mem-99' } }
+    }, {}, '/mcp');
+
+    assert.equal(result.status, 200);
+    assert.equal(result.body.result.content[0].text, JSON.stringify({ id: 'mem-99', recovered: true }));
+    assert.equal(fakeApi.requests.length, 2);
+  } finally {
+    server.close();
+    fakeApi.server.close();
+  }
+});
+
+test('MCP per-request auth does not reauthenticate into a shared process token', async () => {
+  let loginCalls = 0;
+  const fakeApi = createFakeApi(async (_req, res, record) => {
+    assert.equal(record.headers.authorization, 'Bearer expired-user-token');
+    res.writeHead(401, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({
+      error: 'SESSION_EXPIRED',
+      message: 'Session expired for this caller.'
+    }));
+  });
+
+  const apiBase = await listen(fakeApi.server);
+  const server = createGrayMatterMcpServer({
+    apiBase: `${apiBase}/v1`,
+    token: 'process-token',
+    loginProvider: async () => {
+      loginCalls += 1;
+      return 'refreshed-process-token';
+    }
+  });
+  const baseUrl = await listen(server);
+
+  try {
+    const result = await postRpc(baseUrl, {
+      jsonrpc: '2.0',
+      id: 'request-scoped-expired',
+      method: 'tools/call',
+      params: { name: 'memory_read', arguments: { id: 'mem-99' } }
+    }, { authorization: 'Bearer expired-user-token' }, '/mcp');
+
+    assert.equal(result.status, 200);
+    assert.equal(result.body.result.structuredContent.reason, 'missing_auth');
+    assert.equal(loginCalls, 0);
+    assert.equal(fakeApi.requests.length, 1);
+  } finally {
+    server.close();
+    fakeApi.server.close();
+  }
+});
+
 test('memory tools derive scoped sourceChannel from Codex hierarchy metadata', async () => {
   const automationPath = '/tmp/codex-home/.codex/automations/mcp-and-skill-hunter/memory.md';
   const fakeApi = createFakeApi(async (_req, res, record) => {
@@ -494,16 +597,6 @@ test('memory tools derive scoped sourceChannel from Codex hierarchy metadata', a
   const baseUrl = await listen(server);
 
   try {
-    const result = await postRpc(baseUrl, {
-      jsonrpc: '2.0',
-      id: 'bearer-auth',
-      method: 'tools/call',
-      params: { name: 'memory_read', arguments: { id: 'mem-99' } }
-    }, { authorization: 'Bearer apps-sdk-token' }, '/mcp');
-
-    assert.equal(result.status, 200);
-    assert.equal(result.body.result.content[0].text, JSON.stringify({ id: 'mem-99' }));
-    assert.equal(fakeApi.requests.length, 1);
     const writeResult = await postRpc(baseUrl, {
       jsonrpc: '2.0',
       id: 'scoped-write',

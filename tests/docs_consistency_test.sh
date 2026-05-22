@@ -47,7 +47,7 @@ assert_absent "$future_service" "${DOC_FILES[@]}"
 
 assert_contains "gm-light-json-smoke" "README.md"
 assert_contains "gm-light-json-smoke" "docs/graymatter-light.md"
-assert_contains "gm-light-json-smoke" "scripts/package_graymatter.py"
+assert_contains "gm-light-json-smoke" "scripts/package-graymatter"
 assert_contains "THORAPI_TEMPLATE=/app/api.hbs.yaml" "README.md"
 assert_contains "THORAPI_SPEC=/app/api.yaml" "README.md"
 assert_contains "THORAPI_TEMPLATE=/app/api.hbs.yaml" "docs/graymatter-light.md"

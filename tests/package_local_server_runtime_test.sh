@@ -98,13 +98,7 @@ curl -fsS -u "admin:$LOCAL_LOGIN_CODE" \
   -d '{"type":"decision","text":"Runtime test memory","tags":"runtime"}' \
   "http://localhost:$PORT/MemoryEntry" > "$TMP_DIR/memory-create.json"
 
-MEMORY_ID="$(python3 - "$TMP_DIR/memory-create.json" <<'PY'
-import json
-import sys
-with open(sys.argv[1], encoding="utf-8") as fh:
-    print(json.load(fh)["id"])
-PY
-)"
+MEMORY_ID="$(jq -r '.id' "$TMP_DIR/memory-create.json")"
 
 curl -fsS -u "admin:$LOCAL_LOGIN_CODE" "http://localhost:$PORT/MemoryEntry/$MEMORY_ID" \
   | grep -q "Runtime test memory"

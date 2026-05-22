@@ -1,0 +1,33 @@
+{
+  "artifactId": "graymatter-local-server",
+  "version": "0.1.0",
+  "java": "17",
+  "generationMode": "thorapi-febe",
+  "sourceTemplate": "graymatter-local",
+  "customComponents": [
+    "GrayMatterDashboard",
+    "MemoryEntryWorkbench",
+    "MothershipPromotionBridge",
+    "SwarmProtocolBridge",
+    "LiveTelemetryPanel"
+  ],
+  "builtInValkyrComponents": [
+    "rbac-core",
+    "data-workbooks"
+  ],
+  "coreServices": [
+    "RBAC",
+    "Principal",
+    "UserPreferences",
+    "MemoryEntry",
+    "Data Workbooks",
+    "Mothership Sync",
+    "Swarm Protocol",
+    "Live Telemetry"
+  ],
+  "dashboard": "http://localhost:8787",
+  "mothership": "https://valkyrlabs.com",
+  "apiBase": "https://api-0.valkyrlabs.com/v1",
+  "swarmProtocol": "graymatter-swarm-v0.1",
+  "database": "local H2"
+}

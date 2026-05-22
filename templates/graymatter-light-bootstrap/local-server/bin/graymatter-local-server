@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+APP_HOME="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+JAR="$APP_HOME/lib/graymatter-local-server.jar"
+SOURCE_DIR="$APP_HOME/source"
+
+export SERVER_PORT="${SERVER_PORT:-8787}"
+mkdir -p "$APP_HOME/data"
+
+if [[ -f "$JAR" ]]; then
+  exec java -jar "$JAR" "$@"
+fi
+
+if [[ ! -d "$SOURCE_DIR" ]]; then
+  echo "GrayMatter Local Server source is missing: $SOURCE_DIR" >&2
+  exit 1
+fi
+
+cd "$SOURCE_DIR"
+if [[ -x ./mvnw ]]; then
+  ./mvnw -q -DskipTests package
+elif command -v mvn >/dev/null 2>&1; then
+  mvn -q -DskipTests package
+else
+  echo "Java package not bundled and Maven is unavailable. Install Maven or use a native/bundled GrayMatter package." >&2
+  exit 1
+fi
+
+BUILT_JAR="$(find target -maxdepth 1 -type f -name 'graymatter-local-server-*.jar' ! -name '*sources*' | sort | tail -n 1)"
+if [[ -z "$BUILT_JAR" ]]; then
+  echo "GrayMatter Local Server build did not produce a runnable jar." >&2
+  exit 1
+fi
+
+exec java -jar "$BUILT_JAR" "$@"

@@ -21,7 +21,7 @@
     "openclaw",
     "codex"
   ],
-  "skills": "./",
+  "skills": "./skills/",
   "mcpServers": "./.mcp.json",
   "interface": {
     "displayName": "GrayMatter",

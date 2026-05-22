@@ -6,30 +6,59 @@ ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 STORE_PATH="${1:-${ROOT_DIR}/tmp/gm-light-store.json}"
 mkdir -p "$(dirname "$STORE_PATH")"
 
-python3 - "$STORE_PATH" <<'PY'
-import json, os, sys, uuid, datetime
-store_path = sys.argv[1]
-if os.path.exists(store_path):
-    with open(store_path, 'r', encoding='utf-8') as f:
-        store = json.load(f)
-else:
-    store = []
-now = datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0).isoformat().replace('+00:00', 'Z')
-text = f"GrayMatter Light smoke test {now}"
-entry = {
-    'id': str(uuid.uuid4()),
-    'type': 'context',
-    'text': text,
-    'sourceChannel': 'graymatter-light',
-    'createdDate': now,
-    'modifiedDate': now,
+NOW="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+TEXT="GrayMatter Light smoke test $NOW"
+if command -v uuidgen >/dev/null 2>&1; then
+  ID="$(uuidgen | tr '[:upper:]' '[:lower:]')"
+else
+  ID="$(date +%s)-$$"
+fi
+
+TMP="${STORE_PATH}.$$"
+if [[ -f "$STORE_PATH" ]]; then
+  jq \
+    --arg id "$ID" \
+    --arg text "$TEXT" \
+    --arg now "$NOW" \
+    '. as $store
+      | (if type == "array" then . else [] end)
+      + [{
+          id:$id,
+          type:"context",
+          text:$text,
+          sourceChannel:"graymatter-light",
+          createdDate:$now,
+          modifiedDate:$now
+        }]' "$STORE_PATH" >"$TMP"
+else
+  jq -n \
+    --arg id "$ID" \
+    --arg text "$TEXT" \
+    --arg now "$NOW" \
+    '[{
+      id:$id,
+      type:"context",
+      text:$text,
+      sourceChannel:"graymatter-light",
+      createdDate:$now,
+      modifiedDate:$now
+    }]' >"$TMP"
+fi
+mv "$TMP" "$STORE_PATH"
+
+jq -e --arg text "$TEXT" 'map(select((.text // "") | ascii_downcase | contains($text | ascii_downcase))) | length > 0' "$STORE_PATH" >/dev/null || {
+  echo "GrayMatter Light smoke test failed" >&2
+  exit 1
 }
-store.append(entry)
-with open(store_path, 'w', encoding='utf-8') as f:
-    json.dump(store, f, indent=2)
-results = [item for item in store if text.lower() in item.get('text', '').lower()]
-if not results:
-    print('GrayMatter Light smoke test failed', file=sys.stderr)
-    sys.exit(1)
-print(json.dumps({'store': store_path, 'entry': entry, 'results': results}, indent=2))
-PY
+
+jq -n \
+  --arg store "$STORE_PATH" \
+  --arg id "$ID" \
+  --arg text "$TEXT" \
+  --arg now "$NOW" \
+  --slurpfile entries "$STORE_PATH" \
+  '{
+    store:$store,
+    entry:{id:$id,type:"context",text:$text,sourceChannel:"graymatter-light",createdDate:$now,modifiedDate:$now},
+    results:($entries[0] | map(select((.text // "") | ascii_downcase | contains($text | ascii_downcase))))
+  }'

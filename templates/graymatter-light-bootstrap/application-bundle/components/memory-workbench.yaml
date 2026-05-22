@@ -1,0 +1,8 @@
+id: memory-entry-workbench
+name: MemoryEntryWorkbench
+kind: frontend-component
+description: MemoryEntry create and query workbench for local durable agent memory.
+source: static/index.html
+binds:
+  - GET /api/memory-entries
+  - POST /api/memory-entries

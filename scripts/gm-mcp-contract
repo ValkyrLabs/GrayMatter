@@ -42,7 +42,7 @@ if [[ ! -f "${CONTRACT_PATH}" ]]; then
 fi
 
 if [[ "${1:-}" == "--validate" ]]; then
-  python3 -m json.tool "${CONTRACT_PATH}" >/dev/null
+  jq empty "${CONTRACT_PATH}" >/dev/null
 fi
 
 cat "${CONTRACT_PATH}"

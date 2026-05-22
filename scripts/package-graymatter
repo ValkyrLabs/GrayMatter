@@ -5,8 +5,14 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT="$ROOT/graymatter.skill"
 
 REQUIRED=(
+  .codex-plugin/plugin.json
+  .mcp.json
   SKILL.md
+  graymatter-bootstrap
   skills/graymatter/SKILL.md
+  mcp-server/README.md
+  mcp-server/index.js
+  mcp-server/package.json
   scripts/gm-query
   scripts/gm-graph
   scripts/gm-write

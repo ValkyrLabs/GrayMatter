@@ -15,43 +15,44 @@ if [[ ! -f "$BUNDLE" ]]; then
   exit 1
 fi
 
-python3 - "$ROOT" "$BUNDLE" <<'PY'
-from pathlib import Path
-import os
-import stat
-import sys
-import zipfile
+command -v unzip >/dev/null 2>&1 || {
+  echo "GrayMatter bootstrap requires unzip to restore runtime files." >&2
+  exit 1
+}
 
-root = Path(sys.argv[1]).resolve()
-bundle = Path(sys.argv[2]).resolve()
-prefix = "graymatter/"
+bundle_listing="$(unzip -Z1 "$BUNDLE")"
+if ! grep -qx 'graymatter/SKILL.md' <<<"$bundle_listing"; then
+  echo "graymatter.skill does not look like a GrayMatter skill bundle" >&2
+  exit 1
+fi
 
-with zipfile.ZipFile(bundle) as archive:
-    names = archive.namelist()
-    if "graymatter/SKILL.md" not in names:
-        raise SystemExit("graymatter.skill does not look like a GrayMatter skill bundle")
+tmp="$(mktemp -d "${TMPDIR:-/tmp}/graymatter-bootstrap.XXXXXX")"
+trap 'rm -rf "$tmp"' EXIT
+unzip -q "$BUNDLE" -d "$tmp"
 
-    for info in archive.infolist():
-        if info.is_dir() or not info.filename.startswith(prefix):
-            continue
+if [[ ! -d "$tmp/graymatter" ]]; then
+  echo "graymatter.skill is missing the graymatter/ payload directory" >&2
+  exit 1
+fi
 
-        rel = Path(info.filename[len(prefix):])
-        if not rel.parts:
-            continue
+(
+  cd "$tmp/graymatter"
+  find . -type f -print | while IFS= read -r rel; do
+    rel="${rel#./}"
+    case "$rel" in
+      ""|/*|../*|*/../*)
+        echo "Refusing to extract unsafe bundle path: $rel" >&2
+        exit 1
+        ;;
+    esac
+    mkdir -p "$ROOT/$(dirname "$rel")"
+    cp "$rel" "$ROOT/$rel"
+  done
+)
 
-        target = (root / rel).resolve()
-        if target == root or root not in target.parents:
-            raise SystemExit(f"Refusing to extract outside skill root: {info.filename}")
+find "$ROOT/scripts" -type f -maxdepth 1 -exec chmod +x {} + 2>/dev/null || true
+[[ -f "$ROOT/graymatter-bootstrap" ]] && chmod +x "$ROOT/graymatter-bootstrap"
+[[ -f "$ROOT/templates/graymatter-light-bootstrap/local-server/bin/graymatter-local-server" ]] && \
+  chmod +x "$ROOT/templates/graymatter-light-bootstrap/local-server/bin/graymatter-local-server"
 
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(archive.read(info))
-
-        mode = (info.external_attr >> 16) & 0o777
-        if mode:
-            os.chmod(target, mode)
-        elif rel.parts[0] == "scripts":
-            current = target.stat().st_mode
-            os.chmod(target, current | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
-
-print("GrayMatter runtime files restored from graymatter.skill")
-PY
+echo "GrayMatter runtime files restored from graymatter.skill"

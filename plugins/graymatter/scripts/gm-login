@@ -1,0 +1,308 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+BASE="${VALKYR_API_BASE:-https://api-0.valkyrlabs.com/v1}"
+LOGIN_PATH="${GRAYMATTER_LOGIN_PATH:-/auth/login}"
+LOGIN_URL="${BASE%/}/${LOGIN_PATH#/}"
+OUT_MODE="${1:-keychain}"
+KEYCHAIN_SERVICE="${VALKYR_KEYCHAIN_SERVICE:-VALKYR_AUTH}"
+USERNAME_SERVICE="${VALKYR_USERNAME_KEYCHAIN_SERVICE:-${KEYCHAIN_SERVICE}_USERNAME}"
+PASSWORD_SERVICE="${VALKYR_PASSWORD_KEYCHAIN_SERVICE:-${KEYCHAIN_SERVICE}_PASSWORD}"
+USERNAME=${GRAYMATTER_USERNAME:-${VALKYR_USERNAME:-}}
+PASSWORD=${GRAYMATTER_PASSWORD:-${VALKYR_PASSWORD:-}}
+FALLBACK_TMPDIR="${GRAYMATTER_TMPDIR:-${SCRIPT_DIR}/../tmp}"
+ALLOW_READONLY_TOKEN=${GRAYMATTER_ALLOW_READONLY_TOKEN:-0}
+
+portable_mktemp() {
+  local template="$1"
+  local tmp_path=""
+
+  if tmp_path="$(mktemp -t "$template" 2>/dev/null)" || tmp_path="$(mktemp "${template}" 2>/dev/null)"; then
+    printf '%s\n' "$tmp_path"
+    return 0
+  fi
+
+  mkdir -p "$FALLBACK_TMPDIR"
+  if tmp_path="$(TMPDIR="$FALLBACK_TMPDIR" mktemp -t "$template" 2>/dev/null)" || tmp_path="$(mktemp "${FALLBACK_TMPDIR%/}/${template}" 2>/dev/null)"; then
+    printf '%s\n' "$tmp_path"
+    return 0
+  fi
+
+  echo "Unable to create temporary file for GrayMatter login" >&2
+  return 1
+}
+
+decode_base64_url() {
+  local value="${1:-}"
+  local padded="$value"
+  local remainder=$(( ${#padded} % 4 ))
+
+  case "$remainder" in
+    2) padded="${padded}==" ;;
+    3) padded="${padded}=" ;;
+    1) padded="${padded}===" ;;
+  esac
+
+  padded="$(printf '%s' "$padded" | tr '_-' '/+')"
+
+  if printf '%s' "$padded" | base64 --decode 2>/dev/null; then
+    return 0
+  fi
+
+  printf '%s' "$padded" | base64 -D 2>/dev/null
+}
+
+token_claims_json() {
+  local token="${1:-}"
+  local payload=""
+
+  [[ -n "$token" ]] || return 1
+  payload="$(printf '%s' "$token" | cut -d'.' -f2)"
+  [[ -n "$payload" && "$payload" != "$token" ]] || return 1
+
+  decode_base64_url "$payload"
+}
+
+token_is_clearly_read_only() {
+  local token="${1:-}"
+  local claims=""
+
+  claims="$(token_claims_json "$token" 2>/dev/null)" || return 1
+
+  jq -e '
+    def normalized_roles:
+      ((.roles // []) + (.roleList // []) + (.authorities // []) + (.authorityList // []))
+      | map(select(type == "string"))
+      | unique;
+    def non_trivial_roles:
+      normalized_roles
+      | map(select(. != "EVERYONE" and . != "FREE"));
+    def normalized_scopes:
+      (.scopes // [])
+      | map(select(type == "string"))
+      | unique;
+    def non_readonly_scopes:
+      normalized_scopes
+      | map(select(. != "SCOPE_schema.read"));
+
+    (non_trivial_roles | length) == 0 and (non_readonly_scopes | length) == 0
+  ' >/dev/null 2>&1 <<<"$claims"
+}
+
+COOKIE_JAR="$(portable_mktemp graymatter-login-cookie.XXXXXX)"
+HEADERS_FILE="$(portable_mktemp graymatter-login-headers.XXXXXX)"
+trap 'rm -f "$COOKIE_JAR" "$HEADERS_FILE"' EXIT
+
+if ! command -v jq >/dev/null 2>&1; then
+  echo "jq is required" >&2
+  exit 1
+fi
+
+keychain_get() {
+  local service="$1"
+  local account="$2"
+
+  command -v security >/dev/null 2>&1 || return 1
+  security find-generic-password -a "$account" -s "$service" -w 2>/dev/null
+}
+
+if [[ -z "$USERNAME" ]]; then
+  USERNAME="$(keychain_get "$USERNAME_SERVICE" default || true)"
+fi
+
+if [[ -z "$PASSWORD" && -n "$USERNAME" ]]; then
+  PASSWORD="$(keychain_get "$PASSWORD_SERVICE" "$USERNAME" || true)"  
+fi
+
+load_keychain_secret() {
+  local account="$1"
+  local service="$2"
+  local value=""
+  if command -v security >/dev/null 2>&1; then
+    value="$(security find-generic-password -a "$account" -s "$service" -w 2>/dev/null || true)"
+  fi
+  printf '%s' "$value"
+}
+
+if [[ -z "$USERNAME" ]]; then
+  USERNAME="$(load_keychain_secret default "$USERNAME_SERVICE")"
+fi
+
+if [[ -n "$USERNAME" && -z "$PASSWORD" ]]; then
+  PASSWORD="$(load_keychain_secret "$USERNAME" "$PASSWORD_SERVICE")"
+fi
+
+if [[ -z "$USERNAME" ]]; then
+  if [[ ! -t 0 ]]; then
+    echo "No reusable GrayMatter credentials found (env/keychain) and interactive login is unavailable." >&2
+    echo "Autonomous reauth is impossible from current machine state." >&2
+    exit 4
+  fi
+  read -r -p "GrayMatter username: " USERNAME
+fi
+
+prompt_password() {
+  local popup_password=""
+  if command -v osascript >/dev/null 2>&1; then
+    if popup_password="$(
+      GRAYMATTER_PROMPT_USERNAME="$USERNAME" osascript 2>/dev/null <<'APPLESCRIPT'
+set userName to system attribute "GRAYMATTER_PROMPT_USERNAME"
+text returned of (display dialog "Enter the GrayMatter password for " & userName & ":" default answer "" with hidden answer buttons {"Cancel", "OK"} default button "OK" with title "GrayMatter Login")
+APPLESCRIPT
+    )" && [[ -n "$popup_password" ]]; then
+      printf '%s\n' "$popup_password"
+      return 0
+    fi
+  fi
+
+  if [[ -t 0 ]]; then
+    read -r -s -p "GrayMatter password: " PASSWORD
+    printf '\n' >&2
+    printf '%s\n' "$PASSWORD"
+    return 0
+  fi
+
+  if IFS= read -r PASSWORD; then
+    printf '%s\n' "$PASSWORD"
+    return 0
+  fi
+
+  return 1
+}
+
+if [[ -z "$PASSWORD" ]]; then
+  if ! PASSWORD="$(prompt_password)" || [[ -z "$PASSWORD" ]]; then
+    echo "GrayMatter password not found in env/keychain and interactive login is unavailable." >&2
+    echo "Autonomous reauth is impossible from current machine state." >&2
+    exit 4
+  fi
+fi
+
+set +e
+RESPONSE="$(curl --fail-with-body -sS -D "$HEADERS_FILE" -c "$COOKIE_JAR" -X POST "$LOGIN_URL" \
+  -H 'accept: application/json' \
+  -H 'content-type: application/json' \
+  --data "$(jq -nc --arg username "$USERNAME" --arg password "$PASSWORD" '{username:$username,password:$password}')" 2>&1)"
+CURL_STATUS=$?
+set -e
+
+if [[ $CURL_STATUS -ne 0 ]]; then
+  echo "GrayMatter login request failed" >&2
+  echo "$RESPONSE" >&2
+  if [[ -s "$HEADERS_FILE" ]]; then
+    echo "Response headers:" >&2
+    cat "$HEADERS_FILE" >&2
+  fi
+  exit $CURL_STATUS
+fi
+
+extract_from_body() {
+  printf '%s' "$RESPONSE" | jq -r '
+    .VALKYR_AUTH //
+    .data.VALKYR_AUTH //
+    .token //
+    .session //
+    .jwt //
+    .jwtSession //
+    .data.jwtSession //
+    empty
+  ' 2>/dev/null || true
+}
+
+extract_from_headers() {
+  local token
+  token="$(tr -d '\r' < "$HEADERS_FILE" | grep -i 'set-cookie: .*VALKYR_AUTH=' | sed -E 's/.*VALKYR_AUTH=([^;]+).*/\1/' | head -n 1 || true)"
+  if [[ -n "$token" ]]; then
+    printf '%s\n' "$token"
+    return 0
+  fi
+
+  token="$(tr -d '\r' < "$HEADERS_FILE" | grep -i '^VALKYR_AUTH:' | sed -E 's/^[^:]+:[[:space:]]*//' | head -n 1 || true)"
+  if [[ -n "$token" ]]; then
+    printf '%s\n' "$token"
+    return 0
+  fi
+
+  token="$(tr -d '\r' < "$HEADERS_FILE" | grep -i '^authorization:' | sed -E 's/^[^:]+:[[:space:]]*Bearer[[:space:]]+//' | head -n 1 || true)"
+  if [[ -n "$token" ]]; then
+    printf '%s\n' "$token"
+    return 0
+  fi
+
+  token="$(tr -d '\r' < "$HEADERS_FILE" | grep -i 'set-cookie: .*jwtSession=' | sed -E 's/.*jwtSession=([^;]+).*/\1/' | head -n 1 || true)"
+  if [[ -n "$token" ]]; then
+    printf '%s\n' "$token"
+    return 0
+  fi
+}
+
+extract_from_cookies() {
+  awk 'BEGIN{FS="\t"}
+    $0 !~ /^#/ && ($6 == "VALKYR_AUTH" || $6 == "jwtSession") {print $7; exit}
+  ' "$COOKIE_JAR"
+}
+
+AUTH_TOKEN=$(extract_from_body)
+if [[ -z "$AUTH_TOKEN" || "$AUTH_TOKEN" == "null" ]]; then
+  AUTH_TOKEN=$(extract_from_headers)
+fi
+if [[ -z "$AUTH_TOKEN" || "$AUTH_TOKEN" == "null" ]]; then
+  AUTH_TOKEN=$(extract_from_cookies)
+fi
+
+if [[ -z "$AUTH_TOKEN" || "$AUTH_TOKEN" == "null" ]]; then
+  echo "Login succeeded but no VALKYR_AUTH token could be extracted from body, headers, or cookies" >&2
+  echo "Response body:" >&2
+  echo "$RESPONSE" >&2
+  echo "Response headers:" >&2
+  cat "$HEADERS_FILE" >&2
+  exit 2
+fi
+
+if [[ "$ALLOW_READONLY_TOKEN" != "1" ]] && token_is_clearly_read_only "$AUTH_TOKEN"; then
+  echo "GrayMatter login produced a read-only token for ${USERNAME}." >&2
+  echo "The issued session only has schema-read access, so GrayMatter writes will fail." >&2
+  echo "Fix the ValkyrAI account roles/scopes or re-run with GRAYMATTER_ALLOW_READONLY_TOKEN=1 for read-only diagnostics." >&2
+  exit 4
+fi
+
+store_keychain() {
+  if ! command -v security >/dev/null 2>&1; then
+    echo "macOS security CLI not available for keychain mode" >&2
+    exit 3
+  fi
+  replace_keychain_secret "$USERNAME" "$KEYCHAIN_SERVICE" "$AUTH_TOKEN"
+  replace_keychain_secret default "$KEYCHAIN_SERVICE" "$AUTH_TOKEN"
+  replace_keychain_secret default "$USERNAME_SERVICE" "$USERNAME"
+  replace_keychain_secret "$USERNAME" "$PASSWORD_SERVICE" "$PASSWORD"
+  echo "Stored GrayMatter VALKYR_AUTH token securely in macOS/iCloud Keychain service ${KEYCHAIN_SERVICE}" >&2
+  echo "Stored GrayMatter credentials securely in macOS/iCloud Keychain" >&2
+}
+
+replace_keychain_secret() {
+  local account="$1"
+  local service="$2"
+  local value="$3"
+
+  security delete-generic-password -a "$account" -s "$service" >/dev/null 2>&1 || true
+  security add-generic-password -U -a "$account" -s "$service" -w "$value" >/dev/null
+}
+
+case "$OUT_MODE" in
+  keychain)
+    store_keychain
+    ;;
+  env)
+    store_keychain
+    printf 'export VALKYR_API_BASE="%s"\n' "$BASE"
+    printf 'export VALKYR_AUTH_TOKEN="%s"\n' "$AUTH_TOKEN"
+    ;;
+  token)
+    printf '%s\n' "$AUTH_TOKEN"
+    ;;
+  *)
+    echo "Usage: gm-login [keychain|env|token]" >&2
+    exit 1
+    ;;
+esac

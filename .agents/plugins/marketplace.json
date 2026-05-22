@@ -8,7 +8,7 @@
       "name": "graymatter",
       "source": {
         "source": "local",
-        "path": "."
+        "path": "./plugins/graymatter"
       },
       "policy": {
         "installation": "AVAILABLE",

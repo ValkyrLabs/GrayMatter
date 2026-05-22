@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+STORE_PATH="${1:-${ROOT_DIR}/tmp/gm-light-store.json}"
+mkdir -p "$(dirname "$STORE_PATH")"
+
+NOW="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+TEXT="GrayMatter Light smoke test $NOW"
+if command -v uuidgen >/dev/null 2>&1; then
+  ID="$(uuidgen | tr '[:upper:]' '[:lower:]')"
+else
+  ID="$(date +%s)-$$"
+fi
+
+TMP="${STORE_PATH}.$$"
+if [[ -f "$STORE_PATH" ]]; then
+  jq \
+    --arg id "$ID" \
+    --arg text "$TEXT" \
+    --arg now "$NOW" \
+    '. as $store
+      | (if type == "array" then . else [] end)
+      + [{
+          id:$id,
+          type:"context",
+          text:$text,
+          sourceChannel:"graymatter-light",
+          createdDate:$now,
+          modifiedDate:$now
+        }]' "$STORE_PATH" >"$TMP"
+else
+  jq -n \
+    --arg id "$ID" \
+    --arg text "$TEXT" \
+    --arg now "$NOW" \
+    '[{
+      id:$id,
+      type:"context",
+      text:$text,
+      sourceChannel:"graymatter-light",
+      createdDate:$now,
+      modifiedDate:$now
+    }]' >"$TMP"
+fi
+mv "$TMP" "$STORE_PATH"
+
+jq -e --arg text "$TEXT" 'map(select((.text // "") | ascii_downcase | contains($text | ascii_downcase))) | length > 0' "$STORE_PATH" >/dev/null || {
+  echo "GrayMatter Light smoke test failed" >&2
+  exit 1
+}
+
+jq -n \
+  --arg store "$STORE_PATH" \
+  --arg id "$ID" \
+  --arg text "$TEXT" \
+  --arg now "$NOW" \
+  --slurpfile entries "$STORE_PATH" \
+  '{
+    store:$store,
+    entry:{id:$id,type:"context",text:$text,sourceChannel:"graymatter-light",createdDate:$now,modifiedDate:$now},
+    results:($entries[0] | map(select((.text // "") | ascii_downcase | contains($text | ascii_downcase))))
+  }'

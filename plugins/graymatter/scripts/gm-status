@@ -1,0 +1,235 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+have() {
+  command -v "$1" >/dev/null 2>&1
+}
+
+ROOT_DIR="${ROOT_DIR:-$(pwd)}"
+FALLBACK_PATH="$ROOT_DIR/memory/graymatter-fallback.json"
+OPENAPI_PATH="$ROOT_DIR/tmp/openapi.json"
+KEYCHAIN_SERVICE="${VALKYR_KEYCHAIN_SERVICE:-VALKYR_AUTH}"
+API_BASE="${VALKYR_API_BASE:-https://api-0.valkyrlabs.com/v1}"
+API_BASE="${API_BASE%/}"
+
+decode_base64_url() {
+  local value="${1:-}"
+  local padded="$value"
+  local remainder=$(( ${#padded} % 4 ))
+  case "$remainder" in
+    2) padded="${padded}==" ;;
+    3) padded="${padded}=" ;;
+    1) padded="${padded}===" ;;
+  esac
+  padded="$(printf '%s' "$padded" | tr '_-' '/+')"
+  printf '%s' "$padded" | base64 --decode 2>/dev/null || printf '%s' "$padded" | base64 -D 2>/dev/null
+}
+
+token_claims_json() {
+  local token="${1:-}"
+  local payload=""
+  [[ -n "$token" ]] || return 1
+  payload="$(printf '%s' "$token" | cut -d'.' -f2)"
+  [[ -n "$payload" && "$payload" != "$token" ]] || return 1
+  decode_base64_url "$payload"
+}
+
+token_health_state() {
+  local token="${1:-}"
+  local claims=""
+  local now=""
+  [[ -n "$token" ]] || {
+    printf 'missing\n'
+    return 0
+  }
+  claims="$(token_claims_json "$token" 2>/dev/null)" || {
+    printf 'ok\n'
+    return 0
+  }
+  now="$(date +%s)"
+  jq -r --argjson now "$now" '
+    def values:
+      [
+        (.scope // empty),
+        (.scp // empty),
+        (.roles // empty)
+      ];
+    def flatten_values:
+      values
+      | map(
+          if type == "string" then gsub(","; " ") | split(" ")
+          elif type == "array" then map(tostring)
+          else []
+          end
+        )
+      | (add // [])
+      | map(ascii_downcase | gsub("^\\s+|\\s+$"; ""))
+      | map(select(length > 0));
+    def has_marker($markers):
+      any(flatten_values[]?; . as $scope | any($markers[]; $scope | contains(.)));
+
+    if ((.exp? | type) == "number" and .exp <= $now) then
+      "expired"
+    elif has_marker(["read", "readonly", "schema-read", "schema:read", "memory:read"])
+      and (has_marker(["write", "memory:write", "contentdata:write", "admin", "owner"]) | not)
+    then
+      "read_only"
+    else
+      "ok"
+    end
+  ' <<<"$claims"
+}
+
+token_permission_state() {
+  local token="${1:-}"
+  local claims=""
+  [[ -n "$token" ]] || {
+    printf 'unknown\n'
+    return 0
+  }
+  claims="$(token_claims_json "$token" 2>/dev/null)" || {
+    printf 'unknown\n'
+    return 0
+  }
+  jq -r '
+    def roles:
+      [(.roles // []), (.roleList // []), (.authorities // []), (.authorityList // [])]
+      | map(if type == "array" then . else [] end)
+      | add
+      | map(select(type == "string"))
+      | unique;
+    def scopes:
+      (.scopes // [])
+      | if type == "array" then map(select(type == "string")) else [] end
+      | unique;
+    def non_trivial_roles:
+      roles | map(select(. != "EVERYONE" and . != "FREE"));
+    def non_readonly_scopes:
+      scopes | map(select(. != "SCOPE_schema.read"));
+    if ((non_trivial_roles | length) > 0 or (non_readonly_scopes | length) > 0) then
+      "write_capable"
+    else
+      "read_only"
+    end
+  ' <<<"$claims"
+}
+
+token_live_state() {
+  local token="${1:-}"
+  local code=""
+  [[ -n "$token" ]] || {
+    printf 'missing\n'
+    return 0
+  }
+  code="$(curl -sS -o /dev/null -w '%{http_code}' --connect-timeout 5 --max-time 10 \
+    -H "Authorization: Bearer $token" \
+    -H 'accept: application/json' \
+    "$API_BASE/auth/me" 2>/dev/null || true)"
+  case "$code" in
+    2*) printf 'valid\n' ;;
+    401|403) printf 'invalid\n' ;;
+    *) printf 'unknown\n' ;;
+  esac
+}
+
+fallback_status_json() {
+  if [[ ! -f "$FALLBACK_PATH" ]]; then
+    jq -nc --arg path "$FALLBACK_PATH" '{state:"absent", pendingWrites:0, path:$path}'
+    return 0
+  fi
+  jq -nc --slurpfile data "$FALLBACK_PATH" --arg path "$FALLBACK_PATH" '
+    ($data[0] // null) as $payload
+    | if ($payload | type) == "array" then
+        {state:"present", pendingWrites:($payload | length), path:$path}
+      elif ($payload | type) == "object" then
+        {state:($payload.status // "present"), pendingWrites:(($payload.items // []) | if type == "array" then length else 0 end), path:$path}
+      else
+        {state:"invalid", pendingWrites:0, path:$path}
+      end
+  ' 2>/dev/null || jq -nc --arg path "$FALLBACK_PATH" '{state:"invalid", pendingWrites:0, path:$path}'
+}
+
+openapi_layer_state() {
+  local path="$1"
+  local query="$2"
+  if [[ ! -f "$OPENAPI_PATH" ]]; then
+    printf 'missing\n'
+    return 0
+  fi
+  jq -e "$query" "$OPENAPI_PATH" >/dev/null 2>&1 && printf 'ready\n' || printf 'missing\n'
+}
+
+TOKEN="${VALKYR_AUTH_TOKEN:-${VALKYR_JWT_SESSION:-}}"
+HAS_ENV_TOKEN=false
+[[ -n "${VALKYR_AUTH_TOKEN:-}" ]] && HAS_ENV_TOKEN=true
+KEYCHAIN_TOKEN=false
+
+if [[ -z "$TOKEN" ]] && have security; then
+  TOKEN="$(security find-generic-password -a default -s "$KEYCHAIN_SERVICE" -w 2>/dev/null || true)"
+  [[ -n "$TOKEN" ]] && KEYCHAIN_TOKEN=true
+fi
+
+AUTH_STATE="missing"
+if [[ "$HAS_ENV_TOKEN" == "true" ]]; then
+  AUTH_STATE="env_token"
+elif [[ "$KEYCHAIN_TOKEN" == "true" ]]; then
+  AUTH_STATE="keychain_token"
+fi
+
+TOKEN_STATE="$(token_health_state "$TOKEN")"
+TOKEN_LIVE_STATE="$(token_live_state "$TOKEN")"
+TOKEN_PERMISSION_STATE="$(token_permission_state "$TOKEN")"
+FALLBACK_JSON="$(fallback_status_json)"
+FALLBACK_STATE="$(jq -r '.state' <<<"$FALLBACK_JSON")"
+PENDING_WRITES="$(jq -r '.pendingWrites' <<<"$FALLBACK_JSON")"
+
+HEALTH="ok"
+if [[ "$FALLBACK_STATE" == "invalid" ]]; then
+  HEALTH="error"
+elif [[ "$AUTH_STATE" == "missing" || "$PENDING_WRITES" != "0" || "$TOKEN_STATE" =~ ^(expired|invalid|read_only)$ || "$TOKEN_LIVE_STATE" == "invalid" || "$TOKEN_PERMISSION_STATE" == "read_only" ]]; then
+  HEALTH="degraded"
+fi
+
+if [[ "${GM_STATUS_FORMAT:-kv}" == "json" ]]; then
+  jq -nc \
+    --arg health "$HEALTH" \
+    --arg auth "$AUTH_STATE" \
+    --arg live "$TOKEN_LIVE_STATE" \
+    --arg permission "$TOKEN_PERMISSION_STATE" \
+    --arg path "$FALLBACK_PATH" \
+    --arg state "$FALLBACK_STATE" \
+    --argjson pending "$PENDING_WRITES" \
+    '{
+      graymatter: {
+        health:$health,
+        auth:$auth,
+        token:{liveState:$live, permissionState:$permission},
+        fallback:{path:$path, state:$state, pendingWrites:$pending}
+      }
+    }'
+else
+  AUTH_KV="missing"
+  [[ "$HAS_ENV_TOKEN" == "true" ]] && AUTH_KV="env"
+  [[ "$HAS_ENV_TOKEN" != "true" && "$KEYCHAIN_TOKEN" == "true" ]] && AUTH_KV="keychain"
+  if [[ "$TOKEN_LIVE_STATE" == "invalid" ]]; then
+    AUTH_KV="${AUTH_KV}:invalid"
+  elif [[ "$TOKEN_PERMISSION_STATE" == "read_only" ]]; then
+    AUTH_KV="${AUTH_KV}:read_only"
+  elif [[ "$TOKEN_LIVE_STATE" == "valid" && "$TOKEN_PERMISSION_STATE" == "write_capable" ]]; then
+    AUTH_KV="${AUTH_KV}:write_capable"
+  fi
+
+  AUTH_MEMORY_READY=false
+  if [[ "$TOKEN_LIVE_STATE" == "valid" && "$TOKEN_PERMISSION_STATE" == "write_capable" ]]; then
+    AUTH_MEMORY_READY=true
+  fi
+  MEMORY_LAYER="degraded"
+  [[ "$FALLBACK_STATE" != "invalid" && "$AUTH_MEMORY_READY" == "true" ]] && MEMORY_LAYER="ready"
+
+  printf 'graymatter_auth=%s\n' "$AUTH_KV"
+  printf 'graymatter_token_state=%s\n' "$TOKEN_STATE"
+  printf 'memory_layer=%s\n' "$MEMORY_LAYER"
+  printf 'graph_layer=%s\n' "$(openapi_layer_state /SwarmOps/graph '.paths | has("/SwarmOps/graph")')"
+  printf 'strategic_layer=%s\n' "$(openapi_layer_state /StrategicRecord '.paths | has("/StrategicRecord")')"
+  printf 'kpi_layer=%s\n' "$(openapi_layer_state /KPIRecord '.paths | has("/KPIRecord")')"
+fi

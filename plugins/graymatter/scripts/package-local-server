@@ -1,0 +1,97 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+BOOTSTRAP="$ROOT/scripts/gm-light-bootstrap"
+ARCHIVE_NAME="graymatter-local-server-latest.tar.gz"
+OUT_DIR="$ROOT/dist"
+WORK_DIR="$ROOT/.tmp-local-server-package"
+
+usage() {
+  cat >&2 <<'EOF'
+Usage: package-local-server [--out-dir dir] [--work-dir dir]
+EOF
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --out-dir)
+      OUT_DIR="${2:-}"
+      shift 2
+      ;;
+    --work-dir)
+      WORK_DIR="${2:-}"
+      shift 2
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "Unknown package-local-server option: $1" >&2
+      usage
+      exit 1
+      ;;
+  esac
+done
+
+copytree() {
+  local source="$1"
+  local target="$2"
+  rm -rf "$target"
+  mkdir -p "$(dirname "$target")"
+  cp -R "$source" "$target"
+}
+
+run_maven_build() {
+  local source_dir="$1"
+  local package_dir="$2"
+
+  case "${GRAYMATTER_SKIP_SERVER_BUILD:-}" in
+    1|true|TRUE|yes|YES) return 0 ;;
+  esac
+
+  if [[ -x "$source_dir/mvnw" ]]; then
+    (cd "$source_dir" && ./mvnw -q -DskipTests package)
+  elif command -v mvn >/dev/null 2>&1; then
+    (cd "$source_dir" && mvn -q -DskipTests package)
+  else
+    echo "Maven unavailable; packaging source-only GrayMatter Local Server." >&2
+    return 0
+  fi
+
+  local jar
+  jar="$(find "$source_dir/target" -maxdepth 1 -type f -name 'graymatter-local-server-*.jar' ! -name '*sources*' ! -name '*javadoc*' | sort | tail -n 1)"
+  if [[ -z "$jar" ]]; then
+    echo "Build completed but no graymatter-local-server jar was produced" >&2
+    exit 1
+  fi
+
+  mkdir -p "$package_dir/lib"
+  cp "$jar" "$package_dir/lib/graymatter-local-server.jar"
+}
+
+mkdir -p "$OUT_DIR"
+rm -rf "$WORK_DIR"
+mkdir -p "$WORK_DIR"
+
+BUNDLE_DIR="$WORK_DIR/bundle"
+PACKAGE_DIR="$WORK_DIR/graymatter-local-server"
+
+"$BOOTSTRAP" "$BUNDLE_DIR"
+
+mkdir -p "$PACKAGE_DIR"
+copytree "$BUNDLE_DIR/local-server" "$PACKAGE_DIR/source"
+cp "$PACKAGE_DIR/source/README.md" "$PACKAGE_DIR/README.md"
+cp "$PACKAGE_DIR/source/manifest.json" "$PACKAGE_DIR/manifest.json"
+copytree "$BUNDLE_DIR/application-bundle" "$PACKAGE_DIR/application-bundle"
+copytree "$PACKAGE_DIR/source/bin" "$PACKAGE_DIR/bin"
+
+run_maven_build "$PACKAGE_DIR/source" "$PACKAGE_DIR"
+rm -rf "$PACKAGE_DIR/source/target"
+
+ARCHIVE_PATH="$OUT_DIR/$ARCHIVE_NAME"
+rm -f "$ARCHIVE_PATH"
+(cd "$WORK_DIR" && tar -czf "$ARCHIVE_PATH" graymatter-local-server)
+
+printf 'Packaged %s\n' "$ARCHIVE_PATH"

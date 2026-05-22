@@ -19,13 +19,16 @@ USERNAME_SERVICE="${VALKYR_USERNAME_KEYCHAIN_SERVICE:-${KEYCHAIN_SERVICE}_USERNA
 PASSWORD_SERVICE="${VALKYR_PASSWORD_KEYCHAIN_SERVICE:-${KEYCHAIN_SERVICE}_PASSWORD}"
 USERNAME=${GRAYMATTER_USERNAME:-${VALKYR_USERNAME:-}}
 PASSWORD=${GRAYMATTER_PASSWORD:-${VALKYR_PASSWORD:-}}
-BUY_CREDITS_URL="${VALKYR_BUY_CREDITS_URL:-https://valkyrlabs.com/graymatter/credits?source=graymatter&intent=recharge&operation=memory_query}"
-HUMAN_SIGNUP_URL="${VALKYR_HUMAN_SIGNUP_URL:-https://valkyrlabs.com/graymatter/activate?source=graymatter&intent=signup&operation=memory_query}"
+BUY_CREDITS_URL_BASE="${VALKYR_BUY_CREDITS_URL:-https://valkyrlabs.com/graymatter/credits}"
+HUMAN_SIGNUP_URL_BASE="${VALKYR_HUMAN_SIGNUP_URL:-https://valkyrlabs.com/graymatter/activate}"
 LOGIN_PATH="${GRAYMATTER_LOGIN_PATH:-/auth/login}"
 FALLBACK_TMPDIR="${GRAYMATTER_TMPDIR:-${SCRIPT_DIR}/../tmp}"
 CURL_CONNECT_TIMEOUT="${GRAYMATTER_CURL_CONNECT_TIMEOUT:-5}"
 CURL_MAX_TIME="${GRAYMATTER_CURL_MAX_TIME:-20}"
 TOKEN_REFRESH_SKEW_SECONDS="${GRAYMATTER_TOKEN_REFRESH_SKEW_SECONDS:-60}"
+GRAYMATTER_INSTALL_ID="${GRAYMATTER_INSTALL_ID:-${OPENCLAW_INSTANCE_ID:-${HOSTNAME:-graymatter-install}}}"
+GRAYMATTER_ACTIVATION_SOURCE="${GRAYMATTER_ACTIVATION_SOURCE:-graymatter}"
+GRAYMATTER_ACTIVATION_RETURN_TO="${GRAYMATTER_ACTIVATION_RETURN_TO:-graymatter://activation/return}"
 
 portable_mktemp() {
   local template="${1:-graymatter.XXXXXX}"
@@ -81,28 +84,53 @@ token_is_clearly_read_only() {
   local token="${1:-}"
   local claims=""
 
-  command -v jq >/dev/null 2>&1 || return 1
-
   claims="$(token_claims_json "$token" 2>/dev/null)" || return 1
 
-  jq -e '
-    def normalized_roles:
-      ((.roles // []) + (.roleList // []) + (.authorities // []) + (.authorityList // []))
-      | map(select(type == "string"))
-      | unique;
-    def non_trivial_roles:
-      normalized_roles
-      | map(select(. != "EVERYONE" and . != "FREE"));
-    def normalized_scopes:
-      (.scopes // [])
-      | map(select(type == "string"))
-      | unique;
-    def non_readonly_scopes:
-      normalized_scopes
-      | map(select(. != "SCOPE_schema.read"));
+  if command -v jq >/dev/null 2>&1; then
+    jq -e '
+      def normalized_roles:
+        ((.roles // []) + (.roleList // []) + (.authorities // []) + (.authorityList // []))
+        | map(select(type == "string"))
+        | unique;
+      def non_trivial_roles:
+        normalized_roles
+        | map(select(. != "EVERYONE" and . != "FREE"));
+      def normalized_scopes:
+        (.scopes // [])
+        | map(select(type == "string"))
+        | unique;
+      def non_readonly_scopes:
+        normalized_scopes
+        | map(select(. != "SCOPE_schema.read"));
 
-    (non_trivial_roles | length) == 0 and (non_readonly_scopes | length) == 0
-  ' >/dev/null 2>&1 <<<"$claims"
+      (non_trivial_roles | length) == 0 and (non_readonly_scopes | length) == 0
+    ' >/dev/null 2>&1 <<<"$claims"
+    return $?
+  fi
+
+  if command -v python3 >/dev/null 2>&1; then
+    CLAIMS_JSON="$claims" python3 - <<'PY'
+import json, os, sys
+try:
+    claims = json.loads(os.environ["CLAIMS_JSON"])
+except Exception:
+    sys.exit(1)
+roles = []
+for key in ("roles", "roleList", "authorities", "authorityList"):
+    value = claims.get(key) or []
+    if isinstance(value, list):
+        roles.extend(item for item in value if isinstance(item, str))
+scopes = claims.get("scopes") or []
+if not isinstance(scopes, list):
+    scopes = []
+non_trivial_roles = [role for role in set(roles) if role not in ("EVERYONE", "FREE")]
+non_readonly_scopes = [scope for scope in set(scopes) if isinstance(scope, str) and scope != "SCOPE_schema.read"]
+sys.exit(0 if not non_trivial_roles and not non_readonly_scopes else 1)
+PY
+    return $?
+  fi
+
+  return 1
 }
 
 token_expires_soon() {
@@ -110,15 +138,33 @@ token_expires_soon() {
   local claims=""
   local now=""
 
-  command -v jq >/dev/null 2>&1 || return 1
   claims="$(token_claims_json "$token" 2>/dev/null)" || return 1
   now="$(date +%s)"
 
-  jq -e \
-    --argjson now "$now" \
-    --argjson skew "$TOKEN_REFRESH_SKEW_SECONDS" \
-    '(.exp? | type == "number") and (.exp <= ($now + $skew))' \
-    >/dev/null 2>&1 <<<"$claims"
+  if command -v jq >/dev/null 2>&1; then
+    jq -e \
+      --argjson now "$now" \
+      --argjson skew "$TOKEN_REFRESH_SKEW_SECONDS" \
+      '(.exp? | type == "number") and (.exp <= ($now + $skew))' \
+      >/dev/null 2>&1 <<<"$claims"
+    return $?
+  fi
+
+  if command -v python3 >/dev/null 2>&1; then
+    CLAIMS_JSON="$claims" NOW_SECONDS="$now" SKEW_SECONDS="$TOKEN_REFRESH_SKEW_SECONDS" python3 - <<'PY'
+import json, os, sys
+try:
+    exp = json.loads(os.environ["CLAIMS_JSON"]).get("exp")
+    now = int(os.environ["NOW_SECONDS"])
+    skew = int(os.environ["SKEW_SECONDS"])
+except Exception:
+    sys.exit(1)
+sys.exit(0 if isinstance(exp, (int, float)) and exp <= now + skew else 1)
+PY
+    return $?
+  fi
+
+  return 1
 }
 
 method_requires_write_access() {
@@ -130,6 +176,59 @@ method_requires_write_access() {
       return 1
       ;;
   esac
+}
+
+url_encode() {
+  local value="${1:-}"
+  if command -v jq >/dev/null 2>&1; then
+    jq -rn --arg value "$value" '$value|@uri'
+    return 0
+  fi
+
+  local encoded=""
+  local i char hex
+  for (( i=0; i<${#value}; i++ )); do
+    char="${value:i:1}"
+    case "$char" in
+      [a-zA-Z0-9.~_-]) encoded+="$char" ;;
+      *) printf -v hex '%%%02X' "'$char"; encoded+="$hex" ;;
+    esac
+  done
+  printf '%s\n' "$encoded"
+}
+
+append_query_param() {
+  local url="$1"
+  local key="$2"
+  local value="$3"
+  local separator="?"
+
+  [[ -n "$value" ]] || {
+    printf '%s\n' "$url"
+    return 0
+  }
+
+  if [[ "$url" == *\?* ]]; then
+    separator="&"
+  fi
+
+  printf '%s%s%s=%s\n' "$url" "$separator" "$key" "$(url_encode "$value")"
+}
+
+activation_context_url() {
+  local base_url="$1"
+  local intent="$2"
+  local operation="${GRAYMATTER_ACTIVATION_OPERATION:-memory_query}"
+  local url="$base_url"
+
+  url="$(append_query_param "$url" source "$GRAYMATTER_ACTIVATION_SOURCE")"
+  url="$(append_query_param "$url" intent "$intent")"
+  url="$(append_query_param "$url" operation "$operation")"
+  url="$(append_query_param "$url" install_id "$GRAYMATTER_INSTALL_ID")"
+  url="$(append_query_param "$url" return_to "$GRAYMATTER_ACTIVATION_RETURN_TO")"
+  url="$(append_query_param "$url" api_base "$BASE")"
+  url="$(append_query_param "$url" request_path "$PATH_PART")"
+  printf '%s\n' "$url"
 }
 
 fail_read_only_token() {
@@ -220,14 +319,21 @@ if [[ -n "$TOKEN" ]]; then
 fi
 
 show_insufficient_funds_guidance() {
-  echo "Insufficient credits. Buy credits: ${BUY_CREDITS_URL}" >&2
-  echo "Need an account? Sign up here: ${HUMAN_SIGNUP_URL}" >&2
+  local buy_credits_url
+  local human_signup_url
+
+  buy_credits_url="$(activation_context_url "$BUY_CREDITS_URL_BASE" recharge)"
+  human_signup_url="$(activation_context_url "$HUMAN_SIGNUP_URL_BASE" signup)"
+
+  echo "Insufficient credits. Buy credits: ${buy_credits_url}" >&2
+  echo "Need an account? Sign up here: ${human_signup_url}" >&2
+  echo "Activation context: install=${GRAYMATTER_INSTALL_ID} operation=${GRAYMATTER_ACTIVATION_OPERATION:-memory_query} return=${GRAYMATTER_ACTIVATION_RETURN_TO}" >&2
 
   if command -v osascript >/dev/null 2>&1; then
     if osascript >/dev/null 2>&1 <<EOF
-set buyUrl to "${BUY_CREDITS_URL}"
-set signupUrl to "${HUMAN_SIGNUP_URL}"
-set dialogText to "Your GrayMatter account has insufficient credits." & return & return & "Buy credits:" & return & buyUrl & return & return & "Human signup form:" & return & signupUrl
+set buyUrl to "${buy_credits_url}"
+set signupUrl to "${human_signup_url}"
+set dialogText to "Your GrayMatter account has insufficient credits." & return & return & "Buy credits:" & return & buyUrl & return & return & "Human signup form:" & return & signupUrl & return & return & "After signup/payment, return to GrayMatter activation and retry the blocked operation."
 set resultButton to button returned of (display dialog dialogText buttons {"Not now", "Sign up", "Buy credits"} default button "Buy credits" with title "GrayMatter Credits")
 if resultButton is "Buy credits" then
   do shell script "open " & quoted form of buyUrl
@@ -241,11 +347,11 @@ EOF
   fi
 
   if command -v powershell.exe >/dev/null 2>&1; then
-    if VALKYR_BUY_URL="$BUY_CREDITS_URL" VALKYR_SIGNUP_URL="$HUMAN_SIGNUP_URL" powershell.exe -NoProfile -Command '
+    if VALKYR_BUY_URL="$buy_credits_url" VALKYR_SIGNUP_URL="$human_signup_url" powershell.exe -NoProfile -Command '
 Add-Type -AssemblyName PresentationFramework
 $buyUrl = $env:VALKYR_BUY_URL
 $signupUrl = $env:VALKYR_SIGNUP_URL
-$message = "Your GrayMatter account has insufficient credits.`n`nYes: Buy credits`nNo: Open human signup form`n`nBuy credits:`n$buyUrl`n`nSignup:`n$signupUrl"
+$message = "Your GrayMatter account has insufficient credits.`n`nYes: Buy credits`nNo: Open human signup form`n`nBuy credits:`n$buyUrl`n`nSignup:`n$signupUrl`n`nAfter signup/payment, return to GrayMatter activation and retry the blocked operation."
 $result = [System.Windows.MessageBox]::Show($message, "GrayMatter Credits", "YesNoCancel", "Warning")
 if ($result -eq "Yes") { Start-Process $buyUrl }
 elseif ($result -eq "No") { Start-Process $signupUrl }
@@ -255,11 +361,11 @@ elseif ($result -eq "No") { Start-Process $signupUrl }
   fi
 
   if command -v open >/dev/null 2>&1; then
-    open "$BUY_CREDITS_URL" >/dev/null 2>&1 || true
+    open "$buy_credits_url" >/dev/null 2>&1 || true
   elif command -v xdg-open >/dev/null 2>&1; then
-    xdg-open "$BUY_CREDITS_URL" >/dev/null 2>&1 || true
+    xdg-open "$buy_credits_url" >/dev/null 2>&1 || true
   elif command -v cmd.exe >/dev/null 2>&1; then
-    cmd.exe /C start "" "$BUY_CREDITS_URL" >/dev/null 2>&1 || true
+    cmd.exe /C start "" "$buy_credits_url" >/dev/null 2>&1 || true
   fi
 }
 
@@ -397,6 +503,7 @@ prepare_stateful_auth_for_write() {
   if [[ -n "$refreshed_token" ]]; then
     TOKEN=$refreshed_token
     store_token "$TOKEN"
+    return 0
   fi
 
   [[ -s "$STATEFUL_COOKIE_JAR" && -n "$STATEFUL_XSRF_TOKEN" ]]

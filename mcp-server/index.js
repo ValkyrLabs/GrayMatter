@@ -19,6 +19,8 @@ const APP_SECURITY_SCHEMES = [
   { type: 'apiKey', in: 'header', name: 'X-Valkyr-Token' },
   { type: 'http', scheme: 'bearer' }
 ];
+const LOCAL_DEPLOYMENT_MODES = new Set(['local-dev', 'private-stdio']);
+const HOSTED_DEPLOYMENT_MODES = new Set(['single-tenant', 'hosted-multi-tenant']);
 
 const tools = [
   defineTool({
@@ -187,7 +189,11 @@ function createGrayMatterMcpServer(options = {}) {
   const fetchImpl = options.fetch || globalThis.fetch;
   const loginProvider = options.loginProvider || runLoginCommand;
   const loginCommand = options.loginCommand || process.env.GRAYMATTER_LOGIN_COMMAND || path.join(__dirname, '..', 'scripts', 'gm-login');
+  const deploymentMode = normalizeDeploymentMode(options.deploymentMode || process.env.GRAYMATTER_MCP_MODE || 'local-dev');
+  const allowedOrigins = parseAllowedOrigins(options.allowedOrigins || process.env.GRAYMATTER_ALLOWED_ORIGINS || widgetDomain);
+  const allowUnsafeHeaderToken = parseBoolean(options.allowUnsafeHeaderToken ?? process.env.GRAYMATTER_ALLOW_UNSAFE_HEADER_TOKEN);
   const processToken = options.token || process.env.VALKYR_AUTH_TOKEN || process.env.VALKYR_JWT_SESSION || '';
+  const security = { deploymentMode, allowedOrigins, allowUnsafeHeaderToken };
 
   if (typeof fetchImpl !== 'function') {
     throw new Error('Global fetch is required. Use Node 20 or newer.');
@@ -198,21 +204,26 @@ function createGrayMatterMcpServer(options = {}) {
       const requestUrl = new URL(req.url, 'http://127.0.0.1');
 
       if (req.method === 'OPTIONS') {
-        sendNoContent(res);
+        sendNoContent(req, res, security);
         return;
       }
 
       if (req.method === 'GET' && requestUrl.pathname === '/health') {
-        sendJson(res, 200, {
+        sendJson(req, res, 200, {
           ok: true,
           apiBase,
           tools: tools.map((tool) => tool.name)
-        });
+        }, security);
+        return;
+      }
+
+      if (req.method === 'GET' && (requestUrl.pathname === '/security' || requestUrl.pathname === '/health/auth')) {
+        sendJson(req, res, 200, authReadiness(security, Boolean(processToken)), security);
         return;
       }
 
       if (req.method === 'GET' && requestUrl.pathname === '/sse') {
-        openSseStream(req, res);
+        openSseStream(req, res, security);
         return;
       }
 
@@ -221,24 +232,25 @@ function createGrayMatterMcpServer(options = {}) {
         const rpcResponse = await handleRpc(rpcRequest, {
           apiBase,
           fetchImpl,
-          ...authContextFrom(req, processToken),
+          ...authContextFrom(req, processToken, security),
           loginCommand,
           loginProvider,
           widgetDomain
         });
 
         if (rpcResponse === null) {
-          sendNoContent(res);
+          sendNoContent(req, res, security);
           return;
         }
 
-        sendJson(res, 200, rpcResponse);
+        sendJson(req, res, 200, rpcResponse, security);
         return;
       }
 
-      sendJson(res, 404, { error: 'Not found' });
+      sendJson(req, res, 404, { error: 'Not found' }, security);
     } catch (error) {
-      sendJson(res, 500, { error: error.message });
+      const status = error && error.statusCode ? error.statusCode : 500;
+      sendJson(req, res, status, { error: error.message }, security);
     }
   });
 }
@@ -935,8 +947,13 @@ function summarizeOpenApi(spec) {
   };
 }
 
-function authContextFrom(req, processToken = '') {
+function authContextFrom(req, processToken = '', security = defaultSecurityConfig()) {
   const headerToken = req.headers['x-valkyr-token'];
+  if (headerToken && HOSTED_DEPLOYMENT_MODES.has(security.deploymentMode) && !security.allowUnsafeHeaderToken) {
+    const error = new Error('X-Valkyr-Token is disabled in hosted GrayMatter MCP mode. Use bearer/session auth or enable the explicit unsafe override for private testing.');
+    error.statusCode = 401;
+    throw error;
+  }
   if (Array.isArray(headerToken)) {
     return { token: headerToken[0] || '', requestScopedToken: Boolean(headerToken[0]) };
   }
@@ -952,6 +969,10 @@ function authContextFrom(req, processToken = '') {
     return { token: bearerMatch[1].trim(), requestScopedToken: true };
   }
 
+  if (security.deploymentMode === 'hosted-multi-tenant') {
+    return { token: '', requestScopedToken: false };
+  }
+
   return { token: processToken || process.env.VALKYR_AUTH_TOKEN || process.env.VALKYR_JWT_SESSION || '', requestScopedToken: false };
 }
 
@@ -961,9 +982,9 @@ function apiUrl(apiBase, endpoint) {
   return new URL(cleanEndpoint, base).toString();
 }
 
-function openSseStream(req, res) {
+function openSseStream(req, res, security = defaultSecurityConfig()) {
   res.writeHead(200, {
-    'access-control-allow-origin': '*',
+    ...corsHeaders(req, security),
     'cache-control': 'no-cache, no-transform',
     connection: 'keep-alive',
     'content-type': 'text/event-stream'
@@ -996,23 +1017,69 @@ function readJson(req) {
   });
 }
 
-function sendJson(res, status, payload) {
+function sendJson(req, res, status, payload, security = defaultSecurityConfig()) {
   res.writeHead(status, {
-    'access-control-allow-origin': '*',
-    'access-control-allow-headers': 'authorization,content-type,x-valkyr-token',
-    'access-control-allow-methods': 'GET,POST,OPTIONS',
+    ...corsHeaders(req, security),
     'content-type': 'application/json'
   });
   res.end(JSON.stringify(payload));
 }
 
-function sendNoContent(res) {
-  res.writeHead(204, {
-    'access-control-allow-origin': '*',
-    'access-control-allow-headers': 'authorization,content-type,x-valkyr-token',
-    'access-control-allow-methods': 'GET,POST,OPTIONS'
-  });
+function sendNoContent(req, res, security = defaultSecurityConfig()) {
+  res.writeHead(204, corsHeaders(req, security));
   res.end();
+}
+
+function defaultSecurityConfig() {
+  return { deploymentMode: 'local-dev', allowedOrigins: [], allowUnsafeHeaderToken: false };
+}
+
+function normalizeDeploymentMode(value) {
+  const mode = String(value || 'local-dev').trim();
+  if (LOCAL_DEPLOYMENT_MODES.has(mode) || HOSTED_DEPLOYMENT_MODES.has(mode)) {
+    return mode;
+  }
+  throw new Error(`Unsupported GrayMatter MCP deployment mode: ${mode}`);
+}
+
+function parseAllowedOrigins(value) {
+  const raw = Array.isArray(value) ? value : String(value || '').split(',');
+  return raw.map((origin) => withoutTrailingSlash(String(origin).trim())).filter(Boolean);
+}
+
+function parseBoolean(value) {
+  return ['1', 'true', 'yes', 'on'].includes(String(value || '').toLowerCase());
+}
+
+function corsHeaders(req, security = defaultSecurityConfig()) {
+  const headers = {
+    'access-control-allow-headers': 'authorization,content-type,x-valkyr-token',
+    'access-control-allow-methods': 'GET,POST,OPTIONS',
+    vary: 'Origin'
+  };
+
+  if (!HOSTED_DEPLOYMENT_MODES.has(security.deploymentMode)) {
+    headers['access-control-allow-origin'] = '*';
+    return headers;
+  }
+
+  const origin = withoutTrailingSlash(Array.isArray(req.headers.origin) ? req.headers.origin[0] : req.headers.origin || '');
+  if (origin && security.allowedOrigins.includes(origin)) {
+    headers['access-control-allow-origin'] = origin;
+  }
+  return headers;
+}
+
+function authReadiness(security, hasProcessToken) {
+  return {
+    ok: true,
+    deploymentMode: security.deploymentMode,
+    hostedMode: HOSTED_DEPLOYMENT_MODES.has(security.deploymentMode),
+    allowedOrigins: security.allowedOrigins,
+    xValkyrTokenAccepted: !HOSTED_DEPLOYMENT_MODES.has(security.deploymentMode) || security.allowUnsafeHeaderToken,
+    processTokenAccepted: security.deploymentMode !== 'hosted-multi-tenant',
+    processTokenConfigured: hasProcessToken
+  };
 }
 
 function toolResult(value) {

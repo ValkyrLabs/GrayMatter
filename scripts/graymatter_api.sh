@@ -249,9 +249,18 @@ store_token() {
     return 0
   fi
   if [[ -n "$USERNAME" ]]; then
-    security add-generic-password -U -a "$USERNAME" -s "$KEYCHAIN_SERVICE" -w "$token" >/dev/null
+    replace_keychain_secret "$USERNAME" "$KEYCHAIN_SERVICE" "$token"
   fi
-  security add-generic-password -U -a default -s "$KEYCHAIN_SERVICE" -w "$token" >/dev/null
+  replace_keychain_secret default "$KEYCHAIN_SERVICE" "$token"
+}
+
+replace_keychain_secret() {
+  local account="$1"
+  local service="$2"
+  local value="$3"
+
+  security delete-generic-password -a "$account" -s "$service" >/dev/null 2>&1 || true
+  security add-generic-password -U -a "$account" -s "$service" -w "$value" >/dev/null
 }
 
 run_login() {

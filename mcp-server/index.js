@@ -704,11 +704,13 @@ function buildRecoveryResult(error, operation, context) {
   const loginUrl = apiUrl(context.apiBase, process.env.GRAYMATTER_LOGIN_PATH || DEFAULT_LOGIN_PATH);
   const retryable = signal.reason === 'insufficient_credits' || signal.reason === 'missing_auth';
 
+  const recoveryActions = recoveryActionsFor(signal.reason, { buyCreditsUrl, signupUrl, loginUrl });
   const structuredContent = {
     ok: false,
     reason: signal.reason,
     blockedOperation: operation,
     message: signal.message,
+    recoveryActions,
     buyCreditsUrl,
     signupUrl,
     loginUrl,
@@ -720,7 +722,7 @@ function buildRecoveryResult(error, operation, context) {
     content: [
       {
         type: 'text',
-        text: JSON.stringify(structuredContent)
+        text: renderRecoveryText(structuredContent)
       }
     ],
     _meta: {
@@ -729,6 +731,7 @@ function buildRecoveryResult(error, operation, context) {
           reason: signal.reason,
           blockedOperation: operation,
           retryable,
+          actions: recoveryActions,
           urls: { buyCreditsUrl, signupUrl, loginUrl }
         },
         debug: {
@@ -740,6 +743,36 @@ function buildRecoveryResult(error, operation, context) {
       }
     }
   };
+}
+
+function recoveryActionsFor(reason, urls) {
+  switch (reason) {
+    case 'insufficient_credits':
+      return [
+        { id: 'buy_credits', label: 'Buy GrayMatter credits', url: urls.buyCreditsUrl, primary: true },
+        { id: 'create_account', label: 'Create or upgrade an account', url: urls.signupUrl, primary: false },
+        { id: 'sign_in', label: 'Sign in with a funded workspace', url: urls.loginUrl, primary: false }
+      ];
+    case 'missing_auth':
+      return [
+        { id: 'sign_in', label: 'Sign in to GrayMatter', url: urls.loginUrl, primary: true },
+        { id: 'create_account', label: 'Create an account', url: urls.signupUrl, primary: false }
+      ];
+    case 'read_only_auth':
+      return [
+        { id: 'sign_in', label: 'Switch to a write-capable account', url: urls.loginUrl, primary: true },
+        { id: 'buy_credits', label: 'Buy credits for the target workspace', url: urls.buyCreditsUrl, primary: false }
+      ];
+    default:
+      return [{ id: 'sign_in', label: 'Sign in to GrayMatter', url: urls.loginUrl, primary: true }];
+  }
+}
+
+function renderRecoveryText(structuredContent) {
+  const actions = (structuredContent.recoveryActions || [])
+    .map((action) => `${action.label}: ${action.url}`)
+    .join('\n');
+  return `${structuredContent.message}\n\nRecovery actions:\n${actions}`;
 }
 
 function classifyRecoveryReason(error) {

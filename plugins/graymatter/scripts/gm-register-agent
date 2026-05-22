@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+INSTANCE_ID="${1:-${HOSTNAME:-openclaw-instance}}"
+AGENT_NAME="${2:-${OPENCLAW_AGENT_NAME:-Valor}}"
+ROLE_LABEL="${3:-openclaw-server}"
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+METADATA="$(jq -nc \
+  --arg name "$AGENT_NAME" \
+  --arg role "$ROLE_LABEL" \
+  --arg host "$(hostname 2>/dev/null || echo unknown-host)" \
+  --arg platform "OpenClaw" \
+  --arg memory "GrayMatter" \
+  '{name:$name,role:$role,host:$host,platform:$platform,primaryMemory:$memory}')"
+
+PAYLOAD="$(jq -nc --arg instanceId "$INSTANCE_ID" --argjson metadata "$METADATA" '{instanceId:$instanceId,metadata:$metadata}')"
+
+"${SCRIPT_DIR}/graymatter_api.sh" POST /swarmOps/register "$PAYLOAD"

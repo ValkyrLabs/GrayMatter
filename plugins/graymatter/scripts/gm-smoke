@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SOURCE_CHANNEL="${1:-graymatter-smoke}"
+STAMP="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+TEXT="GrayMatter smoke test ${STAMP}"
+
+printf '==> Writing smoke-test MemoryEntry\n' >&2
+WRITE_RAW="$(${SCRIPT_DIR}/gm-write context "$TEXT" "$SOURCE_CHANNEL")"
+printf '%s\n' "$WRITE_RAW"
+
+printf '==> Querying for the smoke-test MemoryEntry\n' >&2
+QUERY_RAW="$(${SCRIPT_DIR}/gm-query "$TEXT" 5 context "$SOURCE_CHANNEL")"
+printf '%s\n' "$QUERY_RAW"
+
+if printf '%s' "$QUERY_RAW" | grep -Fq "$TEXT"; then
+  printf 'GrayMatter smoke test passed\n' >&2
+else
+  printf 'GrayMatter smoke test failed: query response did not contain expected text\n' >&2
+  exit 1
+fi

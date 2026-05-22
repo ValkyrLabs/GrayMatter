@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ENTITY="${1:-}"
+ARG2="${2:-}"
+ARG3="${3:-}"
+
+if [[ -z "$ENTITY" ]]; then
+  echo "Usage:" >&2
+  echo "  gm-entity <Entity>                # list via GET /<Entity>" >&2
+  echo "  gm-entity <Entity> <id>           # get via GET /<Entity>/<id>" >&2
+  echo "  gm-entity <Entity> POST '<json>'  # create via POST /<Entity>" >&2
+  echo "  gm-entity <Entity> PUT  '<json>'  # replace via PUT /<Entity>" >&2
+  echo "  gm-entity <Entity> PATCH '<json>' # patch via PATCH /<Entity>" >&2
+  exit 1
+fi
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+if [[ -z "$ARG2" ]]; then
+  exec "${SCRIPT_DIR}/graymatter_api.sh" GET "/${ENTITY}"
+fi
+
+case "$ARG2" in
+  GET|get|POST|post|PUT|put|PATCH|patch|DELETE|delete)
+    METHOD="$(printf '%s' "$ARG2" | tr '[:lower:]' '[:upper:]')"
+    BODY="${ARG3:-}"
+    exec "${SCRIPT_DIR}/graymatter_api.sh" "$METHOD" "/${ENTITY}" "$BODY"
+    ;;
+  *)
+    exec "${SCRIPT_DIR}/graymatter_api.sh" GET "/${ENTITY}/${ARG2}"
+    ;;
+esac

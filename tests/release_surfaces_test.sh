@@ -16,9 +16,27 @@ require jq -e '.mcpServers == "./.mcp.json"' "$ROOT/.codex-plugin/plugin.json" >
 require jq -e '.keywords | index("mcp")' "$ROOT/.codex-plugin/plugin.json" >/dev/null
 require jq -e '.interface.capabilities | index("Interactive")' "$ROOT/.codex-plugin/plugin.json" >/dev/null
 require jq -e '.interface.longDescription | contains("mcp-server")' "$ROOT/.codex-plugin/plugin.json" >/dev/null
+require jq -e '.plugins[] | select(.name == "graymatter") | .source.path == "./plugins/graymatter"' "$ROOT/.agents/plugins/marketplace.json" >/dev/null
 
 require jq -e '.mcpServers.graymatter.command == "node"' "$ROOT/.mcp.json" >/dev/null
 require jq -e '.mcpServers.graymatter.args == ["mcp-server/index.js", "--stdio"]' "$ROOT/.mcp.json" >/dev/null
+
+require jq -e '.name == "graymatter"' "$ROOT/plugins/graymatter/.codex-plugin/plugin.json" >/dev/null
+require jq -e '.skills == "./skills/"' "$ROOT/plugins/graymatter/.codex-plugin/plugin.json" >/dev/null
+require jq -e '.mcpServers == "./.mcp.json"' "$ROOT/plugins/graymatter/.codex-plugin/plugin.json" >/dev/null
+require jq -e '.mcpServers.graymatter.args == ["mcp-server/index.js", "--stdio"]' "$ROOT/plugins/graymatter/.mcp.json" >/dev/null
+[[ -f "$ROOT/plugins/graymatter/skills/graymatter/SKILL.md" ]] || {
+  echo "Codex marketplace plugin skill missing" >&2
+  exit 1
+}
+[[ -x "$ROOT/plugins/graymatter/scripts/gm-activate" ]] || {
+  echo "Codex marketplace plugin activation script missing or not executable" >&2
+  exit 1
+}
+[[ -f "$ROOT/plugins/graymatter/mcp-server/index.js" ]] || {
+  echo "Codex marketplace plugin MCP server missing" >&2
+  exit 1
+}
 
 require jq -e '.scripts.start == "node index.js"' "$ROOT/mcp-server/package.json" >/dev/null
 require jq -e '.scripts.stdio == "node index.js --stdio"' "$ROOT/mcp-server/package.json" >/dev/null

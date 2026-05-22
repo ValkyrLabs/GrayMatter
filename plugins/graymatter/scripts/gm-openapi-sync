@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+OUT_JSON="${1:-${ROOT}/tmp/api-docs.json}"
+mkdir -p "$(dirname "$OUT_JSON")"
+
+TMP_JSON="$(mktemp -t graymatter-api-docs.XXXXXX)"
+cleanup() {
+  rm -f "$TMP_JSON"
+}
+trap cleanup EXIT
+
+"${SCRIPT_DIR}/graymatter_api.sh" GET /api-docs >"$TMP_JSON"
+
+if command -v jq >/dev/null 2>&1; then
+  jq . "$TMP_JSON" >"$OUT_JSON"
+else
+  cp "$TMP_JSON" "$OUT_JSON"
+fi
+
+printf '%s\n' "$OUT_JSON"

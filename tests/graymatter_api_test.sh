@@ -477,6 +477,42 @@ test_insufficient_funds_write_creates_deferred_replay_record() {
 }
 
 with_fixture test_insufficient_funds_write_creates_deferred_replay_record
+test_insufficient_funds_urls_do_not_leak_token_or_memory_body() {
+  local temp_root="$1"
+  local fake_bin="$2"
+  local script_copy="$3"
+
+  export TEST_CURL_SCENARIO="insufficient-funds"
+  export TEST_OSASCRIPT_STATUS="0"
+  export VALKYR_BUY_CREDITS_URL="https://example.com/buy"
+  export VALKYR_HUMAN_SIGNUP_URL="https://example.com/signup"
+  export VALKYR_AUTH_TOKEN="super-secret-token"
+
+  local result
+  local status=0
+  local output
+  local secret_body="secret-memory-body-do-not-leak"
+
+  set +e
+  result="$(
+    PATH="${fake_bin}:/usr/bin:/bin" \
+    TMPDIR="${temp_root}" \
+    "${script_copy}" POST /MemoryEntry "{\"type\":\"context\",\"text\":\"${secret_body}\"}" 2>&1
+  )"
+  status=$?
+  set -e
+  output="$(printf '%s\n' "${result}")"
+
+  [[ "${status}" == "22" ]] || fail "graymatter_api should return 22 for credit-gated writes"
+  if [[ "${output}" == *"super-secret-token"* ]]; then
+    fail "graymatter_api should never place auth tokens in credit-recovery URLs or guidance output"
+  fi
+  if [[ "${output}" == *"${secret_body}"* ]]; then
+    fail "graymatter_api should never place raw memory payload text in credit-recovery URLs or guidance output"
+  fi
+}
+
+with_fixture test_insufficient_funds_urls_do_not_leak_token_or_memory_body
 test_unauthorized_refreshes_token_from_keychain_credentials() {
   local temp_root="$1"
   local fake_bin="$2"

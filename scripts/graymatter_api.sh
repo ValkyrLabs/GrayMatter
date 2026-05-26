@@ -29,6 +29,8 @@ TOKEN_REFRESH_SKEW_SECONDS="${GRAYMATTER_TOKEN_REFRESH_SKEW_SECONDS:-60}"
 GRAYMATTER_INSTALL_ID="${GRAYMATTER_INSTALL_ID:-${OPENCLAW_INSTANCE_ID:-${HOSTNAME:-graymatter-install}}}"
 GRAYMATTER_ACTIVATION_SOURCE="${GRAYMATTER_ACTIVATION_SOURCE:-graymatter}"
 GRAYMATTER_ACTIVATION_RETURN_TO="${GRAYMATTER_ACTIVATION_RETURN_TO:-graymatter://activation/return}"
+GRAYMATTER_DEFERRED_DIR="${GRAYMATTER_DEFERRED_DIR:-${SCRIPT_DIR}/../memory/deferred-ops}"
+GRAYMATTER_SKIP_DEFERRED="${GRAYMATTER_SKIP_DEFERRED:-false}"
 
 portable_mktemp() {
   local template="${1:-graymatter.XXXXXX}"
@@ -292,15 +294,45 @@ if [[ -n "$TOKEN" ]]; then
 fi
 
 show_insufficient_funds_guidance() {
+  local response_file="${1:-}"
   local buy_credits_url
   local human_signup_url
+  local required_credits=""
+  local current_balance=""
+  local trace_id=""
+  local operation_kind="memory_query"
+  local deferred_file=""
+
+  operation_kind="$(determine_operation_kind)"
+  GRAYMATTER_ACTIVATION_OPERATION="$operation_kind"
+
+  if [[ -n "$response_file" ]] && command -v jq >/dev/null 2>&1; then
+    required_credits="$(jq -r '.requiredCredits // .required_credits // .required // .details.requiredCredits // empty' "$response_file" 2>/dev/null || true)"
+    current_balance="$(jq -r '.currentBalance // .balance // .details.currentBalance // empty' "$response_file" 2>/dev/null || true)"
+    trace_id="$(jq -r '.traceId // .trace_id // .details.traceId // empty' "$response_file" 2>/dev/null || true)"
+  fi
 
   buy_credits_url="$(activation_context_url "$BUY_CREDITS_URL_BASE" recharge)"
   human_signup_url="$(activation_context_url "$HUMAN_SIGNUP_URL_BASE" signup)"
+  buy_credits_url="$(append_query_param "$buy_credits_url" required_credits "$required_credits")"
+  buy_credits_url="$(append_query_param "$buy_credits_url" current_balance "$current_balance")"
+  buy_credits_url="$(append_query_param "$buy_credits_url" trace_id "$trace_id")"
 
   echo "Insufficient credits. Buy credits: ${buy_credits_url}" >&2
   echo "Need an account? Sign up here: ${human_signup_url}" >&2
+  if [[ -n "$required_credits" ]]; then
+    echo "Recharge ${required_credits} credits to complete ${operation_kind}." >&2
+  fi
+  if [[ -n "$current_balance" ]]; then
+    echo "Current balance: ${current_balance}" >&2
+  fi
   echo "Activation context: install=${GRAYMATTER_INSTALL_ID} operation=${GRAYMATTER_ACTIVATION_OPERATION:-memory_query} return=${GRAYMATTER_ACTIVATION_RETURN_TO}" >&2
+
+  deferred_file="$(create_deferred_operation "$response_file" "$operation_kind")"
+  if [[ -n "$deferred_file" ]]; then
+    echo "Stored locally for replay: ${deferred_file}" >&2
+    echo "Run scripts/gm-replay-deferred to retry after recharge." >&2
+  fi
 
   if command -v osascript >/dev/null 2>&1; then
     if osascript >/dev/null 2>&1 <<EOF
@@ -340,6 +372,125 @@ elseif ($result -eq "No") { Start-Process $signupUrl }
   elif command -v cmd.exe >/dev/null 2>&1; then
     cmd.exe /C start "" "$buy_credits_url" >/dev/null 2>&1 || true
   fi
+}
+
+determine_operation_kind() {
+  local normalized_path="${PATH_PART#/}"
+  if [[ "$METHOD_UPPER" == "GET" ]]; then
+    if [[ "$normalized_path" == "MemoryEntry/query"* ]]; then
+      printf 'memory_query\n'
+      return 0
+    fi
+    printf 'memory_read\n'
+    return 0
+  fi
+  if [[ "$normalized_path" == "MemoryEntry"* ]]; then
+    printf 'memory_write\n'
+    return 0
+  fi
+  if [[ "$normalized_path" == "Entity"* ]]; then
+    printf 'entity_write\n'
+    return 0
+  fi
+  if [[ "$normalized_path" == "Graph"* ]]; then
+    printf 'graph_write\n'
+    return 0
+  fi
+  printf 'api_write\n'
+}
+
+request_is_replay_safe() {
+  local normalized_path="${PATH_PART#/}"
+  case "$METHOD_UPPER" in
+    POST|PUT|PATCH|DELETE)
+      [[ "$normalized_path" == "MemoryEntry"* || "$normalized_path" == "Entity"* || "$normalized_path" == "Graph"* ]]
+      return $?
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+create_deferred_operation() {
+  local response_file="${1:-}"
+  local operation_kind="${2:-api_write}"
+  local op_id=""
+  local target_file=""
+  local body_file=""
+  local trace_id=""
+  local required_credits=""
+  local current_balance=""
+
+  [[ "$GRAYMATTER_SKIP_DEFERRED" == "true" ]] && return 0
+  request_is_replay_safe || return 0
+
+  if [[ -n "$response_file" ]] && command -v jq >/dev/null 2>&1; then
+    trace_id="$(jq -r '.traceId // .trace_id // .details.traceId // empty' "$response_file" 2>/dev/null || true)"
+    required_credits="$(jq -r '.requiredCredits // .required_credits // .required // .details.requiredCredits // empty' "$response_file" 2>/dev/null || true)"
+    current_balance="$(jq -r '.currentBalance // .balance // .details.currentBalance // empty' "$response_file" 2>/dev/null || true)"
+  fi
+
+  op_id="$(date +%Y%m%dT%H%M%SZ)-$$-$(od -An -N4 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n')"
+  mkdir -p "$GRAYMATTER_DEFERRED_DIR"
+  target_file="${GRAYMATTER_DEFERRED_DIR%/}/${op_id}.json"
+  body_file="$(portable_mktemp graymatter-deferred-body.XXXXXX)"
+  printf '%s' "$BODY" >"$body_file"
+
+  if command -v jq >/dev/null 2>&1; then
+    jq -n \
+      --arg id "$op_id" \
+      --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+      --arg method "$METHOD_UPPER" \
+      --arg path "$PATH_PART" \
+      --arg body "$BODY" \
+      --arg operation "$operation_kind" \
+      --arg api_base "$BASE" \
+      --arg install_id "$GRAYMATTER_INSTALL_ID" \
+      --arg source "$GRAYMATTER_ACTIVATION_SOURCE" \
+      --arg trace_id "$trace_id" \
+      --arg required_credits "$required_credits" \
+      --arg current_balance "$current_balance" \
+      --arg body_sha "$(shasum -a 256 "$body_file" | awk '{print $1}')" \
+      '{
+        id:$id,
+        createdAt:$ts,
+        method:$method,
+        path:$path,
+        body:$body,
+        operation:$operation,
+        apiBase:$api_base,
+        installId:$install_id,
+        source:$source,
+        traceId:$trace_id,
+        requiredCredits:$required_credits,
+        currentBalance:$current_balance,
+        bodySha256:$body_sha
+      }' >"$target_file"
+    rm -f "$body_file"
+    printf '%s\n' "$target_file"
+    return 0
+  fi
+
+  {
+    printf '{'
+    printf '"id":"%s",' "$op_id"
+    printf '"createdAt":"%s",' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    printf '"method":"%s",' "$METHOD_UPPER"
+    printf '"path":"%s",' "$PATH_PART"
+    printf '"body":"%s",' "$(printf '%s' "$BODY" | sed 's/\\/\\\\/g; s/"/\\"/g')"
+    printf '"operation":"%s",' "$operation_kind"
+    printf '"apiBase":"%s",' "$BASE"
+    printf '"installId":"%s",' "$GRAYMATTER_INSTALL_ID"
+    printf '"source":"%s",' "$GRAYMATTER_ACTIVATION_SOURCE"
+    printf '"traceId":"%s",' "$trace_id"
+    printf '"requiredCredits":"%s",' "$required_credits"
+    printf '"currentBalance":"%s",' "$current_balance"
+    printf '"bodySha256":"%s"' "$(shasum -a 256 "$body_file" | awk '{print $1}')"
+    printf '}'
+  } >"$target_file"
+  rm -f "$body_file"
+  printf '%s\n' "$target_file"
 }
 
 RESPONSE_FILE="$(portable_mktemp graymatter-response.XXXXXX)"
@@ -580,10 +731,10 @@ if [[ "$HTTP_STATUS" =~ ^[0-9]{3}$ ]] && (( HTTP_STATUS >= 400 )); then
 
   if command -v jq >/dev/null 2>&1; then
     if jq -e '.error == "INSUFFICIENT_FUNDS" or .insufficientFunds == true' "$RESPONSE_FILE" >/dev/null 2>&1; then
-      show_insufficient_funds_guidance
+      show_insufficient_funds_guidance "$RESPONSE_FILE"
     fi
   elif grep -q "INSUFFICIENT_FUNDS" "$RESPONSE_FILE" 2>/dev/null; then
-    show_insufficient_funds_guidance
+    show_insufficient_funds_guidance "$RESPONSE_FILE"
   fi
 
   exit 22

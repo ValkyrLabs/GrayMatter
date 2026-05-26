@@ -98,7 +98,7 @@ case "${TEST_CURL_SCENARIO:-success}" in
     fi
     ;;
   insufficient-funds)
-    printf '{"error":"INSUFFICIENT_FUNDS","insufficientFunds":true}\n' >"${out_file}"
+    printf '{"error":"INSUFFICIENT_FUNDS","insufficientFunds":true,"requiredCredits":50,"currentBalance":"0.00","traceId":"trace-402"}\n' >"${out_file}"
     if [[ -n "$headers_file" ]]; then
       printf 'HTTP/1.1 402 Payment Required\n' >"${headers_file}"
     fi
@@ -411,7 +411,7 @@ test_insufficient_funds_shows_links_and_uses_macos_prompt() {
   assert_contains "${output}" "source=graymatter" "graymatter_api should preserve source attribution in activation links"
   assert_contains "${output}" "intent=recharge" "graymatter_api should tag buy-credit activation intent"
   assert_contains "${output}" "intent=signup" "graymatter_api should tag signup activation intent"
-  assert_contains "${output}" "operation=memory_query" "graymatter_api should preserve the credit-gated operation"
+  assert_contains "${output}" "operation=memory_read" "graymatter_api should preserve the credit-gated operation"
   assert_contains "${output}" "install_id=" "graymatter_api should include the install id for returnable activation"
   assert_contains "${output}" "request_path=%2FMemoryEntry%2Fstats" "graymatter_api should include the blocked request path"
   assert_contains "${output}" "Activation context:" "graymatter_api should print terminal fallback activation context"
@@ -444,6 +444,39 @@ test_insufficient_funds_falls_back_to_windows_prompt() {
 with_fixture test_success_passthrough
 with_fixture test_insufficient_funds_shows_links_and_uses_macos_prompt
 with_fixture test_insufficient_funds_falls_back_to_windows_prompt
+test_insufficient_funds_write_creates_deferred_replay_record() {
+  local temp_root="$1"
+  local fake_bin="$2"
+  local script_copy="$3"
+
+  export TEST_CURL_SCENARIO="insufficient-funds"
+  export TEST_OSASCRIPT_STATUS="0"
+  export GRAYMATTER_DEFERRED_DIR="${temp_root}/deferred"
+
+  local result
+  local status=0
+  local output
+
+  set +e
+  result="$(
+    PATH="${fake_bin}:/usr/bin:/bin" \
+    TMPDIR="${temp_root}" \
+    VALKYR_AUTH_TOKEN=test-token \
+    "${script_copy}" POST /MemoryEntry '{"type":"context","text":"hello"}' 2>&1
+  )"
+  status=$?
+  set -e
+  output="$(printf '%s\n' "${result}")"
+
+  [[ "${status}" == "22" ]] || fail "graymatter_api should return 22 for credit-gated writes"
+  assert_contains "${output}" "Stored locally for replay:" "graymatter_api should persist replay-safe writes for deferred retry"
+  assert_contains "${output}" "Run scripts/gm-replay-deferred" "graymatter_api should provide a one-command replay path"
+  local deferred_count
+  deferred_count="$(find "${temp_root}/deferred" -type f -name '*.json' | wc -l | tr -d ' ')"
+  [[ "$deferred_count" == "1" ]] || fail "graymatter_api should create exactly one deferred operation record"
+}
+
+with_fixture test_insufficient_funds_write_creates_deferred_replay_record
 test_unauthorized_refreshes_token_from_keychain_credentials() {
   local temp_root="$1"
   local fake_bin="$2"

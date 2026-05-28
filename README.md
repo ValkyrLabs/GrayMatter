@@ -24,8 +24,9 @@ GrayMatter is the memory and context layer for business-native agent systems.
 
 It is designed so an OpenClaw instance can:
 - read and write `GrayMatter` and `MemoryEntry` records
-- coordinate through graph state using `SwarmOps`
-- understand the **entire available schema** exposed by the tenant/account
+- retrieve memory through explicit Retrieval Receipts that expose confidence, freshness, provenance, policy, and next-action signals
+- use the **entire RBAC-visible schema** exposed by the tenant/account as its object graph
+- coordinate agents through `SwarmOps`
 - adapt to the actual business environment, for example customers, invoices, products, notes, files, workflows, tasks, CMS-like content, strategy objects, and sales records
 - use file-based memory only as bootstrap or fallback
 
@@ -55,8 +56,8 @@ Primary targets:
 - `/MemoryEntry/query`
 - `/MemoryEntry/read`
 - `/MemoryEntry/write`
+- `/graymatter-retrieval-receipts`
 - `/GrayMatter`
-- `/SwarmOps/graph`
 
 Typical `MemoryEntry.type` values:
 - `decision`
@@ -64,6 +65,20 @@ Typical `MemoryEntry.type` values:
 - `context`
 - `artifact`
 - `preference`
+
+### Retrieval Receipts
+
+For answer grounding, prefer receipt-backed retrieval over raw memory search when the agent intends to answer from memory.
+
+Retrieval Receipts turn a memory lookup into an auditable transaction:
+- `retrievalStatus` tells the agent whether the lookup was strong, empty, stale, conflicted, or low confidence
+- `answerPolicy` tells the agent whether it may answer, must caveat, must retry, must clarify, or must deny
+- `recommendedAction` tells the next move before generation
+- `quality`, `coverage`, `provenance`, and `policy` explain why
+- `receiptId` and `traceId` let downstream logs and audits connect the answer to the memory lookup
+
+Agent rule:
+When a Retrieval Receipt is present, inspect `answerPolicy` before answering. Do not answer confidently when it is `DO_NOT_ANSWER_CONFIDENTLY`, `REQUIRE_RETRY`, `REQUIRE_CLARIFICATION`, or `DENY`.
 
 ## Entire-schema capability
 
@@ -108,6 +123,8 @@ The current live endpoint exposes a large domain surface, including 100+ tags an
 
 This is what makes GrayMatter powerful: the agent can become deeply context-aware inside the business without overreaching beyond granted permissions.
 
+SwarmOps remains important, but as the agentic coordination slice of the object graph: registration, tracking, and swarm protocol state for Codex/OpenClaw and peer agents. Business relationships should use the broader RBAC-visible schema directly.
+
 ## Safety model
 
 GrayMatter is powerful because access is authenticated and tenant-scoped.
@@ -130,6 +147,7 @@ Rule:
 - `scripts/gm-install-check` — dependency and auth readiness check
 - `scripts/gm-smoke` — production smoke test for write/query validation
 - `scripts/gm-query` — query `MemoryEntry`
+- `scripts/gm-retrieval-receipt` — create, fetch, and list retrieval receipts through ThorAPI
 - `scripts/gm-write` — write `MemoryEntry`, with tagged-write fallback behavior
 - `scripts/gm-fallback-append` — append failed writes to local replay queue at `memory/graymatter-fallback.json`
 - `scripts/gm-graph` — inspect Swarm graph endpoints
@@ -146,7 +164,7 @@ Rule:
 - `scripts/gm-light-json-smoke` — JSON-file fallback smoke test for Light payload shape without ThorAPI
 - `scripts/package-local-server` — package the standalone downloadable GrayMatter Local Server archive
 - `scripts/package-graymatter` — deterministic validation and packaging
-- `mcp-server/` — standalone HTTP/SSE and Apps SDK `/mcp` server for GrayMatter memory, graph, entity, schema, and overview tools
+- `mcp-server/` — standalone HTTP/SSE and Apps SDK `/mcp` server for GrayMatter memory, retrieval receipt, graph, entity, schema, and overview tools
 - `docs/architecture.md` — architecture and operating model
 - `docs/openai-app-directory-submission.md` — Apps SDK submission checklist and copy
 - `docs/privacy-policy.md` — GrayMatter-specific public privacy policy source
@@ -242,10 +260,11 @@ GrayMatter counts as launch-ready only if a fresh user can:
 2. authenticate successfully
 3. pass install validation
 4. write and query a `MemoryEntry`
-5. inspect graph state
-6. register the OpenClaw instance as an Agent in api-0
-7. fetch and summarize the live OpenAPI
-8. inspect at least one live entity family from the business schema
+5. create a Retrieval Receipt for a memory query and inspect `answerPolicy`
+6. inspect graph state
+7. register the OpenClaw instance as an Agent in api-0
+8. fetch and summarize the live OpenAPI
+9. inspect at least one live entity family from the business schema
 
 If those do not work, the skill is not truly ready.
 
@@ -266,6 +285,13 @@ That startup model is now part of the GrayMatter launch plan.
 ```bash
 scripts/gm-write decision "GrayMatter is primary memory for this instance"
 scripts/gm-query "GrayMatter" 10
+```
+
+Receipt-backed retrieval:
+
+```bash
+scripts/gm-retrieval-receipt create "GrayMatter launch status" 8 DEFAULT
+scripts/gm-retrieval-receipt list --status LOW_CONFIDENCE --limit 20
 ```
 
 ### Scoped memory

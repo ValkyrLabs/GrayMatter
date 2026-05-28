@@ -69,6 +69,9 @@ The server also implements `resources/list` and `resources/read` for the Apps SD
 | `memory_write` | `POST /MemoryEntry` | Write a durable `MemoryEntry` (`decision`, `todo`, `context`, `artifact`, or `preference`). |
 | `memory_read` | `GET /MemoryEntry/{id}` | Read a `MemoryEntry` by ID. |
 | `memory_query` | `POST /MemoryEntry/query` | Semantic search across GrayMatter memory. Hosted api-0 may consume credits. |
+| `memory_retrieve_with_receipt` | `POST /graymatter-retrieval-receipts` | Search memory and return a Retrieval Receipt with quality, provenance, policy, and recommended action signals. |
+| `retrieval_receipt_get` | `GET /graymatter-retrieval-receipts/{receiptId}` | Fetch one persisted Retrieval Receipt for audit/debug workflows. |
+| `retrieval_receipt_query` | `GET /graymatter-retrieval-receipts` | List receipts by trace, agent, workflow, status, or time range. |
 | `graph_get` | `GET /SwarmOps/graph` | Inspect the SwarmOps shared object graph. |
 | `entity_list` | `GET /{entityType}` | List business entities such as `Customer`, `Task`, `Invoice`, or `Goal`. |
 | `entity_get` | `GET /{entityType}/{id}` | Fetch a single entity by type and ID. |
@@ -92,6 +95,17 @@ Supported fields:
 - `scopePath`
 
 When `sourceChannel` is not provided, the server derives it from the strongest available scope. A path like `$HOME/.codex/automations/mcp-and-skill-hunter/memory.md` becomes `codex:automation:mcp-and-skill-hunter`; a Codex workspace path under `Documents/Codex/<date>/<slug>` becomes `codex:workspace:<date>/<slug>`. `memory_write` preserves the hierarchy in a compact `[graymatter-scope]` header inside `MemoryEntry.text`, while `memory_query` sends the derived value as the api-0 `source` filter.
+
+## Retrieval Receipts
+
+Use `memory_retrieve_with_receipt` when an agent intends to answer from GrayMatter memory. The returned receipt includes `retrievalStatus`, `answerPolicy`, `recommendedAction`, score breakdowns, coverage, provenance, policy decisions, `receiptId`, and `traceId`.
+
+Agents should inspect `answerPolicy` before generation:
+- `ALLOW_ANSWER` means the retrieved context is acceptable for answering.
+- `ALLOW_WITH_CAVEAT` means answer with uncertainty or provenance.
+- `DO_NOT_ANSWER_CONFIDENTLY`, `REQUIRE_RETRY`, `REQUIRE_CLARIFICATION`, and `DENY` mean the agent should not present a confident memory-grounded answer.
+
+Use `retrieval_receipt_get` and `retrieval_receipt_query` for audit trails, debugging, retry chains, and low-confidence retrieval inspection.
 
 ## Connect to Claude.ai
 
@@ -154,4 +168,4 @@ CMD ["node", "index.js"]
 
 ## Credits
 
-Some hosted GrayMatter operations, notably `memory_query`, consume api-0 credits. Fresh signups should receive 500 starter credits automatically. Recharge at <https://valkyrlabs.com/buy-credits>.
+Some hosted GrayMatter operations, notably `memory_query` and receipt-backed retrieval/evaluation lanes, consume api-0 credits. Fresh signups should receive 500 starter credits automatically. Recharge at <https://valkyrlabs.com/buy-credits>.

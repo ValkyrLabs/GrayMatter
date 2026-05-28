@@ -88,6 +88,79 @@ const tools = [
     invoked: 'Memory search ready'
   }),
   defineTool({
+    name: 'memory_retrieve_with_receipt',
+    title: 'Retrieve memory with receipt',
+    description: 'Search GrayMatter memory and return a retrieval receipt with quality, provenance, policy, and recommended next action signals.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: { type: 'string' },
+        agentId: { type: 'string' },
+        workflowId: { type: 'string' },
+        tenantId: { type: 'string' },
+        topK: { type: 'integer', minimum: 1, maximum: 100 },
+        retrievalMode: { type: 'string', enum: ['VECTOR', 'KEYWORD', 'HYBRID', 'SCHEMA_FILTERED', 'RECENCY_BIASED'] },
+        includeItems: { type: 'boolean' },
+        includeText: { type: 'boolean' },
+        includeEvaluator: { type: 'boolean' },
+        qualityProfile: { type: 'string', enum: ['FAST', 'DEFAULT', 'STRICT', 'ENTERPRISE_AUDIT'] },
+        filters: { type: 'object', additionalProperties: true }
+      },
+      required: ['query']
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true, idempotentHint: false },
+    invoking: 'Retrieving memory with receipt',
+    invoked: 'Retrieval receipt ready'
+  }),
+  defineTool({
+    name: 'retrieval_receipt_get',
+    title: 'Get retrieval receipt',
+    description: 'Fetch a persisted GrayMatter retrieval receipt by receiptId for audit or debugging.',
+    inputSchema: {
+      type: 'object',
+      properties: { receiptId: { type: 'string' } },
+      required: ['receiptId']
+    },
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true, idempotentHint: true },
+    invoking: 'Reading retrieval receipt',
+    invoked: 'Retrieval receipt ready'
+  }),
+  defineTool({
+    name: 'retrieval_receipt_query',
+    title: 'Query retrieval receipts',
+    description: 'List GrayMatter retrieval receipts by trace, agent, workflow, status, or time range.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        traceId: { type: 'string' },
+        agentId: { type: 'string' },
+        workflowId: { type: 'string' },
+        retrievalStatus: {
+          type: 'string',
+          enum: [
+            'OK',
+            'NO_RESULTS',
+            'LOW_CONFIDENCE',
+            'PARTIAL_COVERAGE',
+            'STALE_CONTEXT',
+            'CONFLICTING_CONTEXT',
+            'ACCESS_DENIED',
+            'POLICY_REDACTED',
+            'EVALUATOR_REJECTED',
+            'RETRY_REQUIRED',
+            'ERROR'
+          ]
+        },
+        from: { type: 'string', format: 'date-time' },
+        to: { type: 'string', format: 'date-time' },
+        limit: { type: 'integer', minimum: 1, maximum: 200 }
+      }
+    },
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true, idempotentHint: true },
+    invoking: 'Querying retrieval receipts',
+    invoked: 'Retrieval receipts ready'
+  }),
+  defineTool({
     name: 'graph_get',
     title: 'Get graph',
     description: 'Inspect the SwarmOps shared object graph.',
@@ -153,7 +226,7 @@ const tools = [
   defineTool({
     name: 'show_graymatter_overview',
     title: 'Show GrayMatter overview',
-    description: 'Render an overview of the GrayMatter memory, graph, and schema tools for the current ChatGPT app session.',
+    description: 'Render an overview of the GrayMatter memory, retrieval receipt, graph, and schema tools for the current ChatGPT app session.',
     inputSchema: { type: 'object', properties: {} },
     outputSchema: {
       type: 'object',
@@ -356,6 +429,14 @@ async function callTool(params, context) {
     case 'memory_query':
       requireString(args.query, 'query');
       return execute('memory_query', () => apiRequest(context, 'POST', 'MemoryEntry/query', buildMemoryQueryPayload(args)));
+    case 'memory_retrieve_with_receipt':
+      requireString(args.query, 'query');
+      return execute('memory_retrieve_with_receipt', () => apiRequest(context, 'POST', 'graymatter-retrieval-receipts', buildRetrievalReceiptPayload(args)));
+    case 'retrieval_receipt_get':
+      requireString(args.receiptId, 'receiptId');
+      return execute('retrieval_receipt_get', () => apiRequest(context, 'GET', `graymatter-retrieval-receipts/${encodeURIComponent(args.receiptId)}`));
+    case 'retrieval_receipt_query':
+      return execute('retrieval_receipt_query', () => apiRequest(context, 'GET', buildRetrievalReceiptQueryEndpoint(args)));
     case 'graph_get': {
       const graphPath = args.path ? `SwarmOps/graph/${trimSlashes(args.path)}` : 'SwarmOps/graph';
       return execute('graph_get', () => apiRequest(context, 'GET', graphPath));
@@ -428,7 +509,7 @@ function appResourceDescriptor() {
     uri: APP_UI_RESOURCE_URI,
     name: 'GrayMatter overview',
     title: 'GrayMatter overview',
-    description: 'Overview card for GrayMatter durable memory and schema tools.',
+    description: 'Overview card for GrayMatter durable memory, retrieval receipts, and schema tools.',
     mimeType: 'text/html;profile=mcp-app'
   };
 }
@@ -460,7 +541,7 @@ function resourceMeta(widgetDomain) {
         resourceDomains: [widgetDomain]
       }
     },
-    'openai/widgetDescription': 'GrayMatter overview for durable memory, graph, and schema tools.',
+    'openai/widgetDescription': 'GrayMatter overview for durable memory, retrieval receipts, graph, and schema tools.',
     'openai/widgetPrefersBorder': true,
     'openai/widgetDomain': widgetDomain,
     'openai/widgetCSP': {
@@ -483,7 +564,7 @@ function overviewToolResult() {
     content: [
       {
         type: 'text',
-        text: 'GrayMatter exposes durable memory, shared graph, and ValkyrAI schema tools through an Apps SDK-ready MCP endpoint.'
+        text: 'GrayMatter exposes durable memory, retrieval receipts, shared graph, and ValkyrAI schema tools through an Apps SDK-ready MCP endpoint.'
       }
     ]
   };
@@ -556,9 +637,10 @@ function overviewWidgetHtml() {
   <body>
     <main class="card">
       <h1>GrayMatter</h1>
-      <p>Durable memory, graph context, and live ValkyrAI schema access for agent workflows.</p>
+      <p>Durable memory, retrieval receipts, graph context, and live ValkyrAI schema access for agent workflows.</p>
       <ul>
         <li>Store decisions, todos, preferences, context, and artifacts as MemoryEntry records.</li>
+        <li>Retrieve memory with receipts so agents inspect confidence and answer policy before responding.</li>
         <li>Search prior memory semantically before acting in a new chat or automation.</li>
         <li>Inspect RBAC-scoped business entities and schema metadata through api-0.</li>
       </ul>
@@ -810,6 +892,41 @@ function buildMemoryQueryPayload(args) {
   }
 
   return payload;
+}
+
+function buildRetrievalReceiptPayload(args) {
+  const payload = pickDefined({
+    query: args.query,
+    agentId: args.agentId,
+    workflowId: args.workflowId,
+    tenantId: args.tenantId,
+    topK: args.topK,
+    retrievalMode: args.retrievalMode,
+    includeItems: args.includeItems,
+    includeText: args.includeText,
+    includeEvaluator: args.includeEvaluator,
+    qualityProfile: args.qualityProfile
+  });
+
+  if (args.filters !== undefined) {
+    if (!args.filters || typeof args.filters !== 'object' || Array.isArray(args.filters)) {
+      throw new Error('filters must be an object');
+    }
+    payload.filters = args.filters;
+  }
+
+  return payload;
+}
+
+function buildRetrievalReceiptQueryEndpoint(args) {
+  const query = new URLSearchParams();
+  for (const key of ['traceId', 'agentId', 'workflowId', 'retrievalStatus', 'from', 'to', 'limit']) {
+    if (args[key] !== undefined && args[key] !== null && String(args[key]).length > 0) {
+      query.set(key, String(args[key]));
+    }
+  }
+  const suffix = query.toString() ? `?${query}` : '';
+  return `graymatter-retrieval-receipts${suffix}`;
 }
 
 function memoryScopeMetadata(args) {

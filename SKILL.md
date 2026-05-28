@@ -64,8 +64,8 @@ Use these first:
 - `/MemoryEntry/query`
 - `/MemoryEntry/read`
 - `/MemoryEntry/write`
+- `/graymatter-retrieval-receipts`
 - `/GrayMatter`
-- `/SwarmOps/graph`
 
 Use `MemoryEntry.type` intentionally:
 - `decision`
@@ -74,10 +74,20 @@ Use `MemoryEntry.type` intentionally:
 - `artifact`
 - `preference`
 
+Use Retrieval Receipts when an agent is going to answer from memory.
+Receipt-backed retrieval exposes `retrievalStatus`, `answerPolicy`, `recommendedAction`, quality scores, provenance, coverage, and policy decisions.
+
+When GrayMatter returns a Retrieval Receipt:
+- obey `answerPolicy`
+- do not answer confidently if the policy is `DO_NOT_ANSWER_CONFIDENTLY`, `REQUIRE_RETRY`, `REQUIRE_CLARIFICATION`, or `DENY`
+- if status is `LOW_CONFIDENCE`, `STALE_CONTEXT`, `PARTIAL_COVERAGE`, or `CONFLICTING_CONTEXT`, retry retrieval, ask a clarifying question, or state uncertainty
+- preserve `receiptId` and `traceId` in internal logs when available
+
 ### 2) Entire-schema awareness
 
 Load the live OpenAPI spec and use it to understand the organization's environment.
 This skill assumes the agent should understand and work across the available schema, not just memory endpoints.
+The entire RBAC-visible schema is available to GrayMatter as the operational object graph for the current account.
 
 Observed live schema domains from `api-0` include, among many others:
 - `Organization`
@@ -107,11 +117,14 @@ This means a properly authenticated OpenClaw instance can understand the busines
 
 ### 3) Shared graph coordination
 
-Use SwarmOps and related graph endpoints when relationships matter:
+Use SwarmOps and related graph endpoints for the agentic coordination portion of the object graph:
+- registering Codex/OpenClaw or other agents
+- agentic tracking
 - bot coordination
-- entity relationships
 - workflow ownership
-- operating context that spans objects and agents
+- operating context that spans agents
+
+Use the broader RBAC-visible schema, not SwarmOps alone, for business object relationships such as customers, opportunities, invoices, files, goals, tasks, workflows, notes, and content records.
 
 ## Scripts
 
@@ -130,6 +143,7 @@ Readiness and auth:
 Memory and graph helpers:
 - `scripts/gm-write`
 - `scripts/gm-query`
+- `scripts/gm-retrieval-receipt`
 - `scripts/gm-graph`
 - `scripts/gm-entity`
 
@@ -141,7 +155,7 @@ Local/server packaging:
 - `scripts/package-local-server`
 
 MCP server:
-- `mcp-server/` exposes `memory_write`, `memory_read`, `memory_query`, `graph_get`, `entity_list`, `entity_get`, `entity_create`, and `schema_summary`
+- `mcp-server/` exposes `memory_write`, `memory_read`, `memory_query`, `memory_retrieve_with_receipt`, `retrieval_receipt_get`, `retrieval_receipt_query`, `graph_get`, `entity_list`, `entity_get`, `entity_create`, and `schema_summary`
 - set `VALKYR_API_BASE` to hosted api-0 for Cloud mode or to the running GrayMatter Light base URL for local ThorAPI mode
 
 Design boundary:
@@ -202,6 +216,9 @@ After that, GrayMatter is ready to use as primary durable memory and schema cont
 ```bash
 # query durable memory
 scripts/gm-query "graymatter launch" 10
+
+# retrieve memory with an auditable receipt before answering
+scripts/gm-retrieval-receipt create "graymatter launch status" 8 DEFAULT
 
 # write durable context
 scripts/gm-write context "GrayMatter is primary memory for this OpenClaw instance"

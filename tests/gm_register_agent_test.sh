@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SCRIPT_SRC="${ROOT}/scripts/gm-register-agent"
+
+fail() {
+  printf 'FAIL: %s\n' "$1" >&2
+  exit 1
+}
+
+assert_contains() {
+  local haystack="$1"
+  local needle="$2"
+  local message="$3"
+  if [[ "$haystack" != *"$needle"* ]]; then
+    fail "$message"
+  fi
+}
+
+temp_root="$(mktemp -d)"
+script_dir="${temp_root}/scripts"
+mkdir -p "${script_dir}"
+
+cp "${SCRIPT_SRC}" "${script_dir}/gm-register-agent"
+chmod +x "${script_dir}/gm-register-agent"
+
+cat >"${script_dir}/graymatter_api.sh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+printf 'method=%s\npath=%s\nbody=%s\n' "$1" "$2" "$3" >"${TEST_API_LOG}"
+EOF
+chmod +x "${script_dir}/graymatter_api.sh"
+
+export TEST_API_LOG="${temp_root}/api.log"
+
+"${script_dir}/gm-register-agent" "codex-test-instance" "Codex" "coding-agent"
+
+log="$(cat "${TEST_API_LOG}")"
+assert_contains "${log}" "method=POST" "gm-register-agent should POST to the agent registration endpoint"
+assert_contains "${log}" "path=/swarm-ops/register" "gm-register-agent should use the SwarmOps registration route"
+assert_contains "${log}" '"instanceId":"codex-test-instance"' "gm-register-agent should include the instance id"
+assert_contains "${log}" '"name":"Codex"' "gm-register-agent should identify the agent runtime"
+assert_contains "${log}" '"role":"coding-agent"' "gm-register-agent should include the agent role"
+assert_contains "${log}" '"primaryMemory":"GrayMatter"' "gm-register-agent should advertise GrayMatter as the memory layer"
+
+printf 'PASS: gm_register_agent_test.sh\n'

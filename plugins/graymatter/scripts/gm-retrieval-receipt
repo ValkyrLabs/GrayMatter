@@ -1,0 +1,118 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+usage() {
+  cat <<'EOF'
+Usage:
+  gm-retrieval-receipt create <query> [topK] [qualityProfile]
+  gm-retrieval-receipt get <receiptId>
+  gm-retrieval-receipt list [--status STATUS] [--trace-id ID] [--agent-id ID] [--workflow-id ID] [--from ISO] [--to ISO] [--limit N]
+
+Examples:
+  gm-retrieval-receipt create "current pricing model" 8 DEFAULT
+  gm-retrieval-receipt get gm_rr_123
+  gm-retrieval-receipt list --status LOW_CONFIDENCE --limit 20
+EOF
+}
+
+command -v jq >/dev/null 2>&1 || {
+  echo "gm-retrieval-receipt requires jq" >&2
+  exit 1
+}
+
+cmd="${1:-}"
+if [[ -z "$cmd" || "$cmd" == "-h" || "$cmd" == "--help" ]]; then
+  usage
+  exit 0
+fi
+shift
+
+append_query_param() {
+  local url="$1"
+  local key="$2"
+  local value="$3"
+  local separator="?"
+
+  [[ -n "$value" ]] || {
+    printf '%s\n' "$url"
+    return 0
+  }
+
+  if [[ "$url" == *\?* ]]; then
+    separator="&"
+  fi
+
+  printf '%s%s%s=%s\n' "$url" "$separator" "$key" "$(jq -rn --arg value "$value" '$value|@uri')"
+}
+
+case "$cmd" in
+  create)
+    query="${1:-}"
+    top_k="${2:-8}"
+    quality_profile="${3:-DEFAULT}"
+    if [[ -z "$query" ]]; then
+      usage >&2
+      exit 1
+    fi
+    body="$(jq -nc \
+      --arg query "$query" \
+      --argjson topK "$top_k" \
+      --arg qualityProfile "$quality_profile" \
+      '{query:$query,topK:$topK,retrievalMode:"HYBRID",includeItems:true,includeText:false,includeEvaluator:false,qualityProfile:$qualityProfile}')"
+    "${SCRIPT_DIR}/graymatter_api.sh" POST /graymatter-retrieval-receipts "$body"
+    ;;
+  get)
+    receipt_id="${1:-}"
+    if [[ -z "$receipt_id" ]]; then
+      usage >&2
+      exit 1
+    fi
+    "${SCRIPT_DIR}/graymatter_api.sh" GET "/graymatter-retrieval-receipts/${receipt_id}"
+    ;;
+  list|query)
+    path="/graymatter-retrieval-receipts"
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --status|--retrieval-status)
+          path="$(append_query_param "$path" retrievalStatus "${2:-}")"
+          shift 2
+          ;;
+        --trace-id)
+          path="$(append_query_param "$path" traceId "${2:-}")"
+          shift 2
+          ;;
+        --agent-id)
+          path="$(append_query_param "$path" agentId "${2:-}")"
+          shift 2
+          ;;
+        --workflow-id)
+          path="$(append_query_param "$path" workflowId "${2:-}")"
+          shift 2
+          ;;
+        --from)
+          path="$(append_query_param "$path" from "${2:-}")"
+          shift 2
+          ;;
+        --to)
+          path="$(append_query_param "$path" to "${2:-}")"
+          shift 2
+          ;;
+        --limit)
+          path="$(append_query_param "$path" limit "${2:-}")"
+          shift 2
+          ;;
+        *)
+          echo "Unknown gm-retrieval-receipt option: $1" >&2
+          exit 1
+          ;;
+      esac
+    done
+    "${SCRIPT_DIR}/graymatter_api.sh" GET "$path"
+    ;;
+  *)
+    usage >&2
+    exit 1
+    ;;
+esac

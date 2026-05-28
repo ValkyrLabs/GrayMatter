@@ -9,7 +9,7 @@
     "version": {"const": "v1"},
     "tools": {
       "type": "array",
-      "minItems": 7,
+      "minItems": 10,
       "items": {
         "type": "object",
         "required": ["name", "inputSchema", "outputSchema", "errors"],
@@ -19,6 +19,9 @@
             "type": "string",
             "enum": [
               "memory_query",
+              "memory_retrieve_with_receipt",
+              "retrieval_receipt_get",
+              "retrieval_receipt_query",
               "memory_get",
               "memory_put",
               "memory_put_batch",

@@ -14,6 +14,7 @@ REQUIRED=(
   mcp-server/index.js
   mcp-server/package.json
   scripts/gm-query
+  scripts/gm-retrieval-receipt
   scripts/gm-graph
   scripts/gm-write
   scripts/gm-login

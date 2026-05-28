@@ -2,7 +2,7 @@
 
 ## Overview
 
-GrayMatter is the durable memory layer for agentic workflows.
+GrayMatter is the durable memory and RBAC-scoped object-graph layer for agentic workflows.
 
 It separates into two practical operating modes:
 - **Cloud** for shared production memory and graph state
@@ -31,10 +31,11 @@ Design goal:
 
 ### Graph state
 
-Graph state is the higher-order coordination layer.
+Graph state is the RBAC-visible object layer exposed by the live ValkyrAI schema.
 Use it when relations matter, not just isolated memory entries.
 
 Examples:
+- customers, opportunities, invoices, products, files, goals, and tasks
 - workflow ownership
 - bot coordination
 - entity relationships
@@ -42,7 +43,8 @@ Examples:
 
 Recommended concurrency split:
 - use `MemoryEntry` for compact facts, decisions, todos, artifacts, and handoffs
-- use graph state for ownership, dependencies, and multi-object workflow coordination
+- use the broader schema as the object graph for business records, ownership, dependencies, and multi-object workflow coordination
+- use SwarmOps specifically for agent registration, agentic tracking, and swarm coordination between agents
 
 ## Mode 1: GrayMatter Cloud
 
@@ -51,7 +53,24 @@ Backed by production ValkyrAI/api-0 endpoints.
 Primary endpoints:
 - `/MemoryEntry`
 - `/MemoryEntry/query`
-- `/SwarmOps/graph`
+- `/graymatter-retrieval-receipts`
+
+Primary object-graph source:
+- live `api-0` OpenAPI schema, bounded by the authenticated account's RBAC
+
+### Retrieval Receipts
+
+Retrieval Receipts are the trust-aware memory lookup path. Raw `MemoryEntry/query` remains useful for direct search, but agents should use `/graymatter-retrieval-receipts` when they plan to answer from retrieved memory.
+
+A receipt captures:
+- what query and strategy were used
+- which records were found
+- score, freshness, source diversity, coverage, authority, completeness, and contradiction signals
+- RBAC, tenant-scope, and redaction decisions
+- `answerPolicy` and `recommendedAction`
+- `receiptId` and `traceId` for answer/audit linkage
+
+The MCP layer exposes this as `memory_retrieve_with_receipt`, `retrieval_receipt_get`, and `retrieval_receipt_query`. It does not reimplement scoring locally; it calls the ThorAPI receipt endpoint and returns the generated transaction object.
 
 Use cloud mode when you need:
 - shared durable memory

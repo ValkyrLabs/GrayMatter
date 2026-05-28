@@ -14,11 +14,15 @@ Make GrayMatter the shared memory platform through one client core, one tool con
 
 ### Exit criteria
 - A shared client module owns auth, retries, timeout policy, and error normalization.
-- Durable memory operations (`MemoryEntry`, `GrayMatter`, `SwarmOps`) route through the shared client.
+- Durable memory operations (`MemoryEntry`, `GrayMatter`) route through the shared client.
+- Receipt-backed retrieval routes through ThorAPI `/graymatter-retrieval-receipts` and is exposed by scripts, the skill, and MCP without local scoring duplication.
+- RBAC-visible schema operations may be used by GrayMatter as the live object graph for the current account, including business entities and coordination entities.
+- SwarmOps is part of that object graph for agent registration, agentic tracking, and swarm coordination between agents; it should not be treated as a memory-entry operation.
 - Existing script-level callers are converted to the shared client or thin wrappers over it.
 
 ### Deliverables
 - Shared client package in-repo with stable function signatures.
+- Retrieval Receipt helper surface for creating, fetching, and querying receipt-backed memory transactions.
 - Contract tests for success, auth-failure, transient failure, and fallback enqueue paths.
 
 ## Phase 2: MCP tool contract definition
@@ -28,6 +32,7 @@ Make GrayMatter the shared memory platform through one client core, one tool con
 
 ### Exit criteria
 - Contract defines tool names, inputs, outputs, and error envelopes for memory/graph operations.
+- Contract includes Retrieval Receipt operations and the agent obligation to inspect `answerPolicy` before answering from memory.
 - Contract distinguishes durable memory writes from strategic/KPI/business-record writes.
 - Contract includes idempotency and pagination conventions.
 

@@ -160,6 +160,9 @@ test('stdio mode exposes the GrayMatter MCP tools for Codex plugin launch', asyn
         'memory_write',
         'memory_read',
         'memory_query',
+        'memory_retrieve_with_receipt',
+        'retrieval_receipt_get',
+        'retrieval_receipt_query',
         'graph_get',
         'entity_list',
         'entity_get',
@@ -289,7 +292,7 @@ test('resources expose the GrayMatter Apps SDK overview widget', async () => {
         uri: 'ui://graymatter/overview.html',
         name: 'GrayMatter overview',
         title: 'GrayMatter overview',
-        description: 'Overview card for GrayMatter durable memory and schema tools.',
+        description: 'Overview card for GrayMatter durable memory, retrieval receipts, and schema tools.',
         mimeType: 'text/html;profile=mcp-app'
       }
     ]);
@@ -334,6 +337,9 @@ test('tools/list exposes the GrayMatter tool surface', async () => {
         'memory_write',
         'memory_read',
         'memory_query',
+        'memory_retrieve_with_receipt',
+        'retrieval_receipt_get',
+        'retrieval_receipt_query',
         'graph_get',
         'entity_list',
         'entity_get',
@@ -394,6 +400,90 @@ test('memory_read, memory_query, and graph_get route to api-0', async () => {
     assert.deepEqual(JSON.parse(readResult.body.result.content[0].text), { id: 'mem-42', text: 'remembered' });
     assert.deepEqual(JSON.parse(queryResult.body.result.content[0].text), { results: [{ id: 'mem-42' }] });
     assert.deepEqual(JSON.parse(graphResult.body.result.content[0].text), { nodes: [], edges: [] });
+    assert.equal(fakeApi.requests.length, 3);
+  } finally {
+    server.close();
+    fakeApi.server.close();
+  }
+});
+
+test('retrieval receipt tools route to the ThorAPI receipt surface', async () => {
+  const fakeApi = createFakeApi(async (_req, res, record) => {
+    res.writeHead(200, { 'content-type': 'application/json' });
+    if (record.path === '/v1/graymatter-retrieval-receipts' && record.method === 'POST') {
+      assert.equal(record.body.query, 'current pricing');
+      assert.equal(record.body.topK, 8);
+      assert.equal(record.body.retrievalMode, 'HYBRID');
+      assert.equal(record.body.qualityProfile, 'DEFAULT');
+      assert.equal(record.body.includeItems, true);
+      assert.equal(record.body.includeText, false);
+      assert.deepEqual(record.body.filters, { entityTypes: ['pricing_strategy'] });
+      res.end(JSON.stringify({
+        receipt: {
+          receiptId: 'gm_rr_123',
+          traceId: 'gm_trace_123',
+          retrievalStatus: 'OK',
+          answerPolicy: 'ALLOW_ANSWER',
+          recommendedAction: 'ANSWER'
+        }
+      }));
+      return;
+    }
+    if (record.path === '/v1/graymatter-retrieval-receipts/gm_rr_123' && record.method === 'GET') {
+      res.end(JSON.stringify({ receipt: { receiptId: 'gm_rr_123' } }));
+      return;
+    }
+    if (record.path === '/v1/graymatter-retrieval-receipts' && record.method === 'GET') {
+      assert.equal(record.query.get('retrievalStatus'), 'LOW_CONFIDENCE');
+      assert.equal(record.query.get('agentId'), 'agent-1');
+      assert.equal(record.query.get('limit'), '5');
+      res.end(JSON.stringify([{ receiptId: 'gm_rr_low' }]));
+      return;
+    }
+    throw new Error(`Unexpected ${record.method} ${record.path}`);
+  });
+
+  const apiBase = await listen(fakeApi.server);
+  const server = createGrayMatterMcpServer({ apiBase: `${apiBase}/v1` });
+  const baseUrl = await listen(server);
+
+  try {
+    const createResult = await postRpc(baseUrl, {
+      jsonrpc: '2.0',
+      id: 'receipt-create',
+      method: 'tools/call',
+      params: {
+        name: 'memory_retrieve_with_receipt',
+        arguments: {
+          query: 'current pricing',
+          topK: 8,
+          retrievalMode: 'HYBRID',
+          qualityProfile: 'DEFAULT',
+          includeItems: true,
+          includeText: false,
+          filters: { entityTypes: ['pricing_strategy'] }
+        }
+      }
+    });
+    const getResult = await postRpc(baseUrl, {
+      jsonrpc: '2.0',
+      id: 'receipt-get',
+      method: 'tools/call',
+      params: { name: 'retrieval_receipt_get', arguments: { receiptId: 'gm_rr_123' } }
+    });
+    const queryResult = await postRpc(baseUrl, {
+      jsonrpc: '2.0',
+      id: 'receipt-query',
+      method: 'tools/call',
+      params: {
+        name: 'retrieval_receipt_query',
+        arguments: { retrievalStatus: 'LOW_CONFIDENCE', agentId: 'agent-1', limit: 5 }
+      }
+    });
+
+    assert.deepEqual(JSON.parse(createResult.body.result.content[0].text).receipt.answerPolicy, 'ALLOW_ANSWER');
+    assert.deepEqual(JSON.parse(getResult.body.result.content[0].text), { receipt: { receiptId: 'gm_rr_123' } });
+    assert.deepEqual(JSON.parse(queryResult.body.result.content[0].text), [{ receiptId: 'gm_rr_low' }]);
     assert.equal(fakeApi.requests.length, 3);
   } finally {
     server.close();

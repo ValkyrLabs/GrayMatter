@@ -40,8 +40,12 @@ log="$(cat "${TEST_API_LOG}")"
 assert_contains "${log}" "method=POST" "gm-register-agent should POST to the agent registration endpoint"
 assert_contains "${log}" "path=/swarm-ops/register" "gm-register-agent should use the SwarmOps registration route"
 assert_contains "${log}" '"instanceId":"codex-test-instance"' "gm-register-agent should include the instance id"
-assert_contains "${log}" '"name":"Codex"' "gm-register-agent should identify the agent runtime"
-assert_contains "${log}" '"role":"coding-agent"' "gm-register-agent should include the agent role"
-assert_contains "${log}" '"primaryMemory":"GrayMatter"' "gm-register-agent should advertise GrayMatter as the memory layer"
+
+body="$(awk -F'body=' '/^body=/{print $2}' "${TEST_API_LOG}")"
+metadata="$(jq -r '.metadata' <<<"${body}")"
+jq -e '.metadata | type == "string"' <<<"${body}" >/dev/null || fail "gm-register-agent should send metadata as a JSON string"
+assert_contains "${metadata}" '"name":"Codex"' "gm-register-agent should identify the agent runtime"
+assert_contains "${metadata}" '"role":"coding-agent"' "gm-register-agent should include the agent role"
+assert_contains "${metadata}" '"primaryMemory":"GrayMatter"' "gm-register-agent should advertise GrayMatter as the memory layer"
 
 printf 'PASS: gm_register_agent_test.sh\n'

@@ -9,8 +9,8 @@ const { URL } = require('node:url');
 
 const DEFAULT_API_BASE = 'https://api-0.valkyrlabs.com/v1';
 const DEFAULT_WIDGET_DOMAIN = 'https://graymatter.valkyrlabs.com';
-const DEFAULT_BUY_CREDITS_URL = 'https://valkyrlabs.com/buy-credits';
-const DEFAULT_SIGNUP_URL = 'https://valkyrlabs.com/funnel/white-paper';
+const DEFAULT_BUY_CREDITS_URL = 'https://valkyrlabs.com/graymatter/credits';
+const DEFAULT_SIGNUP_URL = 'https://valkyrlabs.com/graymatter/activate';
 const DEFAULT_LOGIN_PATH = '/auth/login';
 const DEFAULT_PORT = 3333;
 const APP_UI_RESOURCE_URI = 'ui://graymatter/overview.html';
@@ -781,10 +781,23 @@ function buildRecoveryResult(error, operation, context) {
     return null;
   }
 
-  const buyCreditsUrl = process.env.VALKYR_BUY_CREDITS_URL || DEFAULT_BUY_CREDITS_URL;
-  const signupUrl = process.env.VALKYR_HUMAN_SIGNUP_URL || DEFAULT_SIGNUP_URL;
+  const recoveryDetails = extractRecoveryDetails(error.payload);
+  const buyCreditsUrl = recoveryUrl(process.env.VALKYR_BUY_CREDITS_URL || DEFAULT_BUY_CREDITS_URL, {
+    intent: 'recharge',
+    operation,
+    endpoint: error.endpoint,
+    ...recoveryDetails
+  });
+  const signupUrl = recoveryUrl(process.env.VALKYR_HUMAN_SIGNUP_URL || DEFAULT_SIGNUP_URL, {
+    intent: signal.reason === 'starter_credits_missing' ? 'starter_credit_repair' : 'signup',
+    operation,
+    endpoint: error.endpoint,
+    ...recoveryDetails
+  });
   const loginUrl = apiUrl(context.apiBase, process.env.GRAYMATTER_LOGIN_PATH || DEFAULT_LOGIN_PATH);
-  const retryable = signal.reason === 'insufficient_credits' || signal.reason === 'missing_auth';
+  const retryable = signal.reason === 'insufficient_credits'
+    || signal.reason === 'starter_credits_missing'
+    || signal.reason === 'missing_auth';
 
   const recoveryActions = recoveryActionsFor(signal.reason, { buyCreditsUrl, signupUrl, loginUrl });
   const structuredContent = {
@@ -796,6 +809,11 @@ function buildRecoveryResult(error, operation, context) {
     buyCreditsUrl,
     signupUrl,
     loginUrl,
+    requiredCredits: recoveryDetails.requiredCredits,
+    currentBalance: recoveryDetails.currentBalance,
+    traceId: recoveryDetails.traceId,
+    accountId: recoveryDetails.accountId,
+    workspaceId: recoveryDetails.workspaceId,
     retryable
   };
 
@@ -813,6 +831,11 @@ function buildRecoveryResult(error, operation, context) {
           reason: signal.reason,
           blockedOperation: operation,
           retryable,
+          requiredCredits: recoveryDetails.requiredCredits,
+          currentBalance: recoveryDetails.currentBalance,
+          traceId: recoveryDetails.traceId,
+          accountId: recoveryDetails.accountId,
+          workspaceId: recoveryDetails.workspaceId,
           actions: recoveryActions,
           urls: { buyCreditsUrl, signupUrl, loginUrl }
         },
@@ -835,6 +858,12 @@ function recoveryActionsFor(reason, urls) {
         { id: 'create_account', label: 'Create or upgrade an account', url: urls.signupUrl, primary: false },
         { id: 'sign_in', label: 'Sign in with a funded workspace', url: urls.loginUrl, primary: false }
       ];
+    case 'starter_credits_missing':
+      return [
+        { id: 'repair_starter_credits', label: 'Repair missing starter credits', url: urls.signupUrl, primary: true },
+        { id: 'buy_credits', label: 'Buy GrayMatter credits', url: urls.buyCreditsUrl, primary: false },
+        { id: 'sign_in', label: 'Sign in with a funded workspace', url: urls.loginUrl, primary: false }
+      ];
     case 'missing_auth':
       return [
         { id: 'sign_in', label: 'Sign in to GrayMatter', url: urls.loginUrl, primary: true },
@@ -854,7 +883,13 @@ function renderRecoveryText(structuredContent) {
   const actions = (structuredContent.recoveryActions || [])
     .map((action) => `${action.label}: ${action.url}`)
     .join('\n');
-  return `${structuredContent.message}\n\nRecovery actions:\n${actions}`;
+  const details = [
+    structuredContent.requiredCredits ? `Required credits: ${structuredContent.requiredCredits}` : '',
+    structuredContent.currentBalance ? `Current balance: ${structuredContent.currentBalance}` : '',
+    structuredContent.traceId ? `Trace ID: ${structuredContent.traceId}` : ''
+  ].filter(Boolean).join('\n');
+  const detailsBlock = details ? `\n\n${details}` : '';
+  return `${structuredContent.message}${detailsBlock}\n\nRecovery actions:\n${actions}`;
 }
 
 function classifyRecoveryReason(error) {
@@ -864,6 +899,12 @@ function classifyRecoveryReason(error) {
   const lowerText = bodyText.toLowerCase();
 
   if (error.status === 402 || upperText.includes('INSUFFICIENT_FUNDS') || lowerText.includes('insufficient') && lowerText.includes('credit')) {
+    if (starterCreditsMissing(payload, lowerText)) {
+      return {
+        reason: 'starter_credits_missing',
+        message: 'GrayMatter starter credits are missing for this workspace. Repair the starter grant or fund the workspace, then retry.'
+      };
+    }
     return {
       reason: 'insufficient_credits',
       message: 'GrayMatter needs credits before this operation can continue. Buy credits or sign up, then retry.'
@@ -891,6 +932,81 @@ function classifyRecoveryReason(error) {
   }
 
   return null;
+}
+
+function extractRecoveryDetails(payload) {
+  return {
+    requiredCredits: firstPayloadValue(payload, ['requiredCredits'], ['required_credits'], ['required'], ['details', 'requiredCredits']),
+    currentBalance: firstPayloadValue(payload, ['currentBalance'], ['balance'], ['details', 'currentBalance']),
+    traceId: firstPayloadValue(payload, ['traceId'], ['trace_id'], ['details', 'traceId']),
+    accountId: firstPayloadValue(payload, ['accountId'], ['account_id'], ['details', 'accountId']),
+    workspaceId: firstPayloadValue(payload, ['workspaceId'], ['workspace_id'], ['organizationId'], ['orgId'], ['details', 'workspaceId'])
+  };
+}
+
+function firstPayloadValue(payload, ...paths) {
+  if (!payload || typeof payload !== 'object') {
+    return undefined;
+  }
+
+  for (const pathParts of paths) {
+    let cursor = payload;
+    for (const part of pathParts) {
+      if (!cursor || typeof cursor !== 'object' || !Object.prototype.hasOwnProperty.call(cursor, part)) {
+        cursor = undefined;
+        break;
+      }
+      cursor = cursor[part];
+    }
+    if (cursor !== undefined && cursor !== null && cursor !== '') {
+      return String(cursor);
+    }
+  }
+
+  return undefined;
+}
+
+function starterCreditsMissing(payload, lowerText) {
+  const explicit = firstPayloadValue(
+    payload,
+    ['starterCreditsMissing'],
+    ['starter_credits_missing'],
+    ['details', 'starterCreditsMissing'],
+    ['details', 'starter_credits_missing']
+  );
+  if (explicit && explicit !== 'false') {
+    return true;
+  }
+  return lowerText.includes('starter') && lowerText.includes('credit') && (lowerText.includes('missing') || lowerText.includes('grant'));
+}
+
+function recoveryUrl(baseUrl, details) {
+  let url;
+  try {
+    url = new URL(baseUrl);
+  } catch {
+    return baseUrl;
+  }
+
+  const params = {
+    source: 'graymatter',
+    intent: details.intent,
+    operation: details.operation,
+    request_path: details.endpoint,
+    required_credits: details.requiredCredits,
+    current_balance: details.currentBalance,
+    trace_id: details.traceId,
+    account_id: details.accountId,
+    workspace_id: details.workspaceId
+  };
+
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== null && value !== '') {
+      url.searchParams.set(key, String(value));
+    }
+  }
+
+  return url.toString();
 }
 
 function buildMemoryWritePayload(args) {

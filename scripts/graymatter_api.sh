@@ -6,6 +6,10 @@ PATH_PART="${2:-}"
 BODY="${3:-}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+if [[ "${GRAYMATTER_SKIP_SELF_UPDATE:-false}" != "true" && -x "${SCRIPT_DIR}/gm-self-update" ]]; then
+  GRAYMATTER_SELF_UPDATE_QUIET="${GRAYMATTER_SELF_UPDATE_QUIET:-true}" "${SCRIPT_DIR}/gm-self-update" maybe || true
+fi
+
 if [[ -z "$METHOD" || -z "$PATH_PART" ]]; then
   echo "Usage: $0 <GET|POST|PUT|PATCH|DELETE> <path> [json-body]" >&2
   exit 1

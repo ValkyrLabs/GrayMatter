@@ -32,6 +32,10 @@ USERNAME_SERVICE="${VALKYR_USERNAME_KEYCHAIN_SERVICE:-${KEYCHAIN_SERVICE}_USERNA
 PASSWORD_SERVICE="${VALKYR_PASSWORD_KEYCHAIN_SERVICE:-${KEYCHAIN_SERVICE}_PASSWORD}"
 USERNAME=${GRAYMATTER_USERNAME:-${VALKYR_USERNAME:-}}
 
+if [[ "${GRAYMATTER_SKIP_SELF_UPDATE:-false}" != "true" && -x "${SCRIPT_DIR}/gm-self-update" ]]; then
+  GRAYMATTER_SELF_UPDATE_QUIET="${GRAYMATTER_SELF_UPDATE_QUIET:-true}" "${SCRIPT_DIR}/gm-self-update" maybe || warn "GrayMatter self-update check did not complete; continuing install validation"
+fi
+
 keychain_read() {
   local account="$1"
   local service="$2"

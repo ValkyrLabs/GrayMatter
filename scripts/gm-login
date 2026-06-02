@@ -13,6 +13,8 @@ USERNAME=${GRAYMATTER_USERNAME:-${VALKYR_USERNAME:-}}
 PASSWORD=${GRAYMATTER_PASSWORD:-${VALKYR_PASSWORD:-}}
 FALLBACK_TMPDIR="${GRAYMATTER_TMPDIR:-${SCRIPT_DIR}/../tmp}"
 ALLOW_READONLY_TOKEN=${GRAYMATTER_ALLOW_READONLY_TOKEN:-0}
+CURL_CONNECT_TIMEOUT="${GRAYMATTER_CURL_CONNECT_TIMEOUT:-5}"
+CURL_MAX_TIME="${GRAYMATTER_CURL_MAX_TIME:-20}"
 
 portable_mktemp() {
   local template="$1"
@@ -180,7 +182,10 @@ if [[ -z "$PASSWORD" ]]; then
 fi
 
 set +e
-RESPONSE="$(curl --fail-with-body -sS -D "$HEADERS_FILE" -c "$COOKIE_JAR" -X POST "$LOGIN_URL" \
+RESPONSE="$(curl --fail-with-body -sS \
+  --connect-timeout "$CURL_CONNECT_TIMEOUT" \
+  --max-time "$CURL_MAX_TIME" \
+  -D "$HEADERS_FILE" -c "$COOKIE_JAR" -X POST "$LOGIN_URL" \
   -H 'accept: application/json' \
   -H 'content-type: application/json' \
   --data "$(jq -nc --arg username "$USERNAME" --arg password "$PASSWORD" '{username:$username,password:$password}')" 2>&1)"

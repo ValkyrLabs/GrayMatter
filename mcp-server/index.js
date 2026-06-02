@@ -177,6 +177,127 @@ const tools = [
     invoked: 'Graph ready'
   }),
   defineTool({
+    name: 'graymatter_status',
+    title: 'Get GrayMatter status',
+    description: 'Inspect GrayMatter memory entitlement, semantic index health, usage, and activation/control status.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        surface: {
+          type: 'string',
+          enum: ['memory_status', 'memory_capabilities', 'memory_usage', 'semantic_health', 'semantic_index', 'control', 'admin_control']
+        }
+      }
+    },
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true, idempotentHint: true },
+    invoking: 'Reading GrayMatter status',
+    invoked: 'GrayMatter status ready'
+  }),
+  defineTool({
+    name: 'graymatter_semantic_search',
+    title: 'Search semantic index',
+    description: 'Search the GrayMatter semantic index directly when RBAC and entitlements permit it.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: { type: 'string' },
+        limit: { type: 'integer', minimum: 1, maximum: 100 },
+        filters: { type: 'object', additionalProperties: true }
+      },
+      required: ['query']
+    },
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true, idempotentHint: false },
+    invoking: 'Searching semantic index',
+    invoked: 'Semantic results ready'
+  }),
+  defineTool({
+    name: 'graymatter_semantic_reindex',
+    title: 'Reindex semantic memory',
+    description: 'Request a GrayMatter semantic-index reindex when RBAC permits it.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        scope: { type: 'string' },
+        force: { type: 'boolean' }
+      }
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true, idempotentHint: false },
+    invoking: 'Requesting semantic reindex',
+    invoked: 'Semantic reindex requested'
+  }),
+  defineTool({
+    name: 'graymatter_object_graph_shape',
+    title: 'Inspect object graph shape',
+    description: 'Read the GrayMatter object-graph shape summary for relationship-aware planning.',
+    inputSchema: { type: 'object', properties: {} },
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true, idempotentHint: true },
+    invoking: 'Reading object graph shape',
+    invoked: 'Object graph shape ready'
+  }),
+  defineTool({
+    name: 'graymatter_retrieval_tools',
+    title: 'List retrieval tools',
+    description: 'List server-side GrayMatter retrieval tools and retrieval-context capabilities.',
+    inputSchema: { type: 'object', properties: {} },
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true, idempotentHint: true },
+    invoking: 'Reading retrieval tools',
+    invoked: 'Retrieval tools ready'
+  }),
+  defineTool({
+    name: 'graymatter_retrieval_context',
+    title: 'Build retrieval context',
+    description: 'Request server-side retrieval context assembly for a query, agent, workflow, or tenant.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: { type: 'string' },
+        agentId: { type: 'string' },
+        workflowId: { type: 'string' },
+        tenantId: { type: 'string' },
+        topK: { type: 'integer', minimum: 1, maximum: 100 },
+        retrievalMode: { type: 'string' },
+        qualityProfile: { type: 'string' },
+        filters: { type: 'object', additionalProperties: true }
+      },
+      required: ['query']
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true, idempotentHint: false },
+    invoking: 'Building retrieval context',
+    invoked: 'Retrieval context ready'
+  }),
+  defineTool({
+    name: 'graymatter_activation_bridge',
+    title: 'Use activation bridge',
+    description: 'Read or post GrayMatter activation bridge events for install, login, signup, retry, and credit recovery flows.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        action: { type: 'string', enum: ['read', 'retry', 'event'] },
+        body: { type: 'object', additionalProperties: true }
+      }
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true, idempotentHint: false },
+    invoking: 'Using activation bridge',
+    invoked: 'Activation bridge ready'
+  }),
+  defineTool({
+    name: 'graymatter_mcp_bundle',
+    title: 'Manage MCP bundle',
+    description: 'Create or fetch GrayMatter MCP bundles exposed by api-0.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        action: { type: 'string', enum: ['create', 'get'] },
+        bundleId: { type: 'string' },
+        body: { type: 'object', additionalProperties: true }
+      },
+      required: ['action']
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true, idempotentHint: false },
+    invoking: 'Using MCP bundle',
+    invoked: 'MCP bundle ready'
+  }),
+  defineTool({
     name: 'entity_list',
     title: 'List entities',
     description: 'List live ValkyrAI business entities by type.',
@@ -453,6 +574,47 @@ async function callTool(params, context) {
       const graphPath = args.path ? `SwarmOps/graph/${trimSlashes(args.path)}` : 'SwarmOps/graph';
       return execute('graph_get', () => apiRequest(context, 'GET', graphPath));
     }
+    case 'graymatter_status':
+      return execute('graymatter_status', () => apiRequest(context, 'GET', grayMatterStatusEndpoint(args.surface)));
+    case 'graymatter_semantic_search':
+      requireString(args.query, 'query');
+      return execute('graymatter_semantic_search', () => apiRequest(context, 'POST', 'memory/semantic-index/search', pickDefined({
+        query: args.query,
+        limit: args.limit,
+        filters: args.filters
+      })));
+    case 'graymatter_semantic_reindex':
+      return execute('graymatter_semantic_reindex', () => apiRequest(context, 'POST', 'memory/semantic-index/reindex', pickDefined({
+        scope: args.scope,
+        force: args.force
+      })));
+    case 'graymatter_object_graph_shape':
+      return execute('graymatter_object_graph_shape', () => apiRequest(context, 'GET', 'graymatter/object-graph/shape'));
+    case 'graymatter_retrieval_tools':
+      return execute('graymatter_retrieval_tools', () => apiRequest(context, 'GET', 'graymatter/retrieval-tools'));
+    case 'graymatter_retrieval_context':
+      requireString(args.query, 'query');
+      return execute('graymatter_retrieval_context', () => apiRequest(context, 'POST', 'graymatter/retrieval-context', buildRetrievalReceiptPayload(args)));
+    case 'graymatter_activation_bridge':
+      return execute('graymatter_activation_bridge', () => {
+        const action = args.action || 'read';
+        if (action === 'event') {
+          return apiRequest(context, 'POST', 'graymatter/activation/bridge/event', args.body || {});
+        }
+        if (action === 'retry') {
+          return apiRequest(context, 'GET', 'graymatter/activation/bridge/retry');
+        }
+        return apiRequest(context, 'GET', 'graymatter/activation/bridge');
+      });
+    case 'graymatter_mcp_bundle':
+      if (args.action === 'get') {
+        requireString(args.bundleId, 'bundleId');
+        return execute('graymatter_mcp_bundle', () => apiRequest(context, 'GET', `graymatter/mcp/bundles/${encodeURIComponent(args.bundleId)}`));
+      }
+      if (args.action === 'create') {
+        return execute('graymatter_mcp_bundle', () => apiRequest(context, 'POST', 'graymatter/mcp/bundles', args.body || {}));
+      }
+      throw new Error('action must be create or get');
     case 'entity_list': {
       requireEntityType(args.entityType);
       const query = new URLSearchParams();
@@ -974,6 +1136,27 @@ function buildRetrievalReceiptQueryEndpoint(args) {
   return `graymatter-retrieval-receipts${suffix}`;
 }
 
+function grayMatterStatusEndpoint(surface = 'memory_status') {
+  switch (surface || 'memory_status') {
+    case 'memory_status':
+      return 'memory/status';
+    case 'memory_capabilities':
+      return 'memory/capabilities';
+    case 'memory_usage':
+      return 'memory/usage';
+    case 'semantic_health':
+      return 'memory/semantic-health';
+    case 'semantic_index':
+      return 'graymatter/semantic-index/manifest';
+    case 'control':
+      return 'graymatter/control';
+    case 'admin_control':
+      return 'graymatter/admin/control';
+    default:
+      throw new Error(`Unknown GrayMatter status surface: ${surface}`);
+  }
+}
+
 function memoryScopeMetadata(args) {
   if (!hasScopeSignal(args)) {
     return {};
@@ -1120,7 +1303,7 @@ function authContextFrom(req, processToken = '', security = defaultSecurityConfi
   }
 
   if (security.deploymentMode === 'hosted-multi-tenant') {
-    return { token: '', requestScopedToken: false };
+    return { token: '', requestScopedToken: true };
   }
 
   return { token: processToken || process.env.VALKYR_AUTH_TOKEN || process.env.VALKYR_JWT_SESSION || '', requestScopedToken: false };
@@ -1144,7 +1327,12 @@ function openSseStream(req, res, security = defaultSecurityConfig()) {
   const keepAlive = setInterval(() => {
     res.write(': keepalive\n\n');
   }, 25000);
-  req.on('close', () => clearInterval(keepAlive));
+  req.on('close', () => {
+    clearInterval(keepAlive);
+    if (!res.writableEnded) {
+      res.end();
+    }
+  });
 }
 
 function readJson(req) {

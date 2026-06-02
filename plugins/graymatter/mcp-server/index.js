@@ -19,6 +19,8 @@ const APP_SECURITY_SCHEMES = [
   { type: 'apiKey', in: 'header', name: 'X-Valkyr-Token' },
   { type: 'http', scheme: 'bearer' }
 ];
+const LOCAL_DEPLOYMENT_MODES = new Set(['local-dev', 'private-stdio']);
+const HOSTED_DEPLOYMENT_MODES = new Set(['single-tenant', 'hosted-multi-tenant']);
 
 const tools = [
   defineTool({
@@ -175,6 +177,127 @@ const tools = [
     invoked: 'Graph ready'
   }),
   defineTool({
+    name: 'graymatter_status',
+    title: 'Get GrayMatter status',
+    description: 'Inspect GrayMatter memory entitlement, semantic index health, usage, and activation/control status.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        surface: {
+          type: 'string',
+          enum: ['memory_status', 'memory_capabilities', 'memory_usage', 'semantic_health', 'semantic_index', 'control', 'admin_control']
+        }
+      }
+    },
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true, idempotentHint: true },
+    invoking: 'Reading GrayMatter status',
+    invoked: 'GrayMatter status ready'
+  }),
+  defineTool({
+    name: 'graymatter_semantic_search',
+    title: 'Search semantic index',
+    description: 'Search the GrayMatter semantic index directly when RBAC and entitlements permit it.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: { type: 'string' },
+        limit: { type: 'integer', minimum: 1, maximum: 100 },
+        filters: { type: 'object', additionalProperties: true }
+      },
+      required: ['query']
+    },
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true, idempotentHint: false },
+    invoking: 'Searching semantic index',
+    invoked: 'Semantic results ready'
+  }),
+  defineTool({
+    name: 'graymatter_semantic_reindex',
+    title: 'Reindex semantic memory',
+    description: 'Request a GrayMatter semantic-index reindex when RBAC permits it.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        scope: { type: 'string' },
+        force: { type: 'boolean' }
+      }
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true, idempotentHint: false },
+    invoking: 'Requesting semantic reindex',
+    invoked: 'Semantic reindex requested'
+  }),
+  defineTool({
+    name: 'graymatter_object_graph_shape',
+    title: 'Inspect object graph shape',
+    description: 'Read the GrayMatter object-graph shape summary for relationship-aware planning.',
+    inputSchema: { type: 'object', properties: {} },
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true, idempotentHint: true },
+    invoking: 'Reading object graph shape',
+    invoked: 'Object graph shape ready'
+  }),
+  defineTool({
+    name: 'graymatter_retrieval_tools',
+    title: 'List retrieval tools',
+    description: 'List server-side GrayMatter retrieval tools and retrieval-context capabilities.',
+    inputSchema: { type: 'object', properties: {} },
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true, idempotentHint: true },
+    invoking: 'Reading retrieval tools',
+    invoked: 'Retrieval tools ready'
+  }),
+  defineTool({
+    name: 'graymatter_retrieval_context',
+    title: 'Build retrieval context',
+    description: 'Request server-side retrieval context assembly for a query, agent, workflow, or tenant.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: { type: 'string' },
+        agentId: { type: 'string' },
+        workflowId: { type: 'string' },
+        tenantId: { type: 'string' },
+        topK: { type: 'integer', minimum: 1, maximum: 100 },
+        retrievalMode: { type: 'string' },
+        qualityProfile: { type: 'string' },
+        filters: { type: 'object', additionalProperties: true }
+      },
+      required: ['query']
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true, idempotentHint: false },
+    invoking: 'Building retrieval context',
+    invoked: 'Retrieval context ready'
+  }),
+  defineTool({
+    name: 'graymatter_activation_bridge',
+    title: 'Use activation bridge',
+    description: 'Read or post GrayMatter activation bridge events for install, login, signup, retry, and credit recovery flows.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        action: { type: 'string', enum: ['read', 'retry', 'event'] },
+        body: { type: 'object', additionalProperties: true }
+      }
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true, idempotentHint: false },
+    invoking: 'Using activation bridge',
+    invoked: 'Activation bridge ready'
+  }),
+  defineTool({
+    name: 'graymatter_mcp_bundle',
+    title: 'Manage MCP bundle',
+    description: 'Create or fetch GrayMatter MCP bundles exposed by api-0.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        action: { type: 'string', enum: ['create', 'get'] },
+        bundleId: { type: 'string' },
+        body: { type: 'object', additionalProperties: true }
+      },
+      required: ['action']
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true, idempotentHint: false },
+    invoking: 'Using MCP bundle',
+    invoked: 'MCP bundle ready'
+  }),
+  defineTool({
     name: 'entity_list',
     title: 'List entities',
     description: 'List live ValkyrAI business entities by type.',
@@ -260,7 +383,11 @@ function createGrayMatterMcpServer(options = {}) {
   const fetchImpl = options.fetch || globalThis.fetch;
   const loginProvider = options.loginProvider || runLoginCommand;
   const loginCommand = options.loginCommand || process.env.GRAYMATTER_LOGIN_COMMAND || path.join(__dirname, '..', 'scripts', 'gm-login');
+  const deploymentMode = normalizeDeploymentMode(options.deploymentMode || process.env.GRAYMATTER_MCP_MODE || 'local-dev');
+  const allowedOrigins = parseAllowedOrigins(options.allowedOrigins || process.env.GRAYMATTER_ALLOWED_ORIGINS || widgetDomain);
+  const allowUnsafeHeaderToken = parseBoolean(options.allowUnsafeHeaderToken ?? process.env.GRAYMATTER_ALLOW_UNSAFE_HEADER_TOKEN);
   const processToken = options.token || process.env.VALKYR_AUTH_TOKEN || process.env.VALKYR_JWT_SESSION || '';
+  const security = { deploymentMode, allowedOrigins, allowUnsafeHeaderToken };
 
   if (typeof fetchImpl !== 'function') {
     throw new Error('Global fetch is required. Use Node 20 or newer.');
@@ -271,21 +398,26 @@ function createGrayMatterMcpServer(options = {}) {
       const requestUrl = new URL(req.url, 'http://127.0.0.1');
 
       if (req.method === 'OPTIONS') {
-        sendNoContent(res);
+        sendNoContent(req, res, security);
         return;
       }
 
       if (req.method === 'GET' && requestUrl.pathname === '/health') {
-        sendJson(res, 200, {
+        sendJson(req, res, 200, {
           ok: true,
           apiBase,
           tools: tools.map((tool) => tool.name)
-        });
+        }, security);
+        return;
+      }
+
+      if (req.method === 'GET' && (requestUrl.pathname === '/security' || requestUrl.pathname === '/health/auth')) {
+        sendJson(req, res, 200, authReadiness(security, Boolean(processToken)), security);
         return;
       }
 
       if (req.method === 'GET' && requestUrl.pathname === '/sse') {
-        openSseStream(req, res);
+        openSseStream(req, res, security);
         return;
       }
 
@@ -294,24 +426,25 @@ function createGrayMatterMcpServer(options = {}) {
         const rpcResponse = await handleRpc(rpcRequest, {
           apiBase,
           fetchImpl,
-          ...authContextFrom(req, processToken),
+          ...authContextFrom(req, processToken, security),
           loginCommand,
           loginProvider,
           widgetDomain
         });
 
         if (rpcResponse === null) {
-          sendNoContent(res);
+          sendNoContent(req, res, security);
           return;
         }
 
-        sendJson(res, 200, rpcResponse);
+        sendJson(req, res, 200, rpcResponse, security);
         return;
       }
 
-      sendJson(res, 404, { error: 'Not found' });
+      sendJson(req, res, 404, { error: 'Not found' }, security);
     } catch (error) {
-      sendJson(res, 500, { error: error.message });
+      const status = error && error.statusCode ? error.statusCode : 500;
+      sendJson(req, res, status, { error: error.message }, security);
     }
   });
 }
@@ -441,6 +574,47 @@ async function callTool(params, context) {
       const graphPath = args.path ? `SwarmOps/graph/${trimSlashes(args.path)}` : 'SwarmOps/graph';
       return execute('graph_get', () => apiRequest(context, 'GET', graphPath));
     }
+    case 'graymatter_status':
+      return execute('graymatter_status', () => apiRequest(context, 'GET', grayMatterStatusEndpoint(args.surface)));
+    case 'graymatter_semantic_search':
+      requireString(args.query, 'query');
+      return execute('graymatter_semantic_search', () => apiRequest(context, 'POST', 'memory/semantic-index/search', pickDefined({
+        query: args.query,
+        limit: args.limit,
+        filters: args.filters
+      })));
+    case 'graymatter_semantic_reindex':
+      return execute('graymatter_semantic_reindex', () => apiRequest(context, 'POST', 'memory/semantic-index/reindex', pickDefined({
+        scope: args.scope,
+        force: args.force
+      })));
+    case 'graymatter_object_graph_shape':
+      return execute('graymatter_object_graph_shape', () => apiRequest(context, 'GET', 'graymatter/object-graph/shape'));
+    case 'graymatter_retrieval_tools':
+      return execute('graymatter_retrieval_tools', () => apiRequest(context, 'GET', 'graymatter/retrieval-tools'));
+    case 'graymatter_retrieval_context':
+      requireString(args.query, 'query');
+      return execute('graymatter_retrieval_context', () => apiRequest(context, 'POST', 'graymatter/retrieval-context', buildRetrievalReceiptPayload(args)));
+    case 'graymatter_activation_bridge':
+      return execute('graymatter_activation_bridge', () => {
+        const action = args.action || 'read';
+        if (action === 'event') {
+          return apiRequest(context, 'POST', 'graymatter/activation/bridge/event', args.body || {});
+        }
+        if (action === 'retry') {
+          return apiRequest(context, 'GET', 'graymatter/activation/bridge/retry');
+        }
+        return apiRequest(context, 'GET', 'graymatter/activation/bridge');
+      });
+    case 'graymatter_mcp_bundle':
+      if (args.action === 'get') {
+        requireString(args.bundleId, 'bundleId');
+        return execute('graymatter_mcp_bundle', () => apiRequest(context, 'GET', `graymatter/mcp/bundles/${encodeURIComponent(args.bundleId)}`));
+      }
+      if (args.action === 'create') {
+        return execute('graymatter_mcp_bundle', () => apiRequest(context, 'POST', 'graymatter/mcp/bundles', args.body || {}));
+      }
+      throw new Error('action must be create or get');
     case 'entity_list': {
       requireEntityType(args.entityType);
       const query = new URLSearchParams();
@@ -774,11 +948,13 @@ function buildRecoveryResult(error, operation, context) {
   const loginUrl = apiUrl(context.apiBase, process.env.GRAYMATTER_LOGIN_PATH || DEFAULT_LOGIN_PATH);
   const retryable = signal.reason === 'insufficient_credits' || signal.reason === 'missing_auth';
 
+  const recoveryActions = recoveryActionsFor(signal.reason, { buyCreditsUrl, signupUrl, loginUrl });
   const structuredContent = {
     ok: false,
     reason: signal.reason,
     blockedOperation: operation,
     message: signal.message,
+    recoveryActions,
     buyCreditsUrl,
     signupUrl,
     loginUrl,
@@ -790,7 +966,7 @@ function buildRecoveryResult(error, operation, context) {
     content: [
       {
         type: 'text',
-        text: JSON.stringify(structuredContent)
+        text: renderRecoveryText(structuredContent)
       }
     ],
     _meta: {
@@ -799,6 +975,7 @@ function buildRecoveryResult(error, operation, context) {
           reason: signal.reason,
           blockedOperation: operation,
           retryable,
+          actions: recoveryActions,
           urls: { buyCreditsUrl, signupUrl, loginUrl }
         },
         debug: {
@@ -810,6 +987,36 @@ function buildRecoveryResult(error, operation, context) {
       }
     }
   };
+}
+
+function recoveryActionsFor(reason, urls) {
+  switch (reason) {
+    case 'insufficient_credits':
+      return [
+        { id: 'buy_credits', label: 'Buy GrayMatter credits', url: urls.buyCreditsUrl, primary: true },
+        { id: 'create_account', label: 'Create or upgrade an account', url: urls.signupUrl, primary: false },
+        { id: 'sign_in', label: 'Sign in with a funded workspace', url: urls.loginUrl, primary: false }
+      ];
+    case 'missing_auth':
+      return [
+        { id: 'sign_in', label: 'Sign in to GrayMatter', url: urls.loginUrl, primary: true },
+        { id: 'create_account', label: 'Create an account', url: urls.signupUrl, primary: false }
+      ];
+    case 'read_only_auth':
+      return [
+        { id: 'sign_in', label: 'Switch to a write-capable account', url: urls.loginUrl, primary: true },
+        { id: 'buy_credits', label: 'Buy credits for the target workspace', url: urls.buyCreditsUrl, primary: false }
+      ];
+    default:
+      return [{ id: 'sign_in', label: 'Sign in to GrayMatter', url: urls.loginUrl, primary: true }];
+  }
+}
+
+function renderRecoveryText(structuredContent) {
+  const actions = (structuredContent.recoveryActions || [])
+    .map((action) => `${action.label}: ${action.url}`)
+    .join('\n');
+  return `${structuredContent.message}\n\nRecovery actions:\n${actions}`;
 }
 
 function classifyRecoveryReason(error) {
@@ -927,6 +1134,27 @@ function buildRetrievalReceiptQueryEndpoint(args) {
   }
   const suffix = query.toString() ? `?${query}` : '';
   return `graymatter-retrieval-receipts${suffix}`;
+}
+
+function grayMatterStatusEndpoint(surface = 'memory_status') {
+  switch (surface || 'memory_status') {
+    case 'memory_status':
+      return 'memory/status';
+    case 'memory_capabilities':
+      return 'memory/capabilities';
+    case 'memory_usage':
+      return 'memory/usage';
+    case 'semantic_health':
+      return 'memory/semantic-health';
+    case 'semantic_index':
+      return 'graymatter/semantic-index/manifest';
+    case 'control':
+      return 'graymatter/control';
+    case 'admin_control':
+      return 'graymatter/admin/control';
+    default:
+      throw new Error(`Unknown GrayMatter status surface: ${surface}`);
+  }
 }
 
 function memoryScopeMetadata(args) {
@@ -1052,8 +1280,13 @@ function summarizeOpenApi(spec) {
   };
 }
 
-function authContextFrom(req, processToken = '') {
+function authContextFrom(req, processToken = '', security = defaultSecurityConfig()) {
   const headerToken = req.headers['x-valkyr-token'];
+  if (headerToken && HOSTED_DEPLOYMENT_MODES.has(security.deploymentMode) && !security.allowUnsafeHeaderToken) {
+    const error = new Error('X-Valkyr-Token is disabled in hosted GrayMatter MCP mode. Use bearer/session auth or enable the explicit unsafe override for private testing.');
+    error.statusCode = 401;
+    throw error;
+  }
   if (Array.isArray(headerToken)) {
     return { token: headerToken[0] || '', requestScopedToken: Boolean(headerToken[0]) };
   }
@@ -1069,6 +1302,10 @@ function authContextFrom(req, processToken = '') {
     return { token: bearerMatch[1].trim(), requestScopedToken: true };
   }
 
+  if (security.deploymentMode === 'hosted-multi-tenant') {
+    return { token: '', requestScopedToken: true };
+  }
+
   return { token: processToken || process.env.VALKYR_AUTH_TOKEN || process.env.VALKYR_JWT_SESSION || '', requestScopedToken: false };
 }
 
@@ -1078,9 +1315,9 @@ function apiUrl(apiBase, endpoint) {
   return new URL(cleanEndpoint, base).toString();
 }
 
-function openSseStream(req, res) {
+function openSseStream(req, res, security = defaultSecurityConfig()) {
   res.writeHead(200, {
-    'access-control-allow-origin': '*',
+    ...corsHeaders(req, security),
     'cache-control': 'no-cache, no-transform',
     connection: 'keep-alive',
     'content-type': 'text/event-stream'
@@ -1090,7 +1327,12 @@ function openSseStream(req, res) {
   const keepAlive = setInterval(() => {
     res.write(': keepalive\n\n');
   }, 25000);
-  req.on('close', () => clearInterval(keepAlive));
+  req.on('close', () => {
+    clearInterval(keepAlive);
+    if (!res.writableEnded) {
+      res.end();
+    }
+  });
 }
 
 function readJson(req) {
@@ -1113,23 +1355,69 @@ function readJson(req) {
   });
 }
 
-function sendJson(res, status, payload) {
+function sendJson(req, res, status, payload, security = defaultSecurityConfig()) {
   res.writeHead(status, {
-    'access-control-allow-origin': '*',
-    'access-control-allow-headers': 'authorization,content-type,x-valkyr-token',
-    'access-control-allow-methods': 'GET,POST,OPTIONS',
+    ...corsHeaders(req, security),
     'content-type': 'application/json'
   });
   res.end(JSON.stringify(payload));
 }
 
-function sendNoContent(res) {
-  res.writeHead(204, {
-    'access-control-allow-origin': '*',
-    'access-control-allow-headers': 'authorization,content-type,x-valkyr-token',
-    'access-control-allow-methods': 'GET,POST,OPTIONS'
-  });
+function sendNoContent(req, res, security = defaultSecurityConfig()) {
+  res.writeHead(204, corsHeaders(req, security));
   res.end();
+}
+
+function defaultSecurityConfig() {
+  return { deploymentMode: 'local-dev', allowedOrigins: [], allowUnsafeHeaderToken: false };
+}
+
+function normalizeDeploymentMode(value) {
+  const mode = String(value || 'local-dev').trim();
+  if (LOCAL_DEPLOYMENT_MODES.has(mode) || HOSTED_DEPLOYMENT_MODES.has(mode)) {
+    return mode;
+  }
+  throw new Error(`Unsupported GrayMatter MCP deployment mode: ${mode}`);
+}
+
+function parseAllowedOrigins(value) {
+  const raw = Array.isArray(value) ? value : String(value || '').split(',');
+  return raw.map((origin) => withoutTrailingSlash(String(origin).trim())).filter(Boolean);
+}
+
+function parseBoolean(value) {
+  return ['1', 'true', 'yes', 'on'].includes(String(value || '').toLowerCase());
+}
+
+function corsHeaders(req, security = defaultSecurityConfig()) {
+  const headers = {
+    'access-control-allow-headers': 'authorization,content-type,x-valkyr-token',
+    'access-control-allow-methods': 'GET,POST,OPTIONS',
+    vary: 'Origin'
+  };
+
+  if (!HOSTED_DEPLOYMENT_MODES.has(security.deploymentMode)) {
+    headers['access-control-allow-origin'] = '*';
+    return headers;
+  }
+
+  const origin = withoutTrailingSlash(Array.isArray(req.headers.origin) ? req.headers.origin[0] : req.headers.origin || '');
+  if (origin && security.allowedOrigins.includes(origin)) {
+    headers['access-control-allow-origin'] = origin;
+  }
+  return headers;
+}
+
+function authReadiness(security, hasProcessToken) {
+  return {
+    ok: true,
+    deploymentMode: security.deploymentMode,
+    hostedMode: HOSTED_DEPLOYMENT_MODES.has(security.deploymentMode),
+    allowedOrigins: security.allowedOrigins,
+    xValkyrTokenAccepted: !HOSTED_DEPLOYMENT_MODES.has(security.deploymentMode) || security.allowUnsafeHeaderToken,
+    processTokenAccepted: security.deploymentMode !== 'hosted-multi-tenant',
+    processTokenConfigured: hasProcessToken
+  };
 }
 
 function toolResult(value) {

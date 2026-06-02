@@ -5,9 +5,17 @@ have() {
   command -v "$1" >/dev/null 2>&1
 }
 
-ROOT_DIR="${ROOT_DIR:-$(pwd)}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="${ROOT_DIR:-$(cd "${SCRIPT_DIR}/.." && pwd)}"
 FALLBACK_PATH="$ROOT_DIR/memory/graymatter-fallback.json"
-OPENAPI_PATH="$ROOT_DIR/tmp/openapi.json"
+OPENAPI_PATH="${OPENAPI_PATH:-}"
+if [[ -z "$OPENAPI_PATH" ]]; then
+  if [[ -f "$ROOT_DIR/tmp/api-docs.json" ]]; then
+    OPENAPI_PATH="$ROOT_DIR/tmp/api-docs.json"
+  else
+    OPENAPI_PATH="$ROOT_DIR/tmp/openapi.json"
+  fi
+fi
 KEYCHAIN_SERVICE="${VALKYR_KEYCHAIN_SERVICE:-VALKYR_AUTH}"
 API_BASE="${VALKYR_API_BASE:-https://api-0.valkyrlabs.com/v1}"
 API_BASE="${API_BASE%/}"
@@ -229,7 +237,7 @@ else
   printf 'graymatter_auth=%s\n' "$AUTH_KV"
   printf 'graymatter_token_state=%s\n' "$TOKEN_STATE"
   printf 'memory_layer=%s\n' "$MEMORY_LAYER"
-  printf 'graph_layer=%s\n' "$(openapi_layer_state /SwarmOps/graph '.paths | has("/SwarmOps/graph")')"
-  printf 'strategic_layer=%s\n' "$(openapi_layer_state /StrategicRecord '.paths | has("/StrategicRecord")')"
-  printf 'kpi_layer=%s\n' "$(openapi_layer_state /KPIRecord '.paths | has("/KPIRecord")')"
+  printf 'graph_layer=%s\n' "$(openapi_layer_state graph '.paths | keys | any(.[]; test("^(/v1)?/(SwarmOps/graph|swarm-ops/graph|swarm/agents|Agent)(/|$)"))')"
+  printf 'strategic_layer=%s\n' "$(openapi_layer_state strategic '.paths | keys | any(.[]; test("^(/v1)?/(StrategicRecord|StrategicPriority|Goal)(/|$)"))')"
+  printf 'kpi_layer=%s\n' "$(openapi_layer_state kpi '.paths | keys | any(.[]; test("^(/v1)?/(KPIRecord|KeyMetric)(/|$)"))')"
 fi

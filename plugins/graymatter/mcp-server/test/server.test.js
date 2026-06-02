@@ -1,12 +1,51 @@
 const assert = require('node:assert/strict');
 const { spawn } = require('node:child_process');
 const http = require('node:http');
+const { once } = require('node:events');
 const path = require('node:path');
 const test = require('node:test');
 
 const { createGrayMatterMcpServer } = require('../index.js');
 
+test.after(async () => {
+  try {
+    const { getGlobalDispatcher } = require('undici');
+    await Promise.race([
+      getGlobalDispatcher().close(),
+      new Promise((resolve) => setTimeout(resolve, 250))
+    ]);
+  } catch {
+    // Node versions without public undici exports do not need this teardown.
+  }
+  for (const handle of process._getActiveHandles()) {
+    if (handle && handle.constructor && handle.constructor.name === 'Server' && typeof handle.close === 'function') {
+      handle.close();
+    }
+    if (handle && handle.constructor && handle.constructor.name === 'Socket' && typeof handle.destroy === 'function') {
+      if (handle.localPort || handle.remotePort) {
+        handle.destroy();
+      }
+    }
+  }
+  setImmediate(() => process.exit(process.exitCode || 0));
+});
+
 async function listen(server) {
+  if (!server.__grayMatterTrackedSockets) {
+    const sockets = new Set();
+    const close = server.close.bind(server);
+    server.__grayMatterTrackedSockets = sockets;
+    server.on('connection', (socket) => {
+      sockets.add(socket);
+      socket.on('close', () => sockets.delete(socket));
+    });
+    server.close = (callback) => {
+      for (const socket of sockets) {
+        socket.destroy();
+      }
+      return close(callback);
+    };
+  }
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   const address = server.address();
   return `http://127.0.0.1:${address.port}`;
@@ -164,6 +203,14 @@ test('stdio mode exposes the GrayMatter MCP tools for Codex plugin launch', asyn
         'retrieval_receipt_get',
         'retrieval_receipt_query',
         'graph_get',
+        'graymatter_status',
+        'graymatter_semantic_search',
+        'graymatter_semantic_reindex',
+        'graymatter_object_graph_shape',
+        'graymatter_retrieval_tools',
+        'graymatter_retrieval_context',
+        'graymatter_activation_bridge',
+        'graymatter_mcp_bundle',
         'entity_list',
         'entity_get',
         'entity_create',
@@ -172,7 +219,14 @@ test('stdio mode exposes the GrayMatter MCP tools for Codex plugin launch', asyn
       ]
     );
   } finally {
+    child.stdin.end();
     child.kill();
+    await Promise.race([
+      once(child, 'exit'),
+      new Promise((resolve) => setTimeout(resolve, 250))
+    ]);
+    child.stdout.destroy();
+    child.stderr.destroy();
   }
 });
 
@@ -341,6 +395,14 @@ test('tools/list exposes the GrayMatter tool surface', async () => {
         'retrieval_receipt_get',
         'retrieval_receipt_query',
         'graph_get',
+        'graymatter_status',
+        'graymatter_semantic_search',
+        'graymatter_semantic_reindex',
+        'graymatter_object_graph_shape',
+        'graymatter_retrieval_tools',
+        'graymatter_retrieval_context',
+        'graymatter_activation_bridge',
+        'graymatter_mcp_bundle',
         'entity_list',
         'entity_get',
         'entity_create',
@@ -401,6 +463,87 @@ test('memory_read, memory_query, and graph_get route to api-0', async () => {
     assert.deepEqual(JSON.parse(queryResult.body.result.content[0].text), { results: [{ id: 'mem-42' }] });
     assert.deepEqual(JSON.parse(graphResult.body.result.content[0].text), { nodes: [], edges: [] });
     assert.equal(fakeApi.requests.length, 3);
+  } finally {
+    server.close();
+    fakeApi.server.close();
+  }
+});
+
+test('GrayMatter capability tools expose the server-side memory and graph power surface', async () => {
+  const fakeApi = createFakeApi(async (_req, res, record) => {
+    res.writeHead(200, { 'content-type': 'application/json' });
+    if (record.path === '/v1/memory/status') {
+      res.end(JSON.stringify({ ready: true }));
+      return;
+    }
+    if (record.path === '/v1/memory/semantic-index/search') {
+      assert.equal(record.method, 'POST');
+      assert.equal(record.body.query, 'customer memory');
+      assert.equal(record.body.limit, 3);
+      res.end(JSON.stringify({ matches: [] }));
+      return;
+    }
+    if (record.path === '/v1/memory/semantic-index/reindex') {
+      assert.equal(record.method, 'POST');
+      assert.equal(record.body.force, true);
+      res.end(JSON.stringify({ accepted: true }));
+      return;
+    }
+    if (record.path === '/v1/graymatter/object-graph/shape') {
+      res.end(JSON.stringify({ nodes: ['Customer', 'MemoryEntry'] }));
+      return;
+    }
+    if (record.path === '/v1/graymatter/retrieval-tools') {
+      res.end(JSON.stringify({ tools: ['hybrid'] }));
+      return;
+    }
+    if (record.path === '/v1/graymatter/retrieval-context') {
+      assert.equal(record.method, 'POST');
+      assert.equal(record.body.query, 'invoice context');
+      res.end(JSON.stringify({ receiptId: 'ctx-1' }));
+      return;
+    }
+    if (record.path === '/v1/graymatter/activation/bridge/event') {
+      assert.equal(record.method, 'POST');
+      assert.equal(record.body.event, 'login-ready');
+      res.end(JSON.stringify({ ok: true }));
+      return;
+    }
+    if (record.path === '/v1/graymatter/mcp/bundles/bundle-1') {
+      res.end(JSON.stringify({ bundleId: 'bundle-1' }));
+      return;
+    }
+    throw new Error(`Unexpected ${record.method} ${record.path}`);
+  });
+
+  const apiBase = await listen(fakeApi.server);
+  const server = createGrayMatterMcpServer({ apiBase: `${apiBase}/v1` });
+  const baseUrl = await listen(server);
+
+  try {
+    const calls = [
+      { name: 'graymatter_status', arguments: { surface: 'memory_status' } },
+      { name: 'graymatter_semantic_search', arguments: { query: 'customer memory', limit: 3 } },
+      { name: 'graymatter_semantic_reindex', arguments: { force: true } },
+      { name: 'graymatter_object_graph_shape', arguments: {} },
+      { name: 'graymatter_retrieval_tools', arguments: {} },
+      { name: 'graymatter_retrieval_context', arguments: { query: 'invoice context' } },
+      { name: 'graymatter_activation_bridge', arguments: { action: 'event', body: { event: 'login-ready' } } },
+      { name: 'graymatter_mcp_bundle', arguments: { action: 'get', bundleId: 'bundle-1' } }
+    ];
+
+    for (const [index, tool] of calls.entries()) {
+      const result = await postRpc(baseUrl, {
+        jsonrpc: '2.0',
+        id: `gm-cap-${index}`,
+        method: 'tools/call',
+        params: tool
+      });
+      assert.equal(result.status, 200);
+      assert.ok(result.body.result.content[0].text.length > 0);
+    }
+
+    assert.equal(fakeApi.requests.length, calls.length);
   } finally {
     server.close();
     fakeApi.server.close();
@@ -845,5 +988,111 @@ test('tool errors return JSON-RPC errors instead of HTTP failures', async () => 
     assert.match(result.body.error.message, /entityType/);
   } finally {
     server.close();
+  }
+});
+
+test('hosted mode restricts CORS to configured connector origins', async () => {
+  const server = createGrayMatterMcpServer({
+    apiBase: 'https://api-0.example.test/v1',
+    deploymentMode: 'hosted-multi-tenant',
+    allowedOrigins: ['https://chatgpt.com', 'https://graymatter.example.test']
+  });
+  const baseUrl = await listen(server);
+
+  try {
+    const allowed = await fetch(`${baseUrl}/health/auth`, {
+      headers: { origin: 'https://chatgpt.com' }
+    });
+    const allowedBody = await allowed.json();
+    assert.equal(allowed.headers.get('access-control-allow-origin'), 'https://chatgpt.com');
+    assert.equal(allowedBody.deploymentMode, 'hosted-multi-tenant');
+    assert.equal(allowedBody.xValkyrTokenAccepted, false);
+    assert.equal(allowedBody.processTokenAccepted, false);
+
+    const denied = await fetch(`${baseUrl}/health/auth`, {
+      headers: { origin: 'https://evil.example.test' }
+    });
+    assert.equal(denied.status, 200);
+    assert.equal(denied.headers.get('access-control-allow-origin'), null);
+  } finally {
+    server.close();
+  }
+});
+
+test('hosted mode rejects X-Valkyr-Token while preserving bearer auth', async () => {
+  const fakeApi = createFakeApi(async (_req, res, record) => {
+    assert.equal(record.headers.authorization, 'Bearer hosted-bearer');
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ id: 'mem-hosted' }));
+  });
+
+  const apiBase = await listen(fakeApi.server);
+  const server = createGrayMatterMcpServer({
+    apiBase: `${apiBase}/v1`,
+    deploymentMode: 'hosted-multi-tenant',
+    allowedOrigins: ['https://chatgpt.com'],
+    token: 'process-token-must-not-be-used'
+  });
+  const baseUrl = await listen(server);
+
+  try {
+    const rejected = await postRpc(baseUrl, {
+      jsonrpc: '2.0',
+      id: 'unsafe-header-token',
+      method: 'tools/call',
+      params: { name: 'memory_read', arguments: { id: 'mem-hosted' } }
+    }, { 'X-Valkyr-Token': 'raw-header-token', origin: 'https://chatgpt.com' }, '/mcp');
+
+    assert.equal(rejected.status, 401);
+    assert.match(rejected.body.error, /X-Valkyr-Token is disabled/);
+    assert.equal(rejected.body.error.includes('raw-header-token'), false);
+    assert.equal(fakeApi.requests.length, 0);
+
+    const accepted = await postRpc(baseUrl, {
+      jsonrpc: '2.0',
+      id: 'bearer-hosted',
+      method: 'tools/call',
+      params: { name: 'memory_read', arguments: { id: 'mem-hosted' } }
+    }, { authorization: 'Bearer hosted-bearer', origin: 'https://chatgpt.com' }, '/mcp');
+
+    assert.equal(accepted.status, 200);
+    assert.equal(accepted.body.result.content[0].text, JSON.stringify({ id: 'mem-hosted' }));
+    assert.equal(fakeApi.requests.length, 1);
+  } finally {
+    server.close();
+    fakeApi.server.close();
+  }
+});
+
+test('hosted multi-tenant mode does not fall back to a process-wide token', async () => {
+  const fakeApi = createFakeApi(async (_req, res, record) => {
+    assert.equal(record.headers.authorization, undefined);
+    res.writeHead(401, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ message: 'missing auth' }));
+  });
+
+  const apiBase = await listen(fakeApi.server);
+  const server = createGrayMatterMcpServer({
+    apiBase: `${apiBase}/v1`,
+    deploymentMode: 'hosted-multi-tenant',
+    allowedOrigins: ['https://chatgpt.com'],
+    token: 'shared-process-token'
+  });
+  const baseUrl = await listen(server);
+
+  try {
+    const result = await postRpc(baseUrl, {
+      jsonrpc: '2.0',
+      id: 'no-process-token',
+      method: 'tools/call',
+      params: { name: 'memory_read', arguments: { id: 'mem-hosted' } }
+    }, { origin: 'https://chatgpt.com' }, '/mcp');
+
+    assert.equal(result.status, 200);
+    assert.equal(result.body.result.structuredContent.reason, 'missing_auth');
+    assert.equal(fakeApi.requests.length, 1);
+  } finally {
+    server.close();
+    fakeApi.server.close();
   }
 });

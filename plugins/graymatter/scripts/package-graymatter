@@ -13,6 +13,7 @@ REQUIRED=(
   mcp-server/README.md
   mcp-server/index.js
   mcp-server/package.json
+  docs/server-capabilities.md
   scripts/gm-query
   scripts/gm-retrieval-receipt
   scripts/gm-graph
@@ -22,12 +23,14 @@ REQUIRED=(
   scripts/gm-install-check
   scripts/gm-smoke
   scripts/gm-status
+  scripts/gm-self-update
   scripts/gm-openapi-sync
   scripts/gm-openapi-summary
   scripts/gm-mcp-contract
   scripts/gm-entity
   scripts/gm-register-agent
   scripts/gm-fallback-append
+  scripts/gm-replay-deferred
   scripts/gm-hook-event
   scripts/gm-light-bootstrap
   scripts/gm-light-up

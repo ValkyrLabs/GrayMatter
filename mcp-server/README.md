@@ -78,10 +78,20 @@ The server also implements `resources/list` and `resources/read` for the Apps SD
 | `retrieval_receipt_get` | `GET /graymatter-retrieval-receipts/{receiptId}` | Fetch one persisted Retrieval Receipt for audit/debug workflows. |
 | `retrieval_receipt_query` | `GET /graymatter-retrieval-receipts` | List receipts by trace, agent, workflow, status, or time range. |
 | `graph_get` | `GET /SwarmOps/graph` | Inspect the SwarmOps shared object graph. |
+| `graymatter_status` | `GET /memory/status`, `/memory/capabilities`, `/memory/usage`, `/memory/semantic-health`, `/graymatter/semantic-index/manifest`, `/graymatter/control`, `/graymatter/admin/control` | Inspect memory, semantic index, entitlement, control, and admin status surfaces. |
+| `graymatter_semantic_search` | `POST /memory/semantic-index/search` | Search the semantic/vector memory index directly. |
+| `graymatter_semantic_reindex` | `POST /memory/semantic-index/reindex` | Request semantic reindexing when RBAC permits it. |
+| `graymatter_object_graph_shape` | `GET /graymatter/object-graph/shape` | Inspect relationship-aware object graph shape. |
+| `graymatter_retrieval_tools` | `GET /graymatter/retrieval-tools` | List server-side retrieval tools and retrieval-context capabilities. |
+| `graymatter_retrieval_context` | `POST /graymatter/retrieval-context` | Build server-side retrieval context for a query. |
+| `graymatter_activation_bridge` | `GET /graymatter/activation/bridge`, `GET /graymatter/activation/bridge/retry`, `POST /graymatter/activation/bridge/event` | Use install/login/signup/credit activation bridge flows. |
+| `graymatter_mcp_bundle` | `POST /graymatter/mcp/bundles`, `GET /graymatter/mcp/bundles/{bundleId}` | Create or fetch GrayMatter MCP bundles. |
 | `entity_list` | `GET /{entityType}` | List business entities such as `Customer`, `Task`, `Invoice`, or `Goal`. |
 | `entity_get` | `GET /{entityType}/{id}` | Fetch a single entity by type and ID. |
 | `entity_create` | `POST /{entityType}` | Create one entity when RBAC permits it. |
 | `schema_summary` | `GET /api-docs` | Summarize the live ValkyrAI OpenAPI schema. |
+
+See `../docs/server-capabilities.md` for the broader live api-0 capability map. The generic entity tools are intentionally broad because GrayMatter should use the RBAC-visible business object graph, not just a narrow memory endpoint list.
 
 ## Scoped Memory
 
@@ -154,6 +164,8 @@ For hosted multi-tenant deployments, do not set or depend on a shared `VALKYR_AU
 `X-Valkyr-Token` remains available for `local-dev` and `private-stdio` workflows. Hosted modes reject it unless `GRAYMATTER_ALLOW_UNSAFE_HEADER_TOKEN=true` is deliberately enabled for private testing.
 
 When the server is using process-scoped auth from `VALKYR_AUTH_TOKEN`, `VALKYR_JWT_SESSION`, or the plugin launch environment, a `401 SESSION_EXPIRED` response triggers one autonomous `gm-login env` refresh and retries the original request with the new token. Per-request bearer credentials are never replaced by process credentials, so tenant-scoped calls remain isolated.
+
+For plugin-managed local/private stdio use, run `../scripts/gm-self-update maybe` during startup and `../scripts/gm-activate` for first-run bootstrap. `gm-activate` performs update, login, install validation, smoke test, agent registration, OpenAPI sync, and schema summary.
 
 ## Production Notes
 

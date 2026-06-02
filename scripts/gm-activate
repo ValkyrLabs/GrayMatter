@@ -20,6 +20,9 @@ if ! have jq; then
 fi
 
 export VALKYR_API_BASE="$BASE"
+if [[ -x "${SCRIPT_DIR}/gm-self-update" ]]; then
+  "${SCRIPT_DIR}/gm-self-update" maybe || true
+fi
 if [[ -z "$USERNAME_ENV" || -z "$PASSWORD_ENV" ]]; then
   echo "GrayMatter username/password not found in environment; gm-login will attempt keychain-based reauth before interactive fallback" >&2
 fi

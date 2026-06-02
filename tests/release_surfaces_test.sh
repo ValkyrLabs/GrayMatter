@@ -61,6 +61,7 @@ trap 'rm -f "$ZIP_LIST"' EXIT
 unzip -Z1 "$ROOT/graymatter.skill" >"$ZIP_LIST"
 grep -q '^graymatter/SKILL.md$' "$ZIP_LIST"
 grep -q '^graymatter/scripts/gm-activate$' "$ZIP_LIST"
+grep -q '^graymatter/scripts/gm-doctor$' "$ZIP_LIST"
 grep -q '^graymatter/scripts/gm-light-up$' "$ZIP_LIST"
 grep -q '^graymatter/mcp-server/index.js$' "$ZIP_LIST"
 grep -q '^graymatter/.mcp.json$' "$ZIP_LIST"

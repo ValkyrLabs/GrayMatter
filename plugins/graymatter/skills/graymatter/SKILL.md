@@ -26,6 +26,7 @@ It is the authenticated memory and object-graph layer that lets an OpenClaw inst
 
 On startup or first use in a workspace that depends on GrayMatter:
 
+0. If `scripts/gm-activate` is missing but `graymatter-bootstrap` exists, run `./graymatter-bootstrap` to restore runtime files from `graymatter.skill`
 1. Ensure auth is available
 2. Confirm install readiness
 3. Register the OpenClaw instance as an Agent record for itself in api-0
@@ -36,6 +37,7 @@ On startup or first use in a workspace that depends on GrayMatter:
 Minimum activation flow:
 
 ```bash
+test -x scripts/gm-activate || ./graymatter-bootstrap
 scripts/gm-activate
 ```
 
@@ -47,6 +49,7 @@ scripts/gm-install-check
 scripts/gm-smoke
 scripts/gm-register-agent
 scripts/gm-openapi-sync
+scripts/gm-doctor --quick
 ```
 
 Auth should be treated as an OpenClaw-managed first-run step.
@@ -134,6 +137,7 @@ Readiness and auth:
 - `scripts/gm-login`
 - `scripts/gm-activate`
 - `scripts/gm-install-check`
+- `scripts/gm-doctor`
 - `scripts/gm-smoke`
 - `scripts/gm-register-agent`
 - `scripts/gm-openapi-sync`
@@ -221,7 +225,8 @@ Every Codex/OpenClaw/agent process using GrayMatter should:
 2. run `scripts/gm-activate` on first install, auth failure, suspicious transport behavior, or after a weekly refresh is due
 3. rely on `scripts/gm-login` to store reusable auth in the OS keychain when available
 4. let `scripts/graymatter_api.sh` and the MCP server refresh expired process-scoped auth automatically
-5. run `scripts/gm-replay-deferred` after auth, credits, or connectivity are restored
+5. run `scripts/gm-doctor --quick` after startup, plugin updates, or suspicious auth/transport behavior
+6. run `scripts/gm-replay-deferred` after auth, credits, or connectivity are restored
 
 User-facing progress should stay simple:
 

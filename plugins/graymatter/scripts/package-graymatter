@@ -21,6 +21,7 @@ REQUIRED=(
   scripts/gm-login
   scripts/gm-activate
   scripts/gm-install-check
+  scripts/gm-doctor
   scripts/gm-smoke
   scripts/gm-status
   scripts/gm-self-update

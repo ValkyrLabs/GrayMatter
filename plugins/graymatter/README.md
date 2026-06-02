@@ -146,6 +146,7 @@ Rule:
 - `scripts/gm-activate` — one-shot auth + install + agent registration + schema sync bootstrap
 - `scripts/gm-self-update` — repo/plugin self-update check for startup, weekly refresh, and auth/connectivity recovery
 - `scripts/gm-install-check` — dependency and auth readiness check
+- `scripts/gm-doctor` — full readiness report for self-update, auth, memory, schema, MCP, replay, and smoke status
 - `scripts/gm-smoke` — production smoke test for write/query validation
 - `scripts/gm-query` — query `MemoryEntry`
 - `scripts/gm-retrieval-receipt` — create, fetch, and list retrieval receipts through ThorAPI
@@ -246,6 +247,14 @@ Supported env inputs:
 At that point the install should be immediately usable.
 
 If auth succeeds but memory query is temporarily credit-gated, `scripts/gm-activate` now continues in a degraded mode: auth is stored, the agent is registered, the OpenAPI is synced, and the script reports that memory query capability is limited until credits are available.
+
+For a one-command post-install report, run:
+
+```bash
+scripts/gm-doctor
+```
+
+`gm-doctor` checks self-update readiness, install dependencies, auth/keychain state, live memory and object-graph layer status, OpenAPI sync, MCP contract availability, deferred replay readiness, and the live write/query smoke path. Use `scripts/gm-doctor --quick` when you want the same report without consuming credits on the smoke query.
 
 ### Packaged-skill install
 
@@ -353,6 +362,7 @@ scripts/gm-graph GET
 scripts/gm-openapi-sync
 scripts/gm-openapi-summary
 scripts/gm-status
+scripts/gm-doctor --quick
 ```
 
 ### Arbitrary schema entity access
@@ -481,6 +491,16 @@ Check:
 - whether the environment blocks the docs endpoint
 
 If the live docs cannot be fetched, use the last cached copy temporarily, but treat it as stale.
+
+### Unsure what is broken
+
+Run:
+
+```bash
+scripts/gm-doctor --verbose
+```
+
+The doctor command continues through all checks and reports the exact required failure or warning instead of stopping at the first broken dependency. That is the preferred first diagnostic before changing auth, credits, MCP config, or local plugin files.
 
 ## Packaging
 

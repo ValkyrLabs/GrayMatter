@@ -1,0 +1,183 @@
+#!/usr/bin/env bash
+set -uo pipefail
+
+SCRIPT_DIR="${GRAYMATTER_SCRIPT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
+ROOT_DIR="${GRAYMATTER_ROOT_DIR:-$(cd "${SCRIPT_DIR}/.." 2>/dev/null && pwd)}"
+OPENAPI_CACHE="${GRAYMATTER_OPENAPI_CACHE:-${ROOT_DIR}/tmp/api-docs.json}"
+RUN_SMOKE=true
+RUN_SELF_UPDATE=true
+RUN_REPLAY=true
+VERBOSE=false
+
+export GRAYMATTER_CURL_MAX_TIME="${GRAYMATTER_CURL_MAX_TIME:-60}"
+export GRAYMATTER_CURL_CONNECT_TIMEOUT="${GRAYMATTER_CURL_CONNECT_TIMEOUT:-10}"
+
+usage() {
+  cat <<'EOF'
+Usage: gm-doctor [--quick] [--no-smoke] [--no-self-update] [--no-replay] [--verbose]
+
+Run a full GrayMatter install/auth/runtime readiness report.
+
+Checks:
+  - startup self-update readiness
+  - local dependency and auth readiness
+  - live auth, memory, graph, strategic, and KPI layer status
+  - live OpenAPI sync and schema summary
+  - MCP contract availability
+  - deferred operation replay readiness
+  - live memory write/query smoke test unless skipped
+EOF
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --quick|--no-smoke)
+      RUN_SMOKE=false
+      ;;
+    --no-self-update)
+      RUN_SELF_UPDATE=false
+      ;;
+    --no-replay)
+      RUN_REPLAY=false
+      ;;
+    --verbose)
+      VERBOSE=true
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "Unknown gm-doctor option: $1" >&2
+      usage >&2
+      exit 2
+      ;;
+  esac
+  shift
+done
+
+have_script() {
+  [[ -x "${SCRIPT_DIR}/$1" ]]
+}
+
+run_check() {
+  local label="$1"
+  local required="$2"
+  shift 2
+
+  local output_file
+  output_file="$(mktemp -t graymatter-doctor.XXXXXX)"
+
+  "$@" >"$output_file" 2>&1
+  local status=$?
+
+  if [[ $status -eq 0 ]]; then
+    printf '[ok] %s\n' "$label"
+    if [[ "$VERBOSE" == "true" && -s "$output_file" ]]; then
+      sed 's/^/     /' "$output_file"
+    fi
+  elif [[ "$required" == "true" ]]; then
+    printf '[fail] %s\n' "$label"
+    sed 's/^/       /' "$output_file"
+    REQUIRED_FAILURES=$((REQUIRED_FAILURES + 1))
+  else
+    printf '[warn] %s\n' "$label"
+    sed 's/^/       /' "$output_file"
+    WARNINGS=$((WARNINGS + 1))
+  fi
+
+  rm -f "$output_file"
+}
+
+run_script_check() {
+  local script="$1"
+  local label="$2"
+  local required="$3"
+  shift 3
+
+  if ! have_script "$script"; then
+    if [[ "$required" == "true" ]]; then
+      printf '[fail] %s\n       missing executable: %s/%s\n' "$label" "$SCRIPT_DIR" "$script"
+      REQUIRED_FAILURES=$((REQUIRED_FAILURES + 1))
+    else
+      printf '[warn] %s\n       missing executable: %s/%s\n' "$label" "$SCRIPT_DIR" "$script"
+      WARNINGS=$((WARNINGS + 1))
+    fi
+    return 0
+  fi
+
+  run_check "$label" "$required" "${SCRIPT_DIR}/$script" "$@"
+}
+
+run_openapi_sync_check() {
+  local output_file
+  output_file="$(mktemp -t graymatter-doctor-openapi.XXXXXX)"
+
+  if have_script gm-openapi-sync && "${SCRIPT_DIR}/gm-openapi-sync" "$OPENAPI_CACHE" >"$output_file" 2>&1; then
+    printf '[ok] live OpenAPI sync\n'
+    if [[ "$VERBOSE" == "true" && -s "$output_file" ]]; then
+      sed 's/^/     /' "$output_file"
+    fi
+    rm -f "$output_file"
+    return 0
+  fi
+
+  if [[ -s "$OPENAPI_CACHE" ]]; then
+    printf '[warn] live OpenAPI sync\n'
+    sed 's/^/       /' "$output_file"
+    printf '       using cached schema: %s\n' "$OPENAPI_CACHE"
+    WARNINGS=$((WARNINGS + 1))
+    rm -f "$output_file"
+    return 0
+  fi
+
+  printf '[fail] live OpenAPI sync\n'
+  if have_script gm-openapi-sync; then
+    sed 's/^/       /' "$output_file"
+  else
+    printf '       missing executable: %s/gm-openapi-sync\n' "$SCRIPT_DIR"
+  fi
+  REQUIRED_FAILURES=$((REQUIRED_FAILURES + 1))
+  rm -f "$output_file"
+}
+
+REQUIRED_FAILURES=0
+WARNINGS=0
+
+printf 'GrayMatter doctor\n'
+printf 'script_dir=%s\n' "$SCRIPT_DIR"
+printf 'api_base=%s\n' "${VALKYR_API_BASE:-https://api-0.valkyrlabs.com/v1}"
+printf '\n'
+
+if [[ "$RUN_SELF_UPDATE" == "true" ]]; then
+  run_script_check gm-self-update "self-update check" false maybe
+fi
+
+run_script_check gm-install-check "install and auth check" true
+run_script_check gm-status "layer status" true
+run_openapi_sync_check
+run_script_check gm-openapi-summary "live OpenAPI summary" true "$OPENAPI_CACHE"
+run_script_check gm-mcp-contract "MCP contract" true
+
+if [[ "$RUN_REPLAY" == "true" ]]; then
+  run_script_check gm-replay-deferred "deferred replay check" false
+fi
+
+if [[ "$RUN_SMOKE" == "true" ]]; then
+  run_script_check gm-smoke "live memory smoke" true
+else
+  printf '[skip] live memory smoke\n'
+fi
+
+printf '\n'
+if [[ "$REQUIRED_FAILURES" -eq 0 ]]; then
+  if [[ "$WARNINGS" -eq 0 ]]; then
+    echo "GrayMatter doctor result: ready"
+  else
+    echo "GrayMatter doctor result: ready with ${WARNINGS} warning(s)"
+  fi
+  exit 0
+fi
+
+echo "GrayMatter doctor result: blocked by ${REQUIRED_FAILURES} required failure(s), ${WARNINGS} warning(s)"
+exit 1

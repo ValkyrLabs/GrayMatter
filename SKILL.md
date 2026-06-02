@@ -49,6 +49,7 @@ scripts/gm-install-check
 scripts/gm-smoke
 scripts/gm-register-agent
 scripts/gm-openapi-sync
+scripts/gm-doctor --quick
 ```
 
 Auth should be treated as an OpenClaw-managed first-run step.
@@ -136,6 +137,7 @@ Readiness and auth:
 - `scripts/gm-login`
 - `scripts/gm-activate`
 - `scripts/gm-install-check`
+- `scripts/gm-doctor`
 - `scripts/gm-smoke`
 - `scripts/gm-register-agent`
 - `scripts/gm-openapi-sync`
@@ -223,7 +225,8 @@ Every Codex/OpenClaw/agent process using GrayMatter should:
 2. run `scripts/gm-activate` on first install, auth failure, suspicious transport behavior, or after a weekly refresh is due
 3. rely on `scripts/gm-login` to store reusable auth in the OS keychain when available
 4. let `scripts/graymatter_api.sh` and the MCP server refresh expired process-scoped auth automatically
-5. run `scripts/gm-replay-deferred` after auth, credits, or connectivity are restored
+5. run `scripts/gm-doctor --quick` after startup, plugin updates, or suspicious auth/transport behavior
+6. run `scripts/gm-replay-deferred` after auth, credits, or connectivity are restored
 
 User-facing progress should stay simple:
 

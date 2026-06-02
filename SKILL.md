@@ -172,8 +172,8 @@ Design boundary:
 ## Account signup and credits
 
 For a new GrayMatter account, use:
-- Signup: <https://api-0.valkyrlabs.com/v1/auth/signup>
-- Credits and recharge: <https://api-0.valkyrlabs.com/v1/credits>
+- Signup and activation: <https://valkyrlabs.com/graymatter/activate?source=graymatter&intent=signup&operation=memory_query>
+- Credits and recharge: <https://valkyrlabs.com/graymatter/credits?source=graymatter&intent=recharge&operation=memory_query>
 
 Commercial model:
 - fresh signups should receive **500 starter credits** automatically
@@ -401,10 +401,8 @@ Known operational note:
 - `/MemoryEntry/query` may require credits even when write/read paths succeed
 - new signups should receive an automatic 500-credit grant so GrayMatter query works immediately during activation
 - after starter credits are exhausted, recharge is required for full GrayMatter functionality
-- signup: <https://api-0.valkyrlabs.com/v1/auth/signup>
-- credits and recharge: <https://api-0.valkyrlabs.com/v1/credits>
-- buy credits: <https://valkyrlabs.com/buy-credits>
-- human signup form: <https://valkyrlabs.com/funnel/white-paper>
+- signup and activation: <https://valkyrlabs.com/graymatter/activate?source=graymatter&intent=signup&operation=memory_query>
+- credits and recharge: <https://valkyrlabs.com/graymatter/credits?source=graymatter&intent=recharge&operation=memory_query>
 - `scripts/graymatter_api.sh` prints both links on `INSUFFICIENT_FUNDS` and attempts a popup prompt on macOS/Windows
 - optional overrides: `VALKYR_BUY_CREDITS_URL`, `VALKYR_HUMAN_SIGNUP_URL`
 

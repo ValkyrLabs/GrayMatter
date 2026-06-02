@@ -9,8 +9,8 @@ const { URL } = require('node:url');
 
 const DEFAULT_API_BASE = 'https://api-0.valkyrlabs.com/v1';
 const DEFAULT_WIDGET_DOMAIN = 'https://graymatter.valkyrlabs.com';
-const DEFAULT_BUY_CREDITS_URL = 'https://valkyrlabs.com/buy-credits';
-const DEFAULT_SIGNUP_URL = 'https://valkyrlabs.com/funnel/white-paper';
+const DEFAULT_BUY_CREDITS_URL = 'https://valkyrlabs.com/graymatter/credits';
+const DEFAULT_SIGNUP_URL = 'https://valkyrlabs.com/graymatter/activate';
 const DEFAULT_LOGIN_PATH = '/auth/login';
 const DEFAULT_PORT = 3333;
 const APP_UI_RESOURCE_URI = 'ui://graymatter/overview.html';
@@ -943,8 +943,18 @@ function buildRecoveryResult(error, operation, context) {
     return null;
   }
 
-  const buyCreditsUrl = process.env.VALKYR_BUY_CREDITS_URL || DEFAULT_BUY_CREDITS_URL;
-  const signupUrl = process.env.VALKYR_HUMAN_SIGNUP_URL || DEFAULT_SIGNUP_URL;
+  const buyCreditsUrl = activationContextUrl(
+    process.env.VALKYR_BUY_CREDITS_URL || DEFAULT_BUY_CREDITS_URL,
+    'recharge',
+    operation,
+    context
+  );
+  const signupUrl = activationContextUrl(
+    process.env.VALKYR_HUMAN_SIGNUP_URL || DEFAULT_SIGNUP_URL,
+    'signup',
+    operation,
+    context
+  );
   const loginUrl = apiUrl(context.apiBase, process.env.GRAYMATTER_LOGIN_PATH || DEFAULT_LOGIN_PATH);
   const retryable = signal.reason === 'insufficient_credits' || signal.reason === 'missing_auth';
 
@@ -987,6 +997,30 @@ function buildRecoveryResult(error, operation, context) {
       }
     }
   };
+}
+
+function activationContextUrl(baseUrl, intent, operation, context = {}) {
+  const url = new URL(baseUrl);
+  const params = {
+    source: process.env.GRAYMATTER_ACTIVATION_SOURCE || 'graymatter',
+    intent,
+    operation: operation || 'memory_query',
+    return_to: process.env.GRAYMATTER_ACTIVATION_RETURN_TO || 'graymatter://activation/return',
+    api_base: context.apiBase || DEFAULT_API_BASE
+  };
+
+  const installId = process.env.GRAYMATTER_INSTALL_ID || process.env.OPENCLAW_INSTANCE_ID || '';
+  if (installId) {
+    params.install_id = installId;
+  }
+
+  for (const [key, value] of Object.entries(params)) {
+    if (!url.searchParams.has(key) && value) {
+      url.searchParams.set(key, value);
+    }
+  }
+
+  return url.toString();
 }
 
 function recoveryActionsFor(reason, urls) {

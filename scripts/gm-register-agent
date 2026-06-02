@@ -14,6 +14,6 @@ METADATA="$(jq -nc \
   --arg memory "GrayMatter" \
   '{name:$name,role:$role,host:$host,platform:$platform,primaryMemory:$memory}')"
 
-PAYLOAD="$(jq -nc --arg instanceId "$INSTANCE_ID" --argjson metadata "$METADATA" '{instanceId:$instanceId,metadata:$metadata}')"
+PAYLOAD="$(jq -nc --arg instanceId "$INSTANCE_ID" --arg metadata "$METADATA" '{instanceId:$instanceId,metadata:$metadata}')"
 
 "${SCRIPT_DIR}/graymatter_api.sh" POST /swarm-ops/register "$PAYLOAD"

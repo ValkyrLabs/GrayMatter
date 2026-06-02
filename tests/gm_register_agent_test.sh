@@ -18,6 +18,15 @@ assert_contains() {
   fi
 }
 
+assert_jq() {
+  local json="$1"
+  local filter="$2"
+  local message="$3"
+  if ! jq -e "$filter" <<<"$json" >/dev/null; then
+    fail "$message"
+  fi
+}
+
 temp_root="$(mktemp -d)"
 script_dir="${temp_root}/scripts"
 mkdir -p "${script_dir}"
@@ -37,11 +46,14 @@ export TEST_API_LOG="${temp_root}/api.log"
 "${script_dir}/gm-register-agent" "codex-test-instance" "Codex" "coding-agent"
 
 log="$(cat "${TEST_API_LOG}")"
+body="$(sed -n 's/^body=//p' "${TEST_API_LOG}")"
+metadata="$(jq -r '.metadata' <<<"$body")"
 assert_contains "${log}" "method=POST" "gm-register-agent should POST to the agent registration endpoint"
 assert_contains "${log}" "path=/swarm-ops/register" "gm-register-agent should use the SwarmOps registration route"
 assert_contains "${log}" '"instanceId":"codex-test-instance"' "gm-register-agent should include the instance id"
-assert_contains "${log}" '"name":"Codex"' "gm-register-agent should identify the agent runtime"
-assert_contains "${log}" '"role":"coding-agent"' "gm-register-agent should include the agent role"
-assert_contains "${log}" '"primaryMemory":"GrayMatter"' "gm-register-agent should advertise GrayMatter as the memory layer"
+assert_jq "${body}" '.metadata | type == "string"' "gm-register-agent should JSON-encode metadata as a string for api-0"
+assert_jq "${metadata}" '.name == "Codex"' "gm-register-agent should identify the agent runtime"
+assert_jq "${metadata}" '.role == "coding-agent"' "gm-register-agent should include the agent role"
+assert_jq "${metadata}" '.primaryMemory == "GrayMatter"' "gm-register-agent should advertise GrayMatter as the memory layer"
 
 printf 'PASS: gm_register_agent_test.sh\n'

@@ -16,6 +16,7 @@ REQUIRED=(
   mcp-server/index.js
   mcp-server/package.json
   docs/server-capabilities.md
+  scripts/gm-activation-fastlane
   scripts/gm-query
   scripts/gm-retrieval-receipt
   scripts/gm-graph

@@ -29,6 +29,14 @@ require jq -e '.mcpServers.graymatter.args == ["mcp-server/index.js", "--stdio"]
   echo "Codex marketplace plugin skill missing" >&2
   exit 1
 }
+[[ -f "$ROOT/plugins/graymatter/skills/graymatter-analytics/SKILL.md" ]] || {
+  echo "Codex marketplace plugin analytics skill missing" >&2
+  exit 1
+}
+grep -q '/v1/api-docs' "$ROOT/plugins/graymatter/skills/graymatter-analytics/SKILL.md" || {
+  echo "Codex marketplace plugin analytics skill must cite api-docs as schema source of truth" >&2
+  exit 1
+}
 [[ -x "$ROOT/plugins/graymatter/scripts/gm-activate" ]] || {
   echo "Codex marketplace plugin activation script missing or not executable" >&2
   exit 1
@@ -49,7 +57,7 @@ for needle in OpenClaw scripts/gm-activate scripts/gm-login mcp-server/; do
   }
 done
 
-for needle in "Ready-to-rock release surfaces" "MCP service" "Codex plugin" "Standalone OpenClaw skill"; do
+for needle in "Release surfaces" "MCP service" "Codex plugin" "Standalone OpenClaw skill"; do
   grep -q "$needle" "$ROOT/README.md" || {
     echo "README missing release surface: $needle" >&2
     exit 1
@@ -60,6 +68,8 @@ ZIP_LIST="$(mktemp "${TMPDIR:-/tmp}/graymatter-skill-list.XXXXXX")"
 trap 'rm -f "$ZIP_LIST"' EXIT
 unzip -Z1 "$ROOT/graymatter.skill" >"$ZIP_LIST"
 grep -q '^graymatter/SKILL.md$' "$ZIP_LIST"
+grep -q '^graymatter/skills/graymatter-analytics/SKILL.md$' "$ZIP_LIST"
+grep -q '^graymatter/skills/graymatter-analytics/references/semantic-layer-template.md$' "$ZIP_LIST"
 grep -q '^graymatter/scripts/gm-activate$' "$ZIP_LIST"
 grep -q '^graymatter/scripts/gm-doctor$' "$ZIP_LIST"
 grep -q '^graymatter/scripts/gm-light-up$' "$ZIP_LIST"

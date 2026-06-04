@@ -36,11 +36,13 @@ The repo-level `.mcp.json` points Codex at `node mcp-server/index.js --stdio`.
 | `GRAYMATTER_WIDGET_DOMAIN` | No | `https://graymatter.valkyrlabs.com` | Public widget origin advertised in Apps SDK resource metadata for ChatGPT app review. |
 | `PORT` | No | `3333` | HTTP port to listen on. |
 
-Get a hosted token:
+Sign in from the repository root before starting the server, or run the helper with a relative path from this directory:
 
 ```bash
-scripts/gm-login
+../scripts/gm-login
 ```
+
+For local/private MCP testing, export the resulting token as `VALKYR_AUTH_TOKEN` only in your shell session. Hosted multi-tenant deployments should pass per-user bearer auth through the approved session or OAuth bridge instead of relying on a process-wide token.
 
 For local GrayMatter Light, start the ThorAPI instance and point the MCP server at it:
 

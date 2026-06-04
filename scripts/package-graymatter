@@ -10,6 +10,8 @@ REQUIRED=(
   SKILL.md
   graymatter-bootstrap
   skills/graymatter/SKILL.md
+  skills/graymatter-analytics/SKILL.md
+  skills/graymatter-analytics/references/semantic-layer-template.md
   mcp-server/README.md
   mcp-server/index.js
   mcp-server/package.json

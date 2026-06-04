@@ -9,6 +9,11 @@ cp "$ROOT_DIR/scripts/gm-write" "$TMP_DIR/gm-write"
 cp "$ROOT_DIR/scripts/gm-query" "$TMP_DIR/gm-query"
 chmod +x "$TMP_DIR/gm-write" "$TMP_DIR/gm-query"
 
+HELP_OUTPUT="$("$TMP_DIR/gm-query" --help)"
+grep -q "Usage:" <<<"$HELP_OUTPUT"
+grep -q "Scope precedence:" <<<"$HELP_OUTPUT"
+grep -q "VALKYR_API_BASE" <<<"$HELP_OUTPUT"
+
 cat > "$TMP_DIR/graymatter_api.sh" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -24,7 +29,7 @@ WRITE_OUTPUT="$(
     --user codex-user
 )"
 
-jq -e '.sourceChannel == "codex:automation:mcp-and-skill-hunter"' <<<"$WRITE_OUTPUT" >/dev/null
+jq -e '(.sourceChannel // .source) == "codex:automation:mcp-and-skill-hunter"' <<<"$WRITE_OUTPUT" >/dev/null
 jq -e '.text | contains("[graymatter-scope]")' <<<"$WRITE_OUTPUT" >/dev/null
 jq -e '.text | contains("scope: automation")' <<<"$WRITE_OUTPUT" >/dev/null
 jq -e '.text | contains("automationId: mcp-and-skill-hunter")' <<<"$WRITE_OUTPUT" >/dev/null
@@ -44,7 +49,7 @@ CHAT_OUTPUT="$(
     --workspace-key "2026-05-12/scan-the-internet-for-lhe-best"
 )"
 
-jq -e '.sourceChannel == "codex:chat:thread-42"' <<<"$CHAT_OUTPUT" >/dev/null
+jq -e '(.sourceChannel // .source) == "codex:chat:thread-42"' <<<"$CHAT_OUTPUT" >/dev/null
 jq -e '.text | contains("workspaceKey: 2026-05-12/scan-the-internet-for-lhe-best")' <<<"$CHAT_OUTPUT" >/dev/null
 
 echo "gm_memory_scope_test: PASS"

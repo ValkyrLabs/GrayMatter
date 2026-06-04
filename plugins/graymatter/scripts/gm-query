@@ -1,10 +1,126 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+usage() {
+  cat <<'EOF'
+Usage:
+  gm-query <query> [limit] [type] [sourceChannel] [options]
+  gm-query <query> --limit <n> [--type <type>] [--source-channel <source>] [options]
+
+Query GrayMatter durable memory through POST /MemoryEntry/query.
+
+Arguments:
+  query
+      Search text. Quote multi-word queries.
+
+  limit
+      Optional positional maximum result count. Defaults to 10.
+
+  type
+      Optional positional MemoryEntry type filter. Common values:
+      decision, todo, context, artifact, preference.
+
+  sourceChannel
+      Optional positional retrieval scope/source filter. Prefer stable scope
+      keys such as codex:workspace:2026-05-12/my-project or
+      codex:automation:mcp-and-skill-hunter.
+
+Options:
+  --limit <n>
+      Maximum number of results to request. Must be a non-negative integer.
+      Overrides the positional limit when both are provided.
+
+  --type <type>
+      MemoryEntry type filter. Overrides the positional type.
+
+  --source-channel <source>
+      Explicit sourceChannel/source filter. Overrides derived scope.
+
+  --runtime <name>
+      Runtime prefix used when deriving sourceChannel values. Defaults to codex.
+
+  --scope-path <path>
+  --artifact-path <path>
+  --path <path>
+      Derive sourceChannel from a known local path when no explicit
+      sourceChannel is provided. Recognized patterns include:
+        $HOME/.codex/automations/<automation-id>/...
+        .../Documents/Codex/<date>/<workspace-slug>/...
+
+  --workspace-key <key>
+      Derive sourceChannel as <runtime>:workspace:<key>, unless key already
+      contains ':'.
+
+  --chat-key <key>
+      Derive sourceChannel as <runtime>:chat:<key>, unless key already
+      contains ':'. Chat scope has the highest precedence.
+
+  --session-key <key>
+      Derive sourceChannel as <runtime>:session:<key>, unless key already
+      contains ':'.
+
+  --automation-id <id>
+      Derive sourceChannel as <runtime>:automation:<id>, unless id already
+      contains ':'.
+
+  -h, --help
+      Show this help text.
+
+Scope precedence:
+  1. explicit positional sourceChannel or --source-channel
+  2. --chat-key
+  3. --session-key
+  4. --automation-id
+  5. --workspace-key
+  6. recognized --scope-path / --artifact-path / --path
+
+Examples:
+  gm-query "GrayMatter launch status"
+  gm-query "publish blocked" 5 context
+  gm-query "handoff" --limit 5 --type context --chat-key thread-42
+  gm-query "publish blocked" 5 context \
+    --scope-path "$HOME/.codex/automations/mcp-and-skill-hunter/memory.md"
+  gm-query "local memory" --source-channel codex:workspace:2026-05-12/demo
+
+Output:
+  Prints the JSON response returned by GrayMatter. The request body sent to
+  /MemoryEntry/query includes q, maxResults, and optional type/source fields.
+
+Environment:
+  VALKYR_API_BASE
+      API base URL. Defaults inside graymatter_api.sh to hosted api-0 unless
+      overridden, for example by GrayMatter Light env exports.
+
+  VALKYR_AUTH_TOKEN, VALKYR_JWT_SESSION, VALKYR_AUTH
+      Auth sources used by graymatter_api.sh for hosted GrayMatter.
+
+Notes:
+  - Run scripts/gm-login or scripts/gm-activate before querying hosted api-0.
+  - For GrayMatter Light, run scripts/gm-light-up, then source
+    .graymatter-light/.graymatter-light-env before gm-query.
+  - Hosted memory query may consume account credits.
+EOF
+}
+
+require_value() {
+  local option="$1"
+  local value="${2:-}"
+  if [[ -z "$value" || "$value" == --* ]]; then
+    echo "gm-query: $option requires a value" >&2
+    echo "Run 'gm-query --help' for usage." >&2
+    exit 1
+  fi
+}
+
 QUERY="${1:-}"
 
+if [[ "$QUERY" == "-h" || "$QUERY" == "--help" ]]; then
+  usage
+  exit 0
+fi
+
 if [[ -z "$QUERY" ]]; then
-  echo "Usage: gm-query <query> [limit] [type] [sourceChannel] [--scope-path path] [--workspace-key key] [--chat-key key] [--session-key key] [--automation-id id]" >&2
+  usage >&2
   exit 1
 fi
 
@@ -35,48 +151,67 @@ SCOPE_PATH=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    -h|--help)
+      usage
+      exit 0
+      ;;
     --runtime)
+      require_value "$1" "${2:-}"
       RUNTIME="${2:-}"
       shift 2
       ;;
     --workspace-key)
+      require_value "$1" "${2:-}"
       WORKSPACE_KEY="${2:-}"
       shift 2
       ;;
     --chat-key)
+      require_value "$1" "${2:-}"
       CHAT_KEY="${2:-}"
       shift 2
       ;;
     --session-key)
+      require_value "$1" "${2:-}"
       SESSION_KEY="${2:-}"
       shift 2
       ;;
     --automation-id)
+      require_value "$1" "${2:-}"
       AUTOMATION_ID="${2:-}"
       shift 2
       ;;
     --scope-path|--artifact-path|--path)
+      require_value "$1" "${2:-}"
       SCOPE_PATH="${2:-}"
       shift 2
       ;;
     --source-channel)
+      require_value "$1" "${2:-}"
       SOURCE_CHANNEL="${2:-}"
       shift 2
       ;;
     --type)
+      require_value "$1" "${2:-}"
       TYPE="${2:-}"
       shift 2
       ;;
     --limit)
+      require_value "$1" "${2:-}"
       LIMIT="${2:-}"
       shift 2
       ;;
     *)
       echo "Unknown gm-query option: $1" >&2
+      echo "Run 'gm-query --help' for usage." >&2
       exit 1
       ;;
   esac
 done
+
+if [[ ! "$LIMIT" =~ ^[0-9]+$ ]]; then
+  echo "gm-query: limit must be a non-negative integer: $LIMIT" >&2
+  exit 1
+fi
 
 derive_source_channel() {
   local path="$1"

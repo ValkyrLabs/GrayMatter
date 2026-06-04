@@ -13,9 +13,9 @@ It exists for:
 Light mode is not the primary production experience.
 For real OpenClaw deployments, the default path is GrayMatter Cloud with interactive username/password login and secure Keychain-backed session reuse.
 
-## Scope for v1
+## Current scope
 
-Keep it intentionally small.
+Light mode is intentionally small. It gives developers and reviewers a local `MemoryEntry` surface that behaves like the production memory path where that matters, without requiring hosted auth.
 
 Include:
 - minimal `MemoryEntry` schema
@@ -30,7 +30,7 @@ Do not include in v1:
 - complex auth
 - production-only integrations
 
-## Proposed model
+## MemoryEntry model
 
 ```yaml
 MemoryEntry:
@@ -61,18 +61,18 @@ ThorAPI gives Light mode:
 - easier migration from local mode to cloud mode
 - fewer hand-rolled one-off decisions
 
-## Suggested delivery shape
+## Delivery shape
 
-Phase 1:
-- document the concept clearly
-- include a starter ThorAPI bundle/spec example
-- include a local JSON-store smoke-test script for write/query validation
+Available now:
+- a documented Light-mode contract
+- a starter ThorAPI bundle/spec example
+- a local JSON-store smoke-test script for write/query validation
 
-Phase 2:
+Runtime path:
 - keep the ThorAPI-backed local service runnable with `scripts/gm-light-up`
 - keep sample data and smoke-test commands aligned with the generated spec
 
-Phase 3:
+Upgrade path:
 - align payloads and migration paths with production GrayMatter
 
 ## Ideal developer experience
@@ -116,5 +116,4 @@ Light mode now exposes the local node through `GET /api/graymatter/swarm/protoco
 
 ## Recommendation
 
-Yes, we should build this.
-It is the right low-friction entry point and makes GrayMatter easier to explain, test, and trust.
+Keep Light small and dependable. It is the low-friction entry point for explaining, testing, and trusting GrayMatter before moving to Cloud mode.

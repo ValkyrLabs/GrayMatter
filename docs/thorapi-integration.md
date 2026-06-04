@@ -2,8 +2,7 @@
 
 ## Relationship
 
-ThorAPI is the generator and schema engine.
-GrayMatter is the durable memory product/system.
+ThorAPI is the generator and schema engine. GrayMatter is the durable memory product and operating layer for agents.
 
 In the production OpenClaw flow, GrayMatter should also be the first-class authenticated context layer:
 - user signs in with api-0 username/password
@@ -16,8 +15,7 @@ In practice:
 
 ## Why cross-link them
 
-Without ThorAPI, GrayMatter looks like a set of endpoints and helper scripts.
-With ThorAPI, GrayMatter becomes legible as a generated, spec-driven memory system with a clean evolution path.
+Without ThorAPI, GrayMatter can look like a set of endpoints and helper scripts. With ThorAPI, the local path becomes a generated, spec-driven memory system with a clean evolution path into the hosted product.
 
 ## Relevant ThorAPI notes
 
@@ -39,7 +37,7 @@ The generated bundle keeps the ThorAPI inputs and outputs explicit:
 - `docker-compose.yaml` starts ThorAPI with `THORAPI_TEMPLATE=/app/api.hbs.yaml` and `THORAPI_SPEC=/app/api.yaml`
 - `application-bundle/openapi.json` records the app-factory contract used by the standalone local server package
 
-## Suggested v1 surface
+## Light v1 surface
 
 Models:
 - `MemoryEntry`
@@ -62,7 +60,7 @@ Required MCP-backed paths:
 
 ## Practical cross-links for this repo
 
-This repo should keep linking back to ThorAPI concepts explicitly:
+This repo should keep ThorAPI concepts explicit:
 - architecture docs should explain that Light mode is ThorAPI-powered
 - examples should include a starter `MemoryEntry` spec/bundle sketch
 - local launch docs should state exactly which ThorAPI inputs generate the running instance

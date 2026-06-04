@@ -1,6 +1,6 @@
 ---
 name: graymatter
-description: Install and use GrayMatter as an OpenClaw skill that provides primary durable memory, shared object-graph state, and authenticated access to the live ValkyrAI schema via api-0. Use when the agent should persist durable memory, inspect organizational data models, and operate inside the business domain through RBAC-scoped API access.
+description: Install and use GrayMatter as an OpenClaw skill that provides primary durable memory, shared object-graph state, and authenticated access to the live api-docs schema via api-0. Use when the agent should persist durable memory, inspect organizational data models, and operate inside the business domain through RBAC-scoped API access.
 ---
 
 # GrayMatter
@@ -31,7 +31,7 @@ On startup or first use in a workspace that depends on GrayMatter:
 2. Confirm install readiness
 3. Register the OpenClaw instance as an Agent record for itself in api-0
 4. Load the live OpenAPI from `https://api-0.valkyrlabs.com/v1/api-docs`
-5. Treat that spec as the source of truth for the environment's available business objects and actions
+5. Treat `/v1/api-docs` as the source of truth for the environment's available business objects and actions
 6. Use GrayMatter and the broader schema as the primary operational context
 
 Minimum activation flow:
@@ -86,35 +86,12 @@ When GrayMatter returns a Retrieval Receipt:
 
 ### 2) Entire-schema awareness
 
-Load the live OpenAPI spec and use it to understand the organization's environment.
-This skill assumes the agent should understand and work across the available schema, not just memory endpoints.
-The entire RBAC-visible schema is available to GrayMatter as the operational object graph for the current account.
+Load the live OpenAPI spec from `/v1/api-docs` and use it to understand the organization's environment.
+This skill assumes the agent should understand and work across the RBAC-visible schema that exists for the current account, not just memory endpoints.
 
-Observed live schema domains from `api-0` include, among many others:
-- `Organization`
-- `Customer`
-- `Opportunity`
-- `Invoice`
-- `Product`
-- `Application`
-- `Workbook`
-- `Workflow`
-- `Task`
-- `Note`
-- `MediaObject`
-- `FileRecord`
-- `SalesActivity`
-- `SalesPipeline`
-- `Goal`
-- `StrategicPriority`
-- `KeyMetric`
-- `Agent`
-- `Space`
-- `SwarmOps`
-- `GrayMatter`
-- `MemoryEntry`
+Only GrayMatter product surfaces such as memory, retrieval, receipts, status, and schema introspection should be treated as expected once the plugin is installed and authenticated. Business objects such as `Organization`, `Customer`, `Invoice`, `UserPreference`, `StrategicPriority`, `KeyMetric`, `Workflow`, or `Application` are conditional: use them only after the current `/v1/api-docs` exposes the relevant paths, components, fields, and relationships.
 
-This means a properly authenticated OpenClaw instance can understand the business as a live object graph, not as disconnected chat logs.
+This means a properly authenticated OpenClaw instance can understand the business as a live object graph when the schema exposes those objects, not as disconnected chat logs.
 
 ### 3) Shared graph coordination
 
@@ -335,7 +312,7 @@ When helping in a GrayMatter-native environment:
 4. Keep durable memory concise and reusable
 5. Prefer authenticated API state over stale local assumptions
 
-Examples:
+Conditional examples, only when `/v1/api-docs` exposes the relevant object families:
 - for sales work, inspect `Customer`, `Opportunity`, `SalesActivity`, `SalesPipeline`
 - for operations, inspect `Task`, `Workflow`, `WorkflowExecution`, `Application`
 - for content or CMS-like work, inspect `Note`, `MediaObject`, `FileRecord`, `Space`

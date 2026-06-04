@@ -2,14 +2,13 @@
 
 ## Overview
 
-GrayMatter is the durable memory and RBAC-scoped object-graph layer for agentic workflows.
+GrayMatter is the durable memory and RBAC-scoped object-graph layer for business-native agent workflows.
 
 It separates into two practical operating modes:
 - **Cloud** for shared production memory and graph state
 - **Light** for local/offline `MemoryEntry`-first memory
 
-That split is intentional.
-It keeps the production path powerful while making the local path simple enough to run anywhere.
+That split is intentional. Cloud mode gives agents the live, authenticated business context they need in production; Light mode keeps the local path small enough to run, inspect, and trust quickly.
 
 ## Core concepts
 
@@ -28,6 +27,7 @@ Design goal:
 - short, explicit, reusable memory items
 - not giant transcripts
 - not vague chat residue
+- easy to replay or migrate between Light and Cloud
 
 ### Graph state
 
@@ -72,7 +72,7 @@ A receipt captures:
 
 The MCP layer exposes this as `memory_retrieve_with_receipt`, `retrieval_receipt_get`, and `retrieval_receipt_query`. It does not reimplement scoring locally; it calls the ThorAPI receipt endpoint and returns the generated transaction object.
 
-Use cloud mode when you need:
+Use Cloud mode when you need:
 - shared durable memory
 - cross-agent coordination
 - graph-backed operational state
@@ -85,7 +85,7 @@ Default auth posture for Cloud mode:
 - store the session securely in macOS/iCloud Keychain
 - reuse it automatically on later runs
 
-Manual JWT handling should not be the normal user path.
+Manual JWT handling is a fallback and debugging path, not the normal user experience.
 
 ## Mode 2: GrayMatter Light
 
@@ -97,6 +97,8 @@ Target characteristics:
 - no required external auth
 - small demo/dev footprint
 - straightforward upgrade path to cloud mode
+
+Use Light mode when you need a local demo, offline development loop, or resilient fallback. Keep it centered on durable memory; do not expand it into a full copy of the production object graph.
 
 ## Design principles
 

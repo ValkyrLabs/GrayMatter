@@ -286,6 +286,7 @@ fallback_memoryentry_filter() {
         elif (.content? | type) == "array" then .content
         elif (.items? | type) == "array" then .items
         elif (.data? | type) == "array" then .data
+        elif (.results? | type) == "array" then .results
         elif (.records? | type) == "array" then .records
         else []
         end;
@@ -299,6 +300,7 @@ fallback_memoryentry_filter() {
           .title?,
           .summary?,
           .description?,
+          .content?,
           .type?,
           .source?,
           .sourceChannel?,

@@ -48,6 +48,23 @@ EOF
   cat >"${dir}/curl" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
+all_args="$*"
+if [[ "$all_args" == *"/auth/me"* ]]; then
+  if [[ "${TEST_CURL_AUTH_ME_SCENARIO:-valid}" == "invalid-once" ]]; then
+    state_file="${TEST_CURL_STATE_FILE:?}"
+    count=0
+    if [[ -f "$state_file" ]]; then
+      count="$(cat "$state_file")"
+    fi
+    if [[ "$count" == "0" ]]; then
+      printf '1' >"$state_file"
+      printf '401'
+      exit 0
+    fi
+  fi
+  printf '200'
+  exit 0
+fi
 printf '{}'
 EOF
   chmod +x "${dir}/curl"
@@ -68,12 +85,39 @@ test_install_check_relogs_when_keychain_token_is_read_only() {
   chmod +x "${script_copy}"
   make_fake_bin "${fake_bin}"
 
-  output="$(PATH="${fake_bin}:/usr/bin:/bin" "${script_copy}" 2>&1)"
+  output="$(PATH="${fake_bin}:/usr/local/bin:/usr/bin:/bin" "${script_copy}" 2>&1)"
 
   assert_contains "${output}" "GrayMatter install check passed" "gm-install-check should pass after automatic re-login replaces a read-only token"
   assert_contains "${output}" "GrayMatter auth source detected" "gm-install-check should report auth success after re-login"
 }
 
+test_install_check_relogs_when_keychain_session_is_stale_live() {
+  local temp_root
+  local fake_bin
+  local script_copy
+  local output
+
+  temp_root="$(mktemp -d)"
+  fake_bin="${temp_root}/bin"
+  script_copy="${temp_root}/gm-install-check"
+  mkdir -p "${fake_bin}"
+
+  cp "${SCRIPT_SRC}" "${script_copy}"
+  chmod +x "${script_copy}"
+  make_fake_bin "${fake_bin}"
+
+  output="$(
+    TEST_CURL_AUTH_ME_SCENARIO="invalid-once" \
+    TEST_CURL_STATE_FILE="${temp_root}/curl.state" \
+    PATH="${fake_bin}:/usr/local/bin:/usr/bin:/bin" \
+    "${script_copy}" 2>&1
+  )"
+
+  assert_contains "${output}" "GrayMatter auth live state: valid" "gm-install-check should re-login when auth/me rejects the stored session"
+  assert_contains "${output}" "GrayMatter install check passed" "gm-install-check should pass after replacing a stale live session"
+}
+
 test_install_check_relogs_when_keychain_token_is_read_only
+test_install_check_relogs_when_keychain_session_is_stale_live
 
 printf 'PASS: gm_install_check_test.sh\n'

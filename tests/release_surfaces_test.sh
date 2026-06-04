@@ -20,6 +20,27 @@ require jq -e '.plugins[] | select(.name == "graymatter") | .source.path == "./p
 
 require jq -e '.mcpServers.graymatter.command == "node"' "$ROOT/.mcp.json" >/dev/null
 require jq -e '.mcpServers.graymatter.args == ["mcp-server/index.js", "--stdio"]' "$ROOT/.mcp.json" >/dev/null
+require jq -e '.version == "0.2.2"' "$ROOT/clawhub.json" >/dev/null
+for clawhub_file in \
+  SKILL.md \
+  graymatter.skill \
+  graymatter-bootstrap \
+  .mcp.json \
+  scripts/gm-login \
+  scripts/gm-activate \
+  scripts/gm-install-check \
+  scripts/gm-smoke \
+  scripts/gm-register-agent \
+  scripts/gm-openapi-sync \
+  scripts/gm-openapi-summary \
+  scripts/gm-mcp-contract \
+  scripts/graymatter_api.sh \
+  mcp-server/index.js \
+  mcp-server/package.json \
+  references/contracts/mcp/graymatter_mcp_contract_v1.json \
+  references/contracts/mcp/graymatter_mcp_tools_v1.json; do
+  require jq -e --arg file "$clawhub_file" '.files | index($file)' "$ROOT/clawhub.json" >/dev/null
+done
 
 require jq -e '.name == "graymatter"' "$ROOT/plugins/graymatter/.codex-plugin/plugin.json" >/dev/null
 require jq -e '.skills == "./skills/"' "$ROOT/plugins/graymatter/.codex-plugin/plugin.json" >/dev/null
@@ -73,6 +94,8 @@ grep -q '^graymatter/skills/graymatter-analytics/references/semantic-layer-templ
 grep -q '^graymatter/scripts/gm-activate$' "$ZIP_LIST"
 grep -q '^graymatter/scripts/gm-doctor$' "$ZIP_LIST"
 grep -q '^graymatter/scripts/gm-light-up$' "$ZIP_LIST"
+grep -q '^graymatter/references/contracts/mcp/graymatter_mcp_contract_v1.json$' "$ZIP_LIST"
+grep -q '^graymatter/references/contracts/mcp/graymatter_mcp_tools_v1.json$' "$ZIP_LIST"
 grep -q '^graymatter/mcp-server/index.js$' "$ZIP_LIST"
 grep -q '^graymatter/.mcp.json$' "$ZIP_LIST"
 

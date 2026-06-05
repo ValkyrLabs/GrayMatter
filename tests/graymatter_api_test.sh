@@ -523,6 +523,10 @@ test_insufficient_funds_write_creates_deferred_replay_record() {
   local deferred_count
   deferred_count="$(find "${temp_root}/deferred" -type f -name '*.json' | wc -l | tr -d ' ')"
   [[ "$deferred_count" == "1" ]] || fail "graymatter_api should create exactly one deferred operation record"
+  local events_file="${script_copy%/*}/../memory/credit-recovery-events.jsonl"
+  assert_file_exists "$events_file" "graymatter_api should emit credit recovery funnel events"
+  jq -e 'select(.event == "credit_blocked" and .operation == "memory_write" and .requiredCredits == "50")' "$events_file" >/dev/null || fail "graymatter_api should emit credit_blocked without request body"
+  jq -e 'select(.event == "deferred_write_created" and .operation == "memory_write" and (.deferredFile | length > 0))' "$events_file" >/dev/null || fail "graymatter_api should emit deferred_write_created with replay metadata"
 }
 
 with_fixture test_insufficient_funds_write_creates_deferred_replay_record
@@ -558,6 +562,10 @@ test_insufficient_funds_urls_do_not_leak_token_or_memory_body() {
   fi
   if [[ "${output}" == *"${secret_body}"* ]]; then
     fail "graymatter_api should never place raw memory payload text in credit-recovery URLs or guidance output"
+  fi
+  local events_file="${script_copy%/*}/../memory/credit-recovery-events.jsonl"
+  if [[ -f "$events_file" ]] && grep -q "super-secret-token\\|${secret_body}" "$events_file"; then
+    fail "graymatter_api credit recovery events should never include auth tokens or raw memory payload text"
   fi
 }
 

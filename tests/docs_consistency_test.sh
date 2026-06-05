@@ -40,10 +40,16 @@ DOC_FILES=(
 old_smoke="gm-light-"'smoke'
 future_sample="future local runnable sample"
 future_service="provide a runnable GrayMatter Light local service"
+raw_api_signup="api-0.valkyrlabs.com/v1/auth/signup"
+generic_buy_credits="valkyrlabs.com/buy-credits"
+generic_white_paper="valkyrlabs.com/funnel/white-paper"
 
 assert_absent "$old_smoke" "${DOC_FILES[@]}"
 assert_absent "$future_sample" "${DOC_FILES[@]}"
 assert_absent "$future_service" "${DOC_FILES[@]}"
+assert_absent "$raw_api_signup" "${DOC_FILES[@]}"
+assert_absent "$generic_buy_credits" "${DOC_FILES[@]}"
+assert_absent "$generic_white_paper" "${DOC_FILES[@]}"
 
 assert_contains "gm-light-json-smoke" "README.md"
 assert_contains "gm-light-json-smoke" "docs/graymatter-light.md"

@@ -89,6 +89,44 @@ done
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+queue_fallback() {
+  local reason="$1"
+  local chars="${#TEXT}"
+  if [[ -x "${SCRIPT_DIR}/gm-fallback-append" ]]; then
+    "${SCRIPT_DIR}/gm-fallback-append" "$TYPE" "$TEXT" "$SOURCE_CHANNEL" "$reason" >/dev/null 2>&1 || true
+    echo "Write failed, queued fallback payload in memory/graymatter-fallback.json (chars=${chars})" >&2
+  fi
+}
+
+preflight_write_state() {
+  [[ "${GRAYMATTER_GM_WRITE_PREFLIGHT:-true}" == "false" ]] && return 0
+  [[ -x "${SCRIPT_DIR}/gm-status" ]] || return 0
+
+  local status_output=""
+  status_output="$(GM_STATUS_FORMAT=kv "${SCRIPT_DIR}/gm-status" 2>/dev/null)" || return 0
+
+  local auth_state=""
+  local token_state=""
+  local memory_layer=""
+  auth_state="$(awk -F= '$1 == "graymatter_auth" {print $2; exit}' <<<"$status_output")"
+  token_state="$(awk -F= '$1 == "graymatter_token_state" {print $2; exit}' <<<"$status_output")"
+  memory_layer="$(awk -F= '$1 == "memory_layer" {print $2; exit}' <<<"$status_output")"
+
+  if [[ "$auth_state" == *":read_only"* || "$token_state" == "read_only" ]]; then
+    echo "gm-write cannot write with read-only GrayMatter auth (auth=${auth_state:-unknown}, token=${token_state:-unknown})." >&2
+    echo "Use a write-capable VALKYR_AUTH token or run scripts/gm-login with an account that can write MemoryEntry." >&2
+    queue_fallback "gm-write preflight blocked read-only auth"
+    exit 23
+  fi
+
+  if [[ -n "$memory_layer" && "$memory_layer" != "ready" ]]; then
+    echo "gm-write cannot write while GrayMatter memory_layer=${memory_layer}." >&2
+    echo "Run scripts/gm-status and scripts/gm-doctor --quick, then retry or replay with scripts/gm-replay-deferred." >&2
+    queue_fallback "gm-write preflight blocked memory_layer=${memory_layer}"
+    exit 24
+  fi
+}
+
 derive_scope_from_path() {
   local path="$1"
   if [[ "$path" =~ \.codex/automations/([^/]+) ]]; then
@@ -180,20 +218,39 @@ SCOPE_METADATA="$(jq -nc \
     sourceChannel:$sourceChannel
   } | with_entries(select(.value != ""))')"
 
-if jq -e 'length > 2 or ((has("runtime") and has("sourceChannel")) | not)' <<<"$SCOPE_METADATA" >/dev/null; then
-  TEXT="$(jq -nr --argjson metadata "$SCOPE_METADATA" --arg text "$TEXT" '
-    "[graymatter-scope]\n"
-    + ($metadata | to_entries | map("\(.key): \(.value)") | join("\n"))
-    + "\n[/graymatter-scope]\n\n"
-    + $text
+if [[ -n "$TAGS_RAW" ]]; then
+  PAYLOAD="$(jq -nc --arg type "$TYPE" --arg text "$TEXT" --arg sourceChannel "$SOURCE_CHANNEL" --argjson metadata "$SCOPE_METADATA" --arg tagsRaw "$TAGS_RAW" '
+    def clean_tags:
+      split(",")
+      | map(gsub("^\\s+|\\s+$";""))
+      | map(select(length > 0))
+      | map(ascii_downcase | gsub("\\s+";"-"))
+      | unique
+      | map({name:., type:"keyword"});
+    {
+      type:$type,
+      text:$text,
+      source:$sourceChannel,
+      sourceChannel:$sourceChannel,
+      tags:($tagsRaw | clean_tags)
+    }
+    + (if ($metadata | length) > 0 then {metadata:($metadata | tojson)} else {} end)
+  ')"
+else
+  PAYLOAD="$(jq -nc --arg type "$TYPE" --arg text "$TEXT" --arg sourceChannel "$SOURCE_CHANNEL" --argjson metadata "$SCOPE_METADATA" '
+    {
+      type:$type,
+      text:$text,
+      source:$sourceChannel,
+      sourceChannel:$sourceChannel
+    }
+    + (if ($metadata | length) > 0 then {metadata:($metadata | tojson)} else {} end)
   ')"
 fi
 
-if [[ -n "$TAGS_RAW" ]]; then
-  PAYLOAD="$(jq -nc --arg type "$TYPE" --arg text "$TEXT" --arg sourceChannel "$SOURCE_CHANNEL" --arg tagsRaw "$TAGS_RAW" '{type:$type,text:$text,source:$sourceChannel,tags:($tagsRaw | split(",") | map(gsub("^\\s+|\\s+$";"")) | map(select(length > 0)))}')"
-else
-  PAYLOAD="$(jq -nc --arg type "$TYPE" --arg text "$TEXT" --arg sourceChannel "$SOURCE_CHANNEL" '{type:$type,text:$text,source:$sourceChannel}')"
-fi
+PAYLOAD="$(jq 'del(.id,.ownerId,.ownerID,.createdDate,.keyHash,.lastAccessedById,.lastAccessedDate,.lastModifiedById,.lastModifiedDate)' <<<"$PAYLOAD")"
+
+preflight_write_state
 
 set +e
 RESPONSE="$(${SCRIPT_DIR}/graymatter_api.sh POST /MemoryEntry/write "$PAYLOAD" 2>&1)"
@@ -207,7 +264,7 @@ fi
 
 if [[ -n "$TAGS_RAW" ]] && printf '%s' "$RESPONSE" | grep -Eqi 'tags|tag|relation'; then
   echo "Tagged write failed, retrying without tags due to backend tag persistence issue" >&2
-  FALLBACK_PAYLOAD="$(jq -nc --arg type "$TYPE" --arg text "$TEXT" --arg sourceChannel "$SOURCE_CHANNEL" '{type:$type,text:$text,source:$sourceChannel}')"
+  FALLBACK_PAYLOAD="$(jq 'del(.tags)' <<<"$PAYLOAD")"
   exec "${SCRIPT_DIR}/graymatter_api.sh" POST /MemoryEntry/write "$FALLBACK_PAYLOAD"
 fi
 
@@ -221,10 +278,7 @@ if [[ $STATUS -ne 0 ]]; then
   echo "gm-write failed (type=${TYPE}, sourceChannel=${SOURCE_CHANNEL}, chars=${TEXT_LEN}, exit=${STATUS})." >&2
 fi
 
-if [[ -x "${SCRIPT_DIR}/gm-fallback-append" ]]; then
-  "${SCRIPT_DIR}/gm-fallback-append" "$TYPE" "$TEXT" "$SOURCE_CHANNEL" "gm-write API failure (chars=${TEXT_LEN})" >/dev/null 2>&1 || true
-  echo "Write failed, queued fallback payload in memory/graymatter-fallback.json (chars=${TEXT_LEN})" >&2
-fi
+queue_fallback "gm-write API failure (chars=${TEXT_LEN})"
 
 printf '%s\n' "$RESPONSE" >&2
 exit $STATUS

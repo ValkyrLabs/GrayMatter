@@ -37,6 +37,18 @@ GrayMatter helpers may expect GrayMatter product surfaces such as memory, retrie
 - Do not synthesize unavailable schema objects from examples, docs, memories, or another user's tenant.
 - For high-stakes analytics, refresh schema and retrieve source evidence during the workflow, even when saved context exists.
 
+## Normalized Context Rules
+
+Analytics quality depends on graph traversal, filters, and retrieval receipts seeing structured fields rather than blobs.
+
+- Do not write analytics context by stuffing metadata into `MemoryEntry.text` or `ContentData.contentData`.
+- Use `MemoryEntry.text` only for the concise durable fact, decision, todo, preference, handoff, or artifact summary.
+- Use `sourceChannel`, `metadata`, tags, and explicit relationships for scope, provenance, workspace, workflow, dashboard, artifact, and agent identifiers.
+- Use `ContentData` only for content artifacts or overflow detail; set or preserve `contentType`, `category`, `status`, `tags`, and JSON `metadata`.
+- Never send audit fields such as `ownerId`, `ownerID`, `createdDate`, `lastModifiedDate`, or `lastAccessedDate` in create/update payloads.
+- Before creating or updating a non-memory object, confirm the object and fields exist in `/v1/api-docs`; prefer the first-class business object over a generic memory or content record.
+- When answering from memory or semantic retrieval, prefer retrieval receipts and respect their coverage, freshness, confidence, provenance, and answer policy.
+
 ## Semantic Layers
 
 GrayMatter can help create workspace-specific semantic layers, but shared plugin skills must stay generic.

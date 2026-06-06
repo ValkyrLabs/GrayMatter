@@ -644,6 +644,10 @@ test('memory_write forwards per-request auth to api-0 MemoryEntry', async () => 
     assert.equal(record.headers.cookie, `VALKYR_AUTH=${credential}`);
     assert.equal(record.body.type, 'decision');
     assert.equal(record.body.text, 'ship the MCP server');
+    assert.deepEqual(record.body.tags, [
+      { name: 'mcp', type: 'keyword' },
+      { name: 'graymatter', type: 'keyword' }
+    ]);
 
     res.writeHead(200, { 'content-type': 'application/json' });
     res.end(JSON.stringify({ id: 'mem-1', ...record.body }));
@@ -678,8 +682,62 @@ test('memory_write forwards per-request auth to api-0 MemoryEntry', async () => 
       id: 'mem-1',
       type: 'decision',
       text: 'ship the MCP server',
-      tags: ['mcp', 'graymatter']
+      tags: [
+        { name: 'mcp', type: 'keyword' },
+        { name: 'graymatter', type: 'keyword' }
+      ]
     });
+    assert.equal(fakeApi.requests.length, 1);
+  } finally {
+    server.close();
+    fakeApi.server.close();
+  }
+});
+
+test('memory_write sends scope as metadata instead of inline text headers', async () => {
+  const fakeApi = createFakeApi(async (_req, res, record) => {
+    assert.equal(record.method, 'POST');
+    assert.equal(record.path, '/v1/MemoryEntry');
+    assert.equal(record.body.type, 'context');
+    assert.equal(record.body.text, 'handoff state');
+    assert.equal(record.body.sourceChannel, 'codex:automation:mcp-and-skill-hunter');
+    assert.equal(record.body.ownerId, undefined);
+    assert.equal(record.body.createdDate, undefined);
+    assert.ok(!record.body.text.includes('[graymatter-scope]'));
+    assert.deepEqual(JSON.parse(record.body.metadata), {
+      runtime: 'codex',
+      scope: 'automation',
+      automationId: 'mcp-and-skill-hunter',
+      artifactPath: '/Users/john/.codex/automations/mcp-and-skill-hunter/memory.md',
+      sourceChannel: 'codex:automation:mcp-and-skill-hunter',
+      priority: 'high'
+    });
+
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ id: 'mem-scope', ...record.body }));
+  });
+
+  const apiBase = await listen(fakeApi.server);
+  const server = createGrayMatterMcpServer({ apiBase: `${apiBase}/v1` });
+  const baseUrl = await listen(server);
+
+  try {
+    const result = await postRpc(baseUrl, {
+      jsonrpc: '2.0',
+      id: 'memory-scope',
+      method: 'tools/call',
+      params: {
+        name: 'memory_write',
+        arguments: {
+          type: 'context',
+          text: 'handoff state',
+          scopePath: '/Users/john/.codex/automations/mcp-and-skill-hunter/memory.md',
+          metadata: { priority: 'high', ownerId: 'client-owner', createdDate: '2026-06-05T00:00:00Z' }
+        }
+      }
+    });
+
+    assert.equal(result.status, 200);
     assert.equal(fakeApi.requests.length, 1);
   } finally {
     server.close();
@@ -807,11 +865,15 @@ test('memory tools derive scoped sourceChannel from Codex hierarchy metadata', a
     if (record.path === '/v1/MemoryEntry') {
       assert.equal(record.body.type, 'context');
       assert.equal(record.body.sourceChannel, 'codex:automation:mcp-and-skill-hunter');
-      assert.match(record.body.text, /\[graymatter-scope\]/);
-      assert.match(record.body.text, /scope: automation/);
-      assert.match(record.body.text, /automationId: mcp-and-skill-hunter/);
-      assert.match(record.body.text, /artifactPath: \/tmp\/codex-home\/\.codex\/automations\/mcp-and-skill-hunter\/memory\.md/);
-      assert.match(record.body.text, /Research complete/);
+      assert.equal(record.body.text, 'Research complete');
+      assert.deepEqual(JSON.parse(record.body.metadata), {
+        runtime: 'codex',
+        user: 'codex-user',
+        scope: 'automation',
+        automationId: 'mcp-and-skill-hunter',
+        artifactPath: '/tmp/codex-home/.codex/automations/mcp-and-skill-hunter/memory.md',
+        sourceChannel: 'codex:automation:mcp-and-skill-hunter'
+      });
       res.end(JSON.stringify({ id: 'mem-scoped', ...record.body }));
       return;
     }
@@ -918,6 +980,63 @@ test('entity tools route list, get, and create calls with RBAC-scoped auth', asy
     assert.deepEqual(JSON.parse(getResult.body.result.content[0].text), { id: 'cust-1', name: 'Acme' });
     assert.deepEqual(JSON.parse(createResult.body.result.content[0].text), { id: 'task-1', title: 'Follow up' });
     assert.equal(fakeApi.requests.length, 3);
+  } finally {
+    server.close();
+    fakeApi.server.close();
+  }
+});
+
+test('entity_create normalizes ContentData into schema fields before posting', async () => {
+  const credential = ['contentdata', 'credential'].join('-');
+  const fakeApi = createFakeApi(async (_req, res, record) => {
+    assert.equal(record.method, 'POST');
+    assert.equal(record.path, '/v1/ContentData');
+    assert.equal(record.headers.authorization, `Bearer ${credential}`);
+    assert.equal(record.body.ownerId, undefined);
+    assert.equal(record.body.createdDate, undefined);
+    assert.equal(record.body.category, 'memory');
+    assert.equal(record.body.contentType, 'plaintext');
+    assert.equal(record.body.status, 'DRAFT');
+    assert.equal(record.body.contentData, 'user: cleanup the junk please');
+    assert.deepEqual(JSON.parse(record.body.metadata), {
+      classification: 'conversation_summary',
+      sourceSurface: 'sagechat',
+      memoryScope: 'session'
+    });
+    assert.deepEqual(record.body.tags, [
+      { name: 'conversation_summary', type: 'category' },
+      { name: 'surface:sagechat', type: 'other' },
+      { name: 'memory', type: 'keyword' }
+    ]);
+
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ id: 'content-1', ...record.body }));
+  });
+
+  const apiBase = await listen(fakeApi.server);
+  const server = createGrayMatterMcpServer({ apiBase: `${apiBase}/v1` });
+  const baseUrl = await listen(server);
+
+  try {
+    const result = await postRpc(baseUrl, {
+      jsonrpc: '2.0',
+      id: 'contentdata-create',
+      method: 'tools/call',
+      params: {
+        name: 'entity_create',
+        arguments: {
+          entityType: 'ContentData',
+          body: {
+            ownerId: 'client-owner',
+            createdDate: '2026-06-05T00:00:00Z',
+            contentData: 'conversation_summary sourceSurface: sagechat memoryScope: session\nuser: cleanup the junk please'
+          }
+        }
+      }
+    }, { 'X-Valkyr-Token': credential });
+
+    assert.equal(result.status, 200);
+    assert.equal(fakeApi.requests.length, 1);
   } finally {
     server.close();
     fakeApi.server.close();

@@ -218,20 +218,37 @@ SCOPE_METADATA="$(jq -nc \
     sourceChannel:$sourceChannel
   } | with_entries(select(.value != ""))')"
 
-if jq -e 'length > 2 or ((has("runtime") and has("sourceChannel")) | not)' <<<"$SCOPE_METADATA" >/dev/null; then
-  TEXT="$(jq -nr --argjson metadata "$SCOPE_METADATA" --arg text "$TEXT" '
-    "[graymatter-scope]\n"
-    + ($metadata | to_entries | map("\(.key): \(.value)") | join("\n"))
-    + "\n[/graymatter-scope]\n\n"
-    + $text
+if [[ -n "$TAGS_RAW" ]]; then
+  PAYLOAD="$(jq -nc --arg type "$TYPE" --arg text "$TEXT" --arg sourceChannel "$SOURCE_CHANNEL" --argjson metadata "$SCOPE_METADATA" --arg tagsRaw "$TAGS_RAW" '
+    def clean_tags:
+      split(",")
+      | map(gsub("^\\s+|\\s+$";""))
+      | map(select(length > 0))
+      | map(ascii_downcase | gsub("\\s+";"-"))
+      | unique
+      | map({name:., type:"keyword"});
+    {
+      type:$type,
+      text:$text,
+      source:$sourceChannel,
+      sourceChannel:$sourceChannel,
+      tags:($tagsRaw | clean_tags)
+    }
+    + (if ($metadata | length) > 0 then {metadata:($metadata | tojson)} else {} end)
+  ')"
+else
+  PAYLOAD="$(jq -nc --arg type "$TYPE" --arg text "$TEXT" --arg sourceChannel "$SOURCE_CHANNEL" --argjson metadata "$SCOPE_METADATA" '
+    {
+      type:$type,
+      text:$text,
+      source:$sourceChannel,
+      sourceChannel:$sourceChannel
+    }
+    + (if ($metadata | length) > 0 then {metadata:($metadata | tojson)} else {} end)
   ')"
 fi
 
-if [[ -n "$TAGS_RAW" ]]; then
-  PAYLOAD="$(jq -nc --arg type "$TYPE" --arg text "$TEXT" --arg sourceChannel "$SOURCE_CHANNEL" --arg tagsRaw "$TAGS_RAW" '{type:$type,text:$text,source:$sourceChannel,tags:($tagsRaw | split(",") | map(gsub("^\\s+|\\s+$";"")) | map(select(length > 0)))}')"
-else
-  PAYLOAD="$(jq -nc --arg type "$TYPE" --arg text "$TEXT" --arg sourceChannel "$SOURCE_CHANNEL" '{type:$type,text:$text,source:$sourceChannel}')"
-fi
+PAYLOAD="$(jq 'del(.id,.ownerId,.ownerID,.createdDate,.keyHash,.lastAccessedById,.lastAccessedDate,.lastModifiedById,.lastModifiedDate)' <<<"$PAYLOAD")"
 
 preflight_write_state
 
@@ -247,7 +264,7 @@ fi
 
 if [[ -n "$TAGS_RAW" ]] && printf '%s' "$RESPONSE" | grep -Eqi 'tags|tag|relation'; then
   echo "Tagged write failed, retrying without tags due to backend tag persistence issue" >&2
-  FALLBACK_PAYLOAD="$(jq -nc --arg type "$TYPE" --arg text "$TEXT" --arg sourceChannel "$SOURCE_CHANNEL" '{type:$type,text:$text,source:$sourceChannel}')"
+  FALLBACK_PAYLOAD="$(jq 'del(.tags)' <<<"$PAYLOAD")"
   exec "${SCRIPT_DIR}/graymatter_api.sh" POST /MemoryEntry/write "$FALLBACK_PAYLOAD"
 fi
 

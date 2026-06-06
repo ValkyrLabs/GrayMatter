@@ -26,7 +26,7 @@ const tools = [
   defineTool({
     name: 'memory_write',
     title: 'Write memory',
-    description: 'Write a durable GrayMatter MemoryEntry.',
+    description: 'Write a compact durable GrayMatter MemoryEntry using schema fields, metadata, sourceChannel, and tags instead of embedding metadata in text.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -42,6 +42,7 @@ const tools = [
         automationId: { type: 'string' },
         artifactPath: { type: 'string' },
         scopePath: { type: 'string', description: 'Local path used to derive automation/workspace memory scope.' },
+        metadata: { type: 'object', additionalProperties: true },
         tags: { oneOf: [{ type: 'array', items: { type: 'string' } }, { type: 'string' }] }
       },
       required: ['type', 'text']
@@ -333,7 +334,7 @@ const tools = [
   defineTool({
     name: 'entity_create',
     title: 'Create entity',
-    description: 'Create one live ValkyrAI business entity when RBAC permits it.',
+    description: 'Create one live ValkyrAI business entity when RBAC permits it. Payloads are sanitized and ContentData is normalized into category, tags, metadata, and clean body fields.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -632,7 +633,7 @@ async function callTool(params, context) {
       if (!args.body || typeof args.body !== 'object' || Array.isArray(args.body)) {
         throw new Error('body must be an object');
       }
-      return execute('entity_create', () => apiRequest(context, 'POST', args.entityType, args.body));
+      return execute('entity_create', () => apiRequest(context, 'POST', args.entityType, normalizeEntityCreatePayload(args.entityType, args.body)));
     case 'show_graymatter_overview':
       return overviewToolResult();
     case 'schema_summary':
@@ -1094,6 +1095,9 @@ function buildMemoryWritePayload(args) {
   requireString(args.text, 'text');
 
   const metadata = memoryScopeMetadata(args);
+  if (args.metadata && typeof args.metadata === 'object' && !Array.isArray(args.metadata)) {
+    Object.assign(metadata, stripClientManagedFields(args.metadata));
+  }
   const sourceChannel = args.sourceChannel || metadata.sourceChannel;
   if (sourceChannel) {
     metadata.sourceChannel = sourceChannel;
@@ -1101,18 +1105,22 @@ function buildMemoryWritePayload(args) {
 
   const payload = {
     type: args.type,
-    text: Object.keys(metadata).length > 0 ? wrapMemoryText(args.text, metadata) : args.text
+    text: args.text
   };
 
   if (sourceChannel) {
     payload.sourceChannel = sourceChannel;
   }
 
-  if (args.tags !== undefined) {
-    payload.tags = args.tags;
+  if (Object.keys(metadata).length > 0) {
+    payload.metadata = JSON.stringify(metadata);
   }
 
-  return payload;
+  if (args.tags !== undefined) {
+    payload.tags = normalizeTagInput(args.tags);
+  }
+
+  return stripClientManagedFields(payload);
 }
 
 function buildMemoryQueryPayload(args) {
@@ -1272,22 +1280,287 @@ function workspaceKeyFromPath(pathValue) {
   return match ? `${match[1]}/${match[2]}` : '';
 }
 
-function wrapMemoryText(text, metadata) {
-  const lines = Object.entries(metadata)
-    .filter(([, value]) => value !== undefined && value !== null && String(value).length > 0)
-    .map(([key, value]) => `${key}: ${value}`);
-
-  if (lines.length === 0) {
-    return text;
-  }
-
-  return `[graymatter-scope]\n${lines.join('\n')}\n[/graymatter-scope]\n\n${text}`;
-}
-
 function pickDefined(values) {
   return Object.fromEntries(
     Object.entries(values).filter(([, value]) => value !== undefined && value !== null && String(value).length > 0)
   );
+}
+
+function normalizeEntityCreatePayload(entityType, body) {
+  const sanitized = stripClientManagedFields(body || {});
+  if (String(entityType || '').toLowerCase() === 'contentdata') {
+    return normalizeContentDataPayload(sanitized);
+  }
+  return sanitized;
+}
+
+function normalizeContentDataPayload(body) {
+  const payload = { ...body };
+  const metadata = parseMetadataObject(payload.metadata);
+  const extractedTags = [];
+
+  normalizeInlineContentData(payload, metadata, extractedTags);
+
+  if (!payload.contentType) {
+    payload.contentType = inferContentType(payload);
+  }
+  if (!payload.category) {
+    payload.category = 'other';
+  }
+  if (!payload.status) {
+    payload.status = 'DRAFT';
+  }
+
+  payload.tags = normalizeTagInput([...(Array.isArray(payload.tags) ? payload.tags : []), ...extractedTags, payload.category]);
+  payload.metadata = Object.keys(metadata).length > 0 ? JSON.stringify(metadata) : payload.metadata;
+  return stripClientManagedFields(payload);
+}
+
+function normalizeInlineContentData(payload, metadata, extractedTags) {
+  if (typeof payload.contentData !== 'string' || payload.contentData.trim().length === 0) {
+    return;
+  }
+
+  const body = payload.contentData.trimStart();
+  if (body.startsWith('---')) {
+    const match = body.match(/^---\s*\n([\s\S]*?)\n---\s*\n?/);
+    if (match) {
+      const extracted = parseMetadataLines(match[1].split(/\r?\n/));
+      applyContentDataMetadata(payload, metadata, extractedTags, extracted);
+      payload.contentData = body.slice(match[0].length).trimStart();
+    }
+    return;
+  }
+
+  const lines = body.split(/\r?\n/);
+  let consumed = 0;
+  const firstLine = lines[0] || '';
+  const classifier = firstLine.trim().split(/\s+/, 1)[0];
+  if (/^(conversation_summary|user_preference|user_profile)$/i.test(classifier)) {
+    metadata.classification ||= classifier;
+    payload.category = 'memory';
+    extractedTags.push({ name: classifier, type: 'category' });
+    const remainder = firstLine.trim().slice(classifier.length).trim();
+    applyContentDataMetadata(payload, metadata, extractedTags, extractInlinePairs(remainder));
+    consumed = 1;
+  }
+
+  while (consumed < lines.length) {
+    const extracted = extractInlinePairs(lines[consumed]);
+    if (Object.keys(extracted).length === 0) {
+      break;
+    }
+    applyContentDataMetadata(payload, metadata, extractedTags, extracted);
+    consumed += 1;
+  }
+
+  if (consumed > 0) {
+    payload.contentData = lines.slice(consumed).join('\n').trimStart();
+  }
+}
+
+function parseMetadataLines(lines) {
+  const metadata = {};
+  for (const line of lines) {
+    const separator = line.indexOf(':');
+    if (separator <= 0) continue;
+    const key = normalizeMetadataKey(line.slice(0, separator));
+    const value = line.slice(separator + 1).trim();
+    if (key && value) {
+      metadata[key] = value;
+    }
+  }
+  return metadata;
+}
+
+function extractInlinePairs(line) {
+  const text = String(line || '');
+  const keyPattern = /([A-Za-z][A-Za-z0-9_-]*)\s*:\s*/g;
+  const matches = [];
+  let match;
+  while ((match = keyPattern.exec(text)) !== null) {
+    const key = normalizeMetadataKey(match[1]);
+    if (isContentDataMetadataKey(key)) {
+      matches.push({ key, start: match.index, valueStart: keyPattern.lastIndex });
+    }
+  }
+
+  const extracted = {};
+  for (let i = 0; i < matches.length; i += 1) {
+    const current = matches[i];
+    const end = i + 1 < matches.length ? matches[i + 1].start : text.length;
+    const value = text.slice(current.valueStart, end).trim();
+    if (value) {
+      extracted[current.key] = value;
+    }
+  }
+  return extracted;
+}
+
+function applyContentDataMetadata(payload, metadata, extractedTags, extracted) {
+  for (const [key, value] of Object.entries(extracted || {})) {
+    if (key === 'category') {
+      payload.category = normalizeCategory(value);
+    } else if (key === 'contenttype') {
+      payload.contentType = normalizeContentType(value);
+    } else if (key === 'status') {
+      payload.status = normalizeStatus(value);
+    } else if (key === 'tags') {
+      for (const name of value.split(',')) {
+        extractedTags.push(name);
+      }
+    } else {
+      metadata[metadataNameForKey(key)] ||= value;
+      if (key === 'sourcesurface') {
+        extractedTags.push({ name: `surface:${value}`, type: 'other' });
+      } else if (key === 'source' || key === 'sourcepackage' || key === 'sourcelane') {
+        extractedTags.push({ name: `source:${value}`, type: 'other' });
+      } else if (key === 'agent') {
+        extractedTags.push({ name: `agent:${value}`, type: 'other' });
+      } else if (key === 'lane') {
+        extractedTags.push({ name: `lane:${value}`, type: 'other' });
+      } else if (key === 'preferencetype') {
+        extractedTags.push({ name: `preference:${value}`, type: 'topic' });
+      }
+    }
+  }
+}
+
+function parseMetadataObject(raw) {
+  if (!raw) return {};
+  if (typeof raw === 'object' && !Array.isArray(raw)) return stripClientManagedFields(raw);
+  if (typeof raw !== 'string') return { legacyMetadata: String(raw) };
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      return stripClientManagedFields(parsed);
+    }
+  } catch {
+    return { legacyMetadata: raw.trim() };
+  }
+  return {};
+}
+
+function normalizeTagInput(tags) {
+  const rawTags = Array.isArray(tags) ? tags : String(tags || '').split(',');
+  const normalized = new Map();
+  for (const tag of rawTags) {
+    const rawName = typeof tag === 'string' ? tag : tag && tag.name;
+    const name = normalizeTagName(rawName);
+    if (!name || normalized.has(name)) continue;
+    const rawType = typeof tag === 'object' && tag ? tag.type : '';
+    normalized.set(name, {
+      name,
+      type: normalizeTagType(rawType || tagTypeForName(name))
+    });
+  }
+  return Array.from(normalized.values());
+}
+
+function normalizeTagName(name) {
+  return String(name || '').trim().replace(/\s+/g, '-').toLowerCase();
+}
+
+function normalizeTagType(type) {
+  const normalized = String(type || '').trim().toLowerCase();
+  return ['category', 'keyword', 'topic', 'genre', 'audience', 'score_band', 'other'].includes(normalized)
+    ? normalized
+    : 'keyword';
+}
+
+function tagTypeForName(name) {
+  if (/^(conversation_summary|user_preference|user_profile)$/i.test(name)) return 'category';
+  if (name.startsWith('preference:')) return 'topic';
+  if (/^(surface|source|agent|lane):/.test(name)) return 'other';
+  return 'keyword';
+}
+
+function normalizeCategory(value) {
+  const normalized = String(value || '').trim();
+  if (/^(conversation_summary|user_preference|user_profile)$/i.test(normalized)) return 'memory';
+  return normalized || 'other';
+}
+
+function normalizeContentType(value) {
+  return String(value || '').trim() || 'plaintext';
+}
+
+function normalizeStatus(value) {
+  return String(value || '').trim() || 'DRAFT';
+}
+
+function inferContentType(payload) {
+  const body = String(payload.contentData || '').trim();
+  const source = String(payload.fileName || payload.contentUrl || '').toLowerCase().split('?')[0];
+  if (body.startsWith('{') || body.startsWith('[') || source.endsWith('.json')) return 'json';
+  if (source.endsWith('.yml') || source.endsWith('.yaml')) return 'yaml';
+  if (body.startsWith('#') || body.includes('\n#') || body.includes('](') || source.endsWith('.md')) return 'markdown';
+  if (source.endsWith('.pdf')) return 'pdf';
+  if (/\.(png|jpe?g|gif|webp)$/.test(source)) return 'image';
+  if (/\.(mp4|mov|webm)$/.test(source)) return 'video';
+  if (/\.(mp3|wav|m4a)$/.test(source)) return 'audio';
+  if (!body && payload.contentUrl) return 'url';
+  return 'plaintext';
+}
+
+function normalizeMetadataKey(key) {
+  return String(key || '').trim().replace(/[^A-Za-z0-9_-]+/g, '').toLowerCase();
+}
+
+function isContentDataMetadataKey(key) {
+  return new Set([
+    'agent',
+    'artifact',
+    'artifacttype',
+    'category',
+    'classification',
+    'contenttype',
+    'lane',
+    'llmdetailsid',
+    'memoryscope',
+    'preferencescope',
+    'preferencetype',
+    'reason',
+    'source',
+    'sourcepackage',
+    'sourcesurface',
+    'sourcelane',
+    'status',
+    'tags',
+    'validationnonce',
+    'workspaceid'
+  ]).has(key);
+}
+
+function metadataNameForKey(key) {
+  return {
+    artifacttype: 'artifactType',
+    llmdetailsid: 'llmDetailsId',
+    memoryscope: 'memoryScope',
+    preferencescope: 'preferenceScope',
+    preferencetype: 'preferenceType',
+    sourcepackage: 'sourcePackage',
+    sourcesurface: 'sourceSurface',
+    sourcelane: 'sourceLane',
+    validationnonce: 'validationNonce',
+    workspaceid: 'workspaceId'
+  }[key] || key;
+}
+
+function stripClientManagedFields(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
+  const blocked = new Set([
+    'id',
+    'ownerId',
+    'ownerID',
+    'createdDate',
+    'keyHash',
+    'lastAccessedById',
+    'lastAccessedDate',
+    'lastModifiedById',
+    'lastModifiedDate'
+  ]);
+  return Object.fromEntries(Object.entries(value).filter(([key]) => !blocked.has(key)));
 }
 
 function summarizeOpenApi(spec) {

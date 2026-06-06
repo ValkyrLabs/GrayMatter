@@ -216,6 +216,24 @@ GrayMatter plugin ready
 
 Do not ask the user to paste raw JWTs unless every normal credential/keychain path is unavailable.
 
+## ValkyrAI production service invariant
+
+For ValkyrAI production operations, `api-0.valkyrlabs.com` is backed by the systemd unit `valkyrai.service`.
+`api-0` definitely has a service: `valkyrai.service`.
+No Codex/OpenClaw/agent may claim that api-0 has no service, look for or invent `api-0.service`, guess at an unnamed process, or invent a deployment/restart path.
+
+Before making any statement or operational decision about api-0 service state, restarts, deploys, logs, or availability, verify with the canonical service commands:
+
+```bash
+systemctl status valkyrai.service
+systemctl cat valkyrai.service
+journalctl -u valkyrai.service
+```
+
+If access to the host or systemd is unavailable, state that the service state is unverified and ask for the service output or host access.
+Do not substitute assumptions, Apache proxy status, open ports, or generic Java process checks for the `valkyrai.service` invariant.
+If a user provides systemd output for `valkyrai.service`, treat that as canonical service evidence for api-0 unless a later verified host check contradicts it.
+
 ## Capability discovery
 
 Use `scripts/gm-openapi-sync`, `scripts/gm-openapi-summary`, and `docs/server-capabilities.md` to understand the live server. Current api-0 exposes memory status/capabilities, semantic/vector indexes, retrieval receipts, retrieval context, activation bridge, MCP bundles, object graph shape, SwarmOps graph, and the broader RBAC-visible business schema. Use these aggressively and visibly; do not hide server capabilities behind undocumented assumptions.

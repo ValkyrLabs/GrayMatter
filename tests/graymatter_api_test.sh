@@ -179,6 +179,28 @@ case "${TEST_CURL_SCENARIO:-success}" in
       printf '200'
     fi
     ;;
+  access-denied)
+    if [[ "$all_args" == *"/auth/login"* ]]; then
+      printf '{"%s":"%s"}\n' token refreshed-token >"${out_file}"
+      if [[ -n "$headers_file" ]]; then
+        printf 'HTTP/1.1 200 OK\nSet-Cookie: VALKYR_AUTH=refreshed-token; Path=/; HttpOnly\nSet-Cookie: XSRF-TOKEN=refreshed-xsrf; Path=/\n' >"${headers_file}"
+      fi
+      if [[ -n "$cookie_jar" ]]; then
+        {
+          printf '# Netscape HTTP Cookie File\n'
+          printf 'api-0.valkyrlabs.com\tFALSE\t/\tFALSE\t0\tVALKYR_AUTH\trefreshed-token\n'
+          printf 'api-0.valkyrlabs.com\tFALSE\t/\tFALSE\t0\tXSRF-TOKEN\trefreshed-xsrf\n'
+        } >"${cookie_jar}"
+      fi
+      printf '200'
+    else
+      printf '{"path":"uri=/v1/MemoryEntry","error":"Access Denied","message":"Access Denied","traceId":"trace-rbac"}\n' >"${out_file}"
+      if [[ -n "$headers_file" ]]; then
+        printf 'HTTP/1.1 403 Forbidden\n' >"${headers_file}"
+      fi
+      printf '403'
+    fi
+    ;;
   transport-fail)
     echo "curl transport failure" >&2
     exit 7
@@ -815,6 +837,37 @@ test_write_uses_stateful_cookie_and_xsrf_after_login() {
   assert_contains "$(cat "${temp_root}/curl.log")" "/auth/login" "graymatter_api should establish a stateful login before hosted writes"
 }
 
+test_memory_write_access_denied_names_missing_permission() {
+  local temp_root="$1"
+  local fake_bin="$2"
+  local script_copy="$3"
+
+  export TEST_CURL_SCENARIO="access-denied"
+  unset VALKYR_AUTH_TOKEN
+  unset GRAYMATTER_USERNAME
+  unset GRAYMATTER_PASSWORD
+  unset VALKYR_USERNAME
+  unset VALKYR_PASSWORD
+
+  local result
+  local status=0
+
+  set +e
+  result="$(
+    PATH="${fake_bin}:/usr/local/bin:/usr/bin:/bin" \
+    TMPDIR="${temp_root}" \
+    "${script_copy}" POST /MemoryEntry '{"type":"context","text":"job handoff"}' 2>&1
+  )"
+  status=$?
+  set -e
+
+  [[ "${status}" == "22" ]] || fail "graymatter_api should preserve the HTTP failure exit for genuine RBAC denial"
+  assert_contains "${result}" "GrayMatter access denied for POST /MemoryEntry" "graymatter_api should name the denied operation"
+  assert_contains "${result}" "Missing permission: MemoryEntry write authority or memory:write scope" "graymatter_api should identify the missing MemoryEntry write permission"
+  assert_contains "${result}" "Trace id: trace-rbac" "graymatter_api should preserve backend trace ids for operator follow-up"
+  assert_contains "${result}" "scripts/gm-replay-deferred" "graymatter_api should provide replay recovery guidance"
+}
+
 with_fixture test_success_passthrough
 with_fixture test_insufficient_funds_shows_links_and_uses_macos_prompt
 with_fixture test_insufficient_funds_falls_back_to_windows_prompt
@@ -824,6 +877,7 @@ with_fixture test_expired_keychain_token_refreshes_before_original_request
 with_fixture test_curl_requests_use_default_timeouts
 with_fixture test_success_uses_fallback_tempdir_when_default_tmp_fails
 with_fixture test_write_uses_stateful_cookie_and_xsrf_after_login
+with_fixture test_memory_write_access_denied_names_missing_permission
 test_write_rejects_read_only_token_before_network_request
 test_light_mode_allows_local_request_without_token
 

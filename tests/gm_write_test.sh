@@ -17,8 +17,25 @@ chmod +x "$TMP_DIR/gm-fallback-append"
 
 cat > "$TMP_DIR/graymatter_api.sh" <<'EOF'
 #!/usr/bin/env bash
-echo "HTTP 413 Payload Too Large" >&2
-exit 1
+case "${TEST_GRAYMATTER_API_SCENARIO:-payload-too-large}" in
+  access-denied)
+    cat >&2 <<'DENIED'
+GrayMatter access denied for POST /MemoryEntry/write.
+Missing permission: MemoryEntry write authority or memory:write scope.
+Trace id: trace-rbac
+Run scripts/gm-replay-deferred after permissions are fixed.
+DENIED
+    exit 22
+    ;;
+  payload-too-large)
+    echo "HTTP 413 Payload Too Large" >&2
+    exit 1
+    ;;
+  *)
+    echo "unknown TEST_GRAYMATTER_API_SCENARIO" >&2
+    exit 2
+    ;;
+esac
 EOF
 chmod +x "$TMP_DIR/graymatter_api.sh"
 
@@ -72,5 +89,30 @@ set -e
 test "$DEGRADED_STATUS" -eq 24
 grep -q "memory_layer=degraded" <<<"$DEGRADED_OUTPUT"
 grep -q "gm-write preflight blocked memory_layer=degraded" "$TMP_DIR/gm-fallback-calls"
+
+cat > "$TMP_DIR/gm-status" <<'EOF'
+#!/usr/bin/env bash
+cat <<STATUS
+graymatter_auth=keychain:write_capable
+graymatter_token_state=ok
+memory_layer=ready
+graph_layer=missing
+strategic_layer=missing
+kpi_layer=missing
+STATUS
+EOF
+
+rm -f "$TMP_DIR/gm-fallback-calls"
+set +e
+ACCESS_DENIED_OUTPUT="$(TEST_GRAYMATTER_API_SCENARIO=access-denied "$TMP_DIR/gm-write" context "job-search handoff" codex handoff 2>&1)"
+ACCESS_DENIED_STATUS=$?
+set -e
+
+test "$ACCESS_DENIED_STATUS" -eq 22
+grep -q "GrayMatter access denied for POST /MemoryEntry/write" <<<"$ACCESS_DENIED_OUTPUT"
+grep -q "Missing permission: MemoryEntry write authority or memory:write scope" <<<"$ACCESS_DENIED_OUTPUT"
+grep -q "Trace id: trace-rbac" <<<"$ACCESS_DENIED_OUTPUT"
+grep -q "queued fallback payload" <<<"$ACCESS_DENIED_OUTPUT"
+grep -q "gm-write API failure" "$TMP_DIR/gm-fallback-calls"
 
 echo "gm_write_test: PASS"

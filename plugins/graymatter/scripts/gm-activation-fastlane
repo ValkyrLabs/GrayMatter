@@ -1,0 +1,132 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+MODE="activate"
+DEMO_NOTE="${GRAYMATTER_DEMO_NOTE:-GrayMatter activation fastlane demo memory}"
+EVENT_LOG="${GRAYMATTER_ACTIVATION_EVENT_LOG:-}"
+
+usage() {
+  cat <<'USAGE'
+Usage: scripts/gm-activation-fastlane [--check-only] [--reviewer-demo]
+
+Runs the GrayMatter first-run activation fastlane:
+  1. readiness checks for auth, schema, MCP contract, and runtime status
+  2. one-shot activation through gm-activate
+  3. optional reviewer-safe MemoryEntry, graph, schema, and entity demo
+
+Raw bearer-token setup is intentionally not part of this path. Use gm-login or
+Keychain-backed credentials for normal activation.
+USAGE
+}
+
+emit_event() {
+  local name="$1"
+  local state="${2:-ok}"
+  local line
+  line="$(printf '{"event":"%s","state":"%s","source":"gm-activation-fastlane"}' "$name" "$state")"
+  printf '%s\n' "$line" >&2
+  if [[ -n "$EVENT_LOG" ]]; then
+    mkdir -p "$(dirname "$EVENT_LOG")"
+    printf '%s\n' "$line" >>"$EVENT_LOG"
+  fi
+}
+
+run_step() {
+  local event="$1"
+  shift
+  emit_event "$event" started
+  "$@"
+  emit_event "$event" completed
+}
+
+run_activation() {
+  emit_event auth_completed started
+  local output
+  set +e
+  output="$("${SCRIPT_DIR}/gm-activate" 2>&1)"
+  local status=$?
+  set -e
+  printf '%s\n' "$output"
+  if [[ $status -ne 0 ]]; then
+    emit_event auth_completed failed
+    exit "$status"
+  fi
+  emit_event auth_completed completed
+  if [[ "$output" == *"credit-gated"* || "$output" == *"limited memory query"* || "$output" == *"INSUFFICIENT_FUNDS"* ]]; then
+    emit_event credit_warning_shown completed
+  fi
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --check-only)
+      MODE="check"
+      shift
+      ;;
+    --reviewer-demo)
+      MODE="reviewer-demo"
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "Unknown argument: $1" >&2
+      usage >&2
+      exit 2
+      ;;
+  esac
+done
+
+required=(
+  gm-install-check
+  gm-status
+  gm-mcp-contract
+  gm-activate
+  gm-write
+  gm-query
+  gm-graph
+  gm-openapi-summary
+  gm-entity
+)
+
+for helper in "${required[@]}"; do
+  if [[ ! -x "${SCRIPT_DIR}/${helper}" ]]; then
+    echo "Missing executable helper: scripts/${helper}" >&2
+    exit 1
+  fi
+done
+
+emit_event activation_started
+run_step auth_readiness "${SCRIPT_DIR}/gm-install-check"
+run_step runtime_status "${SCRIPT_DIR}/gm-status"
+run_step mcp_contract_ready "${SCRIPT_DIR}/gm-mcp-contract"
+
+if [[ "$MODE" == "check" ]]; then
+  emit_event activation_completed check_only
+  echo "GrayMatter activation fastlane check complete: auth tooling, runtime status, and MCP contract are ready."
+  exit 0
+fi
+
+run_activation
+emit_event schema_synced completed
+
+if [[ "$MODE" == "reviewer-demo" ]]; then
+  run_step first_memory_written "${SCRIPT_DIR}/gm-write" context "$DEMO_NOTE" reviewer-demo activation-fastlane
+  run_step first_query_succeeded "${SCRIPT_DIR}/gm-query" "activation fastlane demo" 3
+  run_step graph_checked "${SCRIPT_DIR}/gm-graph" GET
+  run_step schema_summary_checked "${SCRIPT_DIR}/gm-openapi-summary"
+  run_step safe_entity_list_checked "${SCRIPT_DIR}/gm-entity" list MemoryEntry 1
+fi
+
+emit_event activation_completed completed
+cat <<'SUCCESS'
+GrayMatter activation complete.
+Next useful actions:
+- Ask GrayMatter to remember a decision, todo, or context note.
+- Query recent MemoryEntry records before answering from memory.
+- Use schema summary before touching business objects.
+- Check starter credits before long-running memory or graph work.
+SUCCESS

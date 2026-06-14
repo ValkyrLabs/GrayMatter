@@ -47,6 +47,41 @@ append_query_param() {
   printf '%s%s%s=%s\n' "$url" "$separator" "$key" "$(jq -rn --arg value "$value" '$value|@uri')"
 }
 
+preflight_receipt_state() {
+  [[ "${GRAYMATTER_RETRIEVAL_RECEIPT_PREFLIGHT:-true}" == "false" ]] && return 0
+  [[ -x "${SCRIPT_DIR}/gm-status" ]] || return 0
+
+  local status_output=""
+  status_output="$(GM_STATUS_FORMAT=kv "${SCRIPT_DIR}/gm-status" 2>/dev/null)" || return 0
+
+  local auth_state=""
+  local token_state=""
+  local tenant_schema_context=""
+  local memory_layer=""
+  auth_state="$(awk -F= '$1 == "graymatter_auth" {print $2; exit}' <<<"$status_output")"
+  token_state="$(awk -F= '$1 == "graymatter_token_state" {print $2; exit}' <<<"$status_output")"
+  tenant_schema_context="$(awk -F= '$1 == "tenant_schema_context" {print $2; exit}' <<<"$status_output")"
+  memory_layer="$(awk -F= '$1 == "memory_layer" {print $2; exit}' <<<"$status_output")"
+
+  if [[ "$auth_state" == *":read_only"* || "$token_state" == "read_only" ]]; then
+    echo "gm-retrieval-receipt cannot use receipt APIs with read-only GrayMatter auth (auth=${auth_state:-unknown}, token=${token_state:-unknown})." >&2
+    echo "Use a write-capable VALKYR_AUTH token or run scripts/gm-login with an account that can create/read retrieval receipts." >&2
+    exit 23
+  fi
+
+  if [[ -n "$tenant_schema_context" && "$tenant_schema_context" != "ready" ]]; then
+    echo "gm-retrieval-receipt cannot use receipt APIs while GrayMatter tenant_schema_context=${tenant_schema_context}." >&2
+    echo "Deploy or activate a server that resolves tenant schema context, or use a VALKYR_AGENT token that resolves to the main schema." >&2
+    exit 25
+  fi
+
+  if [[ -n "$memory_layer" && "$memory_layer" != "ready" ]]; then
+    echo "gm-retrieval-receipt cannot use receipt APIs while GrayMatter memory_layer=${memory_layer}." >&2
+    echo "Run scripts/gm-status and scripts/gm-doctor --quick, then retry." >&2
+    exit 24
+  fi
+}
+
 case "$cmd" in
   create)
     query="${1:-}"
@@ -61,6 +96,7 @@ case "$cmd" in
       --argjson topK "$top_k" \
       --arg qualityProfile "$quality_profile" \
       '{query:$query,topK:$topK,retrievalMode:"HYBRID",includeItems:true,includeText:false,includeEvaluator:false,qualityProfile:$qualityProfile}')"
+    preflight_receipt_state
     "${SCRIPT_DIR}/graymatter_api.sh" POST /graymatter-retrieval-receipts "$body"
     ;;
   get)
@@ -69,6 +105,7 @@ case "$cmd" in
       usage >&2
       exit 1
     fi
+    preflight_receipt_state
     "${SCRIPT_DIR}/graymatter_api.sh" GET "/graymatter-retrieval-receipts/${receipt_id}"
     ;;
   list|query)
@@ -106,9 +143,10 @@ case "$cmd" in
         *)
           echo "Unknown gm-retrieval-receipt option: $1" >&2
           exit 1
-          ;;
+        ;;
       esac
     done
+    preflight_receipt_state
     "${SCRIPT_DIR}/graymatter_api.sh" GET "$path"
     ;;
   *)

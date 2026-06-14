@@ -388,6 +388,7 @@ function createGrayMatterMcpServer(options = {}) {
   const allowedOrigins = parseAllowedOrigins(options.allowedOrigins || process.env.GRAYMATTER_ALLOWED_ORIGINS || widgetDomain);
   const allowUnsafeHeaderToken = parseBoolean(options.allowUnsafeHeaderToken ?? process.env.GRAYMATTER_ALLOW_UNSAFE_HEADER_TOKEN);
   const processToken = options.token || process.env.VALKYR_AUTH_TOKEN || process.env.VALKYR_JWT_SESSION || '';
+  const processTenantId = options.tenantId || process.env.GRAYMATTER_TENANT_ID || process.env.VALKYR_TENANT_ID || '';
   const security = { deploymentMode, allowedOrigins, allowUnsafeHeaderToken };
 
   if (typeof fetchImpl !== 'function') {
@@ -428,6 +429,7 @@ function createGrayMatterMcpServer(options = {}) {
           apiBase,
           fetchImpl,
           ...authContextFrom(req, processToken, security),
+          tenantId: tenantIdFrom(req, processTenantId, processToken),
           loginCommand,
           loginProvider,
           widgetDomain
@@ -465,6 +467,7 @@ function createRpcContext(options = {}) {
     apiBase,
     fetchImpl,
     token: options.token || process.env.VALKYR_AUTH_TOKEN || process.env.VALKYR_JWT_SESSION || '',
+    tenantId: options.tenantId || process.env.GRAYMATTER_TENANT_ID || process.env.VALKYR_TENANT_ID || '',
     requestScopedToken: false,
     loginCommand,
     loginProvider,
@@ -848,6 +851,10 @@ async function apiRequestOnce(context, method, endpoint, body) {
     headers.authorization = `Bearer ${context.token}`;
     headers.VALKYR_AUTH = context.token;
     headers.cookie = `VALKYR_AUTH=${context.token}`;
+  }
+  const tenantId = context.tenantId || tenantIdFromToken(context.token);
+  if (tenantId) {
+    headers['X-Tenant-Id'] = tenantId;
   }
 
   const response = await context.fetchImpl(apiUrl(context.apiBase, endpoint), {
@@ -1614,6 +1621,55 @@ function authContextFrom(req, processToken = '', security = defaultSecurityConfi
   }
 
   return { token: processToken || process.env.VALKYR_AUTH_TOKEN || process.env.VALKYR_JWT_SESSION || '', requestScopedToken: false };
+}
+
+function tenantIdFrom(req, processTenantId = '', processToken = '') {
+  const headerTenant = req.headers['x-tenant-id'];
+  if (Array.isArray(headerTenant)) {
+    return cleanTenantId(headerTenant[0]) || cleanTenantId(processTenantId) || tenantIdFromToken(processToken);
+  }
+  return cleanTenantId(headerTenant) || cleanTenantId(processTenantId) || tenantIdFromToken(processToken);
+}
+
+function cleanTenantId(value) {
+  if (typeof value !== 'string') return '';
+  const trimmed = value.trim();
+  return trimmed && trimmed.toLowerCase() !== 'null' ? trimmed : '';
+}
+
+function tenantIdFromToken(token) {
+  const claims = decodeJwtPayload(token);
+  if (!claims) return '';
+  const explicitTenant = cleanTenantId(claims.tenantId || claims.organizationId || claims.orgId);
+  if (explicitTenant) return explicitTenant;
+  return jwtHasRole(claims, 'VALKYR_AGENT') ? 'main' : '';
+}
+
+function decodeJwtPayload(token) {
+  if (!token || typeof token !== 'string') return null;
+  const parts = token.split('.');
+  if (parts.length < 2) return null;
+  try {
+    const normalized = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    const padded = normalized.padEnd(normalized.length + ((4 - (normalized.length % 4)) % 4), '=');
+    return JSON.parse(Buffer.from(padded, 'base64').toString('utf8'));
+  } catch {
+    return null;
+  }
+}
+
+function jwtHasRole(claims, roleName) {
+  const target = normalizeRole(roleName);
+  return ['roles', 'roleList', 'authorities', 'authorityList'].some((key) => {
+    const values = Array.isArray(claims[key]) ? claims[key] : [];
+    return values.some((value) => normalizeRole(value) === target);
+  });
+}
+
+function normalizeRole(value) {
+  if (typeof value !== 'string' || !value.trim()) return '';
+  const upper = value.trim().toUpperCase();
+  return upper.startsWith('ROLE_') ? upper : `ROLE_${upper}`;
 }
 
 function apiUrl(apiBase, endpoint) {

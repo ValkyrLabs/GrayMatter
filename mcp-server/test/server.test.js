@@ -92,6 +92,11 @@ async function postRpc(baseUrl, payload, headers = {}, path = '/') {
   };
 }
 
+function unsignedJwt(payload) {
+  const encode = (value) => Buffer.from(JSON.stringify(value)).toString('base64url');
+  return `${encode({ alg: 'none', typ: 'JWT' })}.${encode(payload)}.`;
+}
+
 async function readSsePreamble(baseUrl) {
   return new Promise((resolve, reject) => {
     const req = http.get(`${baseUrl}/sse`, (res) => {
@@ -635,13 +640,18 @@ test('retrieval receipt tools route to the ThorAPI receipt surface', async () =>
 });
 
 test('memory_write forwards per-request auth to api-0 MemoryEntry', async () => {
-  const credential = ['header', 'credential'].join('-');
+  const credential = unsignedJwt({
+    sub: 'agent-1',
+    roles: ['VALKYR_AGENT'],
+    authorities: ['MEMORYENTRY_WRITE']
+  });
   const fakeApi = createFakeApi(async (_req, res, record) => {
     assert.equal(record.method, 'POST');
     assert.equal(record.path, '/v1/MemoryEntry');
     assert.equal(record.headers.authorization, `Bearer ${credential}`);
     assert.equal(record.headers.valkyr_auth, credential);
     assert.equal(record.headers.cookie, `VALKYR_AUTH=${credential}`);
+    assert.equal(record.headers['x-tenant-id'], 'main');
     assert.equal(record.body.type, 'decision');
     assert.equal(record.body.text, 'ship the MCP server');
     assert.deepEqual(record.body.tags, [
@@ -687,6 +697,49 @@ test('memory_write forwards per-request auth to api-0 MemoryEntry', async () => 
         { name: 'graymatter', type: 'keyword' }
       ]
     });
+    assert.equal(fakeApi.requests.length, 1);
+  } finally {
+    server.close();
+    fakeApi.server.close();
+  }
+});
+
+test('memory_query forwards explicit tenant context ahead of JWT fallback', async () => {
+  const credential = unsignedJwt({
+    sub: 'agent-1',
+    roles: ['VALKYR_AGENT']
+  });
+  const fakeApi = createFakeApi(async (_req, res, record) => {
+    assert.equal(record.method, 'POST');
+    assert.equal(record.path, '/v1/MemoryEntry/query');
+    assert.equal(record.headers['x-tenant-id'], 'tenant-abc');
+    assert.equal(record.body.query, 'tenant scoped');
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ results: [] }));
+  });
+
+  const apiBase = await listen(fakeApi.server);
+  const server = createGrayMatterMcpServer({ apiBase: `${apiBase}/v1`, tenantId: 'tenant-abc' });
+  const baseUrl = await listen(server);
+
+  try {
+    const result = await postRpc(
+      baseUrl,
+      {
+        jsonrpc: '2.0',
+        id: 'tenant-query',
+        method: 'tools/call',
+        params: {
+          name: 'memory_query',
+          arguments: {
+            query: 'tenant scoped'
+          }
+        }
+      },
+      { Authorization: `Bearer ${credential}` }
+    );
+
+    assert.equal(result.status, 200);
     assert.equal(fakeApi.requests.length, 1);
   } finally {
     server.close();

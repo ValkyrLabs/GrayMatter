@@ -117,6 +117,68 @@ token_is_clearly_read_only() {
   return 1
 }
 
+token_has_valkyr_agent_role() {
+  local token="${1:-}"
+  local claims=""
+
+  claims="$(token_claims_json "$token" 2>/dev/null)" || return 1
+
+  if command -v jq >/dev/null 2>&1; then
+    jq -e '
+      def normalize:
+        tostring
+        | ascii_upcase
+        | if startswith("ROLE_") then . else "ROLE_" + . end;
+      def role_values:
+        [(.roles // []), (.roleList // []), (.authorities // []), (.authorityList // [])]
+        | map(if type == "array" then . else [] end)
+        | add
+        | map(select(type == "string") | normalize);
+      any(role_values[]?; . == "ROLE_VALKYR_AGENT")
+    ' >/dev/null 2>&1 <<<"$claims"
+    return $?
+  fi
+
+  return 1
+}
+
+tenant_id_from_token() {
+  local token="${1:-}"
+  local claims=""
+  local explicit_tenant=""
+
+  claims="$(token_claims_json "$token" 2>/dev/null)" || return 0
+
+  if command -v jq >/dev/null 2>&1; then
+    explicit_tenant="$(
+      jq -r '
+        .tenantId // .organizationId // .orgId // empty
+        | tostring
+        | select(. != "" and ascii_downcase != "null")
+      ' <<<"$claims" 2>/dev/null || true
+    )"
+    if [[ -n "$explicit_tenant" ]]; then
+      printf '%s\n' "$explicit_tenant"
+      return 0
+    fi
+  fi
+
+  if token_has_valkyr_agent_role "$token"; then
+    printf 'main\n'
+  fi
+}
+
+resolve_tenant_id() {
+  local explicit="${GRAYMATTER_TENANT_ID:-${VALKYR_TENANT_ID:-}}"
+
+  if [[ -n "$explicit" ]]; then
+    printf '%s\n' "$explicit"
+    return 0
+  fi
+
+  tenant_id_from_token "$TOKEN"
+}
+
 token_expires_soon() {
   local token="${1:-}"
   local claims=""
@@ -673,6 +735,13 @@ perform_request() {
   if [[ -n "$STATEFUL_XSRF_TOKEN" ]]; then
     COMMON_HEADERS+=(
       -H "X-XSRF-TOKEN: ${STATEFUL_XSRF_TOKEN}"
+    )
+  fi
+  local tenant_id
+  tenant_id="$(resolve_tenant_id)"
+  if [[ -n "$tenant_id" ]]; then
+    COMMON_HEADERS+=(
+      -H "X-Tenant-Id: ${tenant_id}"
     )
   fi
 

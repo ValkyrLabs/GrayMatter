@@ -329,7 +329,7 @@ Preferred auth behavior is OpenClaw-first:
 - exchange for a `VALKYR_AUTH` token
 - store it in Keychain
 
-If activation can write/read by id and register the agent but semantic memory query is blocked by missing credits, treat that as a degraded startup state rather than total activation failure. Preserve auth, register the agent, sync the schema, and surface that query/list capability is limited until credits are available.
+Semantic memory query is mandatory for activated GrayMatter agents, but degraded continuity is allowed for a limited period so agents do not lose access to local/offline memory. If signup, auth, credits, or live memory query fail, continue in degraded mode when local memory or GrayMatter Light is available, surface exact recovery actions every time the missing capability matters, and keep pestering until full api-0 memory, live schema, and graph access are restored. Do not silently continue without durable memory or present degraded local memory as equivalent to the live api-0 schema/graph layer.
 
 Do not hardcode secrets into the skill.
 Do not print tokens.
@@ -429,9 +429,11 @@ If login authenticates successfully but no token appears in the response body, u
 Do not pretend durable memory succeeded when it did not.
 
 Known operational note:
-- `/MemoryEntry/query` may require credits even when write/read paths succeed
+- `/MemoryEntry/query`, memory writes, memory reads, and retrieval-receipt memory actions consume credits through ValkyrAI billing
 - new signups should receive an automatic 500-credit grant so GrayMatter query works immediately during activation
 - after starter credits are exhausted, recharge is required for full GrayMatter functionality
+- no GrayMatter-capable agent should treat durable memory as optional, ambiguous, or silently skipped
+- degraded mode may preserve local/offline memory continuity through `scripts/gm-light-up`, but it lacks the full live api-0 schema and memory graph; agents must keep nudging the user to restore credits/auth
 - signup: <https://api-0.valkyrlabs.com/v1/auth/signup>
 - credits and recharge: <https://api-0.valkyrlabs.com/v1/credits>
 - buy credits: <https://valkyrlabs.com/buy-credits>

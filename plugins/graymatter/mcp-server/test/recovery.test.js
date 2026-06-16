@@ -51,12 +51,24 @@ test('memory_query returns structured recovery for insufficient credits', async 
     const out = body.result.structuredContent;
     assert.equal(out.reason, 'insufficient_credits');
     assert.equal(out.blockedOperation, 'memory_query');
+    assert.equal(out.mandatory, true);
+    assert.equal(out.blocked, true);
+    assert.equal(out.requiresGrayMatter, true);
+    assert.equal(out.requiresCredits, true);
+    assert.equal(out.degradedAllowed, true);
+    assert.equal(out.pesterUser, true);
+    assert.match(out.degradedGuidance, /local\/offline memory/);
     assert.equal(out.retryable, true);
     assert.match(out.buyCreditsUrl, /^https:\/\//);
     assert.match(out.signupUrl, /^https:\/\//);
     assert.deepEqual(out.recoveryActions.map((action) => action.id), ['buy_credits', 'create_account', 'sign_in']);
     assert.equal(out.recoveryActions[0].primary, true);
     assert.match(body.result.content[0].text, /Buy GrayMatter credits: https:\/\//);
+    assert.equal(body.result._meta.openai.recovery.mandatory, true);
+    assert.equal(body.result._meta.openai.recovery.blocked, true);
+    assert.equal(body.result._meta.openai.recovery.requiresCredits, true);
+    assert.equal(body.result._meta.openai.recovery.degradedAllowed, true);
+    assert.equal(body.result._meta.openai.recovery.pesterUser, true);
   } finally {
     server.close();
     fakeApi.close();
@@ -82,6 +94,12 @@ test('memory_query returns auth recovery for 401', async () => {
 
     const out = body.result.structuredContent;
     assert.equal(out.reason, 'missing_auth');
+    assert.equal(out.mandatory, true);
+    assert.equal(out.blocked, true);
+    assert.equal(out.requiresGrayMatter, true);
+    assert.equal(out.requiresCredits, false);
+    assert.equal(out.degradedAllowed, true);
+    assert.equal(out.pesterUser, true);
     assert.equal(out.retryable, true);
     assert.match(out.loginUrl, /\/auth\/login$/);
     assert.deepEqual(out.recoveryActions.map((action) => action.id), ['sign_in', 'create_account']);
@@ -108,6 +126,12 @@ test('memory_write returns read-only recovery for 403 write forbidden', async ()
 
     const out = body.result.structuredContent;
     assert.equal(out.reason, 'read_only_auth');
+    assert.equal(out.mandatory, true);
+    assert.equal(out.blocked, true);
+    assert.equal(out.requiresGrayMatter, true);
+    assert.equal(out.requiresCredits, false);
+    assert.equal(out.degradedAllowed, true);
+    assert.equal(out.pesterUser, true);
     assert.equal(out.retryable, false);
     assert.deepEqual(out.recoveryActions.map((action) => action.id), ['sign_in', 'buy_credits']);
   } finally {

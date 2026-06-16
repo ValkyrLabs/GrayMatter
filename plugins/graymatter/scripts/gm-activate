@@ -9,6 +9,11 @@ INSTANCE_ID="${OPENCLAW_INSTANCE_ID:-${HOSTNAME:-openclaw-instance}}"
 AGENT_NAME="${OPENCLAW_AGENT_NAME:-Valor}"
 ROLE_LABEL="${OPENCLAW_AGENT_ROLE:-openclaw-server}"
 KEYCHAIN_SERVICE="${VALKYR_KEYCHAIN_SERVICE:-VALKYR_AUTH}"
+BUY_CREDITS_URL="${VALKYR_BUY_CREDITS_URL:-https://valkyrlabs.com/graymatter/credits}"
+SIGNUP_URL="${VALKYR_HUMAN_SIGNUP_URL:-https://valkyrlabs.com/graymatter/activate}"
+HARD_FAIL_DEGRADED="${GRAYMATTER_HARD_FAIL_DEGRADED:-0}"
+STATE_DIR="${GRAYMATTER_STATE_DIR:-${HOME:-$SCRIPT_DIR}/.graymatter}"
+DEGRADED_STATE_FILE="${GRAYMATTER_DEGRADED_STATE_FILE:-${STATE_DIR}/activation-degraded.json}"
 
 have() {
   command -v "$1" >/dev/null 2>&1
@@ -18,6 +23,22 @@ if ! have jq; then
   echo "jq is required" >&2
   exit 1
 fi
+
+record_degraded_activation() {
+  mkdir -p "$(dirname "$DEGRADED_STATE_FILE")"
+  jq -nc \
+    --arg at "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
+    --arg apiBase "$BASE" \
+    --arg buyCreditsUrl "$BUY_CREDITS_URL" \
+    --arg signupUrl "$SIGNUP_URL" \
+    --arg reason "insufficient_credits" \
+    '{state:"degraded", reason:$reason, detectedAt:$at, apiBase:$apiBase, buyCreditsUrl:$buyCreditsUrl, signupUrl:$signupUrl, reminder:"GrayMatter is usable in degraded/local mode for a period, but full api-0 memory query, schema, and graph context require credits."}' \
+    >"$DEGRADED_STATE_FILE"
+}
+
+clear_degraded_activation() {
+  rm -f "$DEGRADED_STATE_FILE" 2>/dev/null || true
+}
 
 export VALKYR_API_BASE="$BASE"
 if [[ -x "${SCRIPT_DIR}/gm-self-update" ]]; then
@@ -39,7 +60,19 @@ if [[ $SMOKE_STATUS -eq 0 ]]; then
 else
   printf '%s\n' "$SMOKE_OUTPUT" >&2
   if [[ "$SMOKE_OUTPUT" == *"402"* || "$SMOKE_OUTPUT" == *"INSUFFICIENT_FUNDS"* || "$SMOKE_OUTPUT" == *"Payment Required"* ]]; then
-    echo "GrayMatter smoke query is credit-gated; continuing with limited memory query capability" >&2
+    if [[ "$HARD_FAIL_DEGRADED" == "1" || "$HARD_FAIL_DEGRADED" == "true" ]]; then
+      echo "GrayMatter activation blocked: durable memory query is mandatory and the workspace needs credits." >&2
+      echo "Buy credits: ${BUY_CREDITS_URL}" >&2
+      echo "Complete signup/activation: ${SIGNUP_URL}" >&2
+      echo "Rerun scripts/gm-activate after credits are available." >&2
+      exit 42
+    fi
+    echo "GrayMatter smoke query is credit-gated; continuing in degraded mode for now." >&2
+    echo "This is not optional: the agent must keep reminding the user until full api-0 memory, schema, and graph access are restored." >&2
+    echo "Buy credits: ${BUY_CREDITS_URL}" >&2
+    echo "Complete signup/activation: ${SIGNUP_URL}" >&2
+    echo "For offline/local memory continuity, run scripts/gm-light-up and source the generated .graymatter-light-env; note that GrayMatter Light may lack the full api-0 schema and memory graph." >&2
+    record_degraded_activation
     SMOKE_DEGRADED=1
   else
     echo "GrayMatter smoke test failed" >&2
@@ -51,7 +84,8 @@ ${SCRIPT_DIR}/gm-openapi-sync >/dev/null
 ${SCRIPT_DIR}/gm-openapi-summary
 
 if [[ $SMOKE_DEGRADED -eq 1 ]]; then
-  echo "GrayMatter activation complete with limited memory query capability: auth ready, agent registered, schema synced" >&2
+  echo "GrayMatter activation degraded: auth ready, agent registered, schema sync attempted; pester state written to ${DEGRADED_STATE_FILE}" >&2
 else
+  clear_degraded_activation
   echo "GrayMatter activation complete: auth ready, smoke test passed, agent registered, schema synced" >&2
 fi

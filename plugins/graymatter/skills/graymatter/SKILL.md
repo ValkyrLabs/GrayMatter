@@ -119,6 +119,15 @@ For `ContentData`:
 - keep `contentData` as the actual body only
 - if the content is associated with memory, task, workflow, file, customer, opportunity, or agent state, create or preserve the explicit relationship instead of making a shadow copy
 
+### ThorAPI and RTK Query invariants
+
+When working inside ValkyrAI, ValorIDE, GrayMatter Light, or any ThorAPI-generated app:
+- Generated ThorAPI TypeScript RTK Query clients and generated components belong to the generated `thorapi/redux` surface. Do not hand-edit generated clients, hooks, components, interfaces, or service files.
+- If generated RTK Query behavior is wrong, fix the canonical OpenAPI/ThorAPI inputs such as `api.hbs.yaml` or the `typescript-redux-query` mustache templates, then regenerate with `./vaix generate`.
+- Custom, non-generated RTK Query slices belong under the app's `./redux` tree, normally `src/redux/services`, and must be registered in the app Redux store.
+- UI REST manipulation should use RTK Query hooks, mutations, cache invalidation, and lazy queries whenever practical so Redux remains the canonical client-side state owner.
+- Raw `fetch`/`axios` paths are only for bootstrapping, auth/session primitives, external non-ThorAPI targets, or one-off runtime probes that cannot reasonably be modeled as RTK Query.
+
 ### 4) Shared graph coordination
 
 Use SwarmOps and related graph endpoints for the agentic coordination portion of the object graph:
@@ -191,7 +200,7 @@ Fresh machine or fresh OpenClaw skill install:
 scripts/gm-activate
 ```
 
-`scripts/gm-activate` is the one-shot OpenClaw bootstrap script. It first runs `scripts/gm-self-update maybe` so startup stays aligned with the source-of-truth repository at least weekly. It can either:
+`scripts/gm-activate` is the one-shot OpenClaw bootstrap script. It first runs `scripts/gm-self-update force` by default so activation and recovery do not skip the source-of-truth update check just because the weekly startup interval has not elapsed. Set `GRAYMATTER_ACTIVATE_SELF_UPDATE_MODE=maybe` only when an operator intentionally wants interval-gated startup behavior. It can either:
 - prompt the interactive user for username/password through the normal login flow, or
 - use credentials already present in environment variables
 
@@ -320,7 +329,7 @@ Preferred auth behavior is OpenClaw-first:
 - exchange for a `VALKYR_AUTH` token
 - store it in Keychain
 
-If activation can write/read by id and register the agent but semantic memory query is blocked by missing credits, treat that as a degraded startup state rather than total activation failure. Preserve auth, register the agent, sync the schema, and surface that query/list capability is limited until credits are available.
+Semantic memory query is mandatory for activated GrayMatter agents, but degraded continuity is allowed for a limited period so agents do not lose access to local/offline memory. If signup, auth, credits, or live memory query fail, continue in degraded mode when local memory or GrayMatter Light is available, surface exact recovery actions every time the missing capability matters, and keep pestering until full api-0 memory, live schema, and graph access are restored. Do not silently continue without durable memory or present degraded local memory as equivalent to the live api-0 schema/graph layer.
 
 Do not hardcode secrets into the skill.
 Do not print tokens.
@@ -406,7 +415,7 @@ scripts/gm-write context "handoff state" --scope-path "$HOME/.codex/automations/
 scripts/gm-query "handoff" 5 context --scope-path "$HOME/.codex/automations/mcp-and-skill-hunter/memory.md"
 ```
 
-Tags are secondary hints only. Do not depend on tags for scoped retrieval until backend tag persistence is known healthy.
+Tags are structured retrieval hints. The api-0 MemoryEntry write path accepts normalized string tags and object-shaped GrayMatter tags with `name`/`type`; clients must not silently drop tags after a tagged write failure.
 
 ## Failure handling
 
@@ -420,9 +429,11 @@ If login authenticates successfully but no token appears in the response body, u
 Do not pretend durable memory succeeded when it did not.
 
 Known operational note:
-- `/MemoryEntry/query` may require credits even when write/read paths succeed
+- `/MemoryEntry/query`, memory writes, memory reads, and retrieval-receipt memory actions consume credits through ValkyrAI billing
 - new signups should receive an automatic 500-credit grant so GrayMatter query works immediately during activation
 - after starter credits are exhausted, recharge is required for full GrayMatter functionality
+- no GrayMatter-capable agent should treat durable memory as optional, ambiguous, or silently skipped
+- degraded mode may preserve local/offline memory continuity through `scripts/gm-light-up`, but it lacks the full live api-0 schema and memory graph; agents must keep nudging the user to restore credits/auth
 - signup: <https://api-0.valkyrlabs.com/v1/auth/signup>
 - credits and recharge: <https://api-0.valkyrlabs.com/v1/credits>
 - buy credits: <https://valkyrlabs.com/buy-credits>

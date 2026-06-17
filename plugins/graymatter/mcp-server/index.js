@@ -21,12 +21,13 @@ const APP_SECURITY_SCHEMES = [
 ];
 const LOCAL_DEPLOYMENT_MODES = new Set(['local-dev', 'private-stdio']);
 const HOSTED_DEPLOYMENT_MODES = new Set(['single-tenant', 'hosted-multi-tenant']);
+const MANDATORY_MEMORY_CREDIT_NOTE = 'GrayMatter durable memory is mandatory for this agent flow; this operation is credit-gated and consumes ValkyrAI account credits.';
 
 const tools = [
   defineTool({
     name: 'memory_write',
     title: 'Write memory',
-    description: 'Write a compact durable GrayMatter MemoryEntry using schema fields, metadata, sourceChannel, and tags instead of embedding metadata in text.',
+    description: `Write a compact durable GrayMatter MemoryEntry using schema fields, metadata, sourceChannel, and tags instead of embedding metadata in text. ${MANDATORY_MEMORY_CREDIT_NOTE}`,
     inputSchema: {
       type: 'object',
       properties: {
@@ -48,26 +49,28 @@ const tools = [
       required: ['type', 'text']
     },
     annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true, idempotentHint: false },
+    mandatoryMemory: true,
     invoking: 'Writing memory',
     invoked: 'Memory written'
   }),
   defineTool({
     name: 'memory_read',
     title: 'Read memory',
-    description: 'Read a durable GrayMatter MemoryEntry by id.',
+    description: `Read a durable GrayMatter MemoryEntry by id. ${MANDATORY_MEMORY_CREDIT_NOTE}`,
     inputSchema: {
       type: 'object',
       properties: { id: { type: 'string' } },
       required: ['id']
     },
     annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true, idempotentHint: true },
+    mandatoryMemory: true,
     invoking: 'Reading memory',
     invoked: 'Memory ready'
   }),
   defineTool({
     name: 'memory_query',
     title: 'Search memory',
-    description: 'Semantic search across GrayMatter memory.',
+    description: `Semantic search across GrayMatter memory. ${MANDATORY_MEMORY_CREDIT_NOTE}`,
     inputSchema: {
       type: 'object',
       properties: {
@@ -87,13 +90,14 @@ const tools = [
       required: ['query']
     },
     annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true, idempotentHint: true },
+    mandatoryMemory: true,
     invoking: 'Searching memory',
     invoked: 'Memory search ready'
   }),
   defineTool({
     name: 'memory_retrieve_with_receipt',
     title: 'Retrieve memory with receipt',
-    description: 'Search GrayMatter memory and return a retrieval receipt with quality, provenance, policy, and recommended next action signals.',
+    description: `Search GrayMatter memory and return a retrieval receipt with quality, provenance, policy, and recommended next action signals. ${MANDATORY_MEMORY_CREDIT_NOTE}`,
     inputSchema: {
       type: 'object',
       properties: {
@@ -112,6 +116,7 @@ const tools = [
       required: ['query']
     },
     annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true, idempotentHint: false },
+    mandatoryMemory: true,
     invoking: 'Retrieving memory with receipt',
     invoked: 'Retrieval receipt ready'
   }),
@@ -672,6 +677,14 @@ function defineTool(tool) {
     descriptor._meta['openai/widgetAccessible'] = true;
   }
 
+  if (tool.mandatoryMemory) {
+    descriptor._meta.graymatter = {
+      mandatory: true,
+      creditGated: true,
+      recoveryRequiredOnAuthOrCreditFailure: true
+    };
+  }
+
   return descriptor;
 }
 
@@ -962,6 +975,13 @@ function buildRecoveryResult(error, operation, context) {
   const recoveryActions = recoveryActionsFor(signal.reason, { buyCreditsUrl, signupUrl, loginUrl });
   const structuredContent = {
     ok: false,
+    mandatory: true,
+    blocked: true,
+    requiresGrayMatter: true,
+    requiresCredits: signal.reason === 'insufficient_credits',
+    degradedAllowed: true,
+    pesterUser: true,
+    degradedGuidance: 'Continue with local/offline memory only when available, but keep reminding the user that full api-0 memory, live schema, and graph context need credits/auth recovery.',
     reason: signal.reason,
     blockedOperation: operation,
     message: signal.message,
@@ -985,6 +1005,12 @@ function buildRecoveryResult(error, operation, context) {
         recovery: {
           reason: signal.reason,
           blockedOperation: operation,
+          mandatory: true,
+          blocked: true,
+          requiresGrayMatter: true,
+          requiresCredits: signal.reason === 'insufficient_credits',
+          degradedAllowed: true,
+          pesterUser: true,
           retryable,
           actions: recoveryActions,
           urls: { buyCreditsUrl, signupUrl, loginUrl }
@@ -1063,14 +1089,14 @@ function classifyRecoveryReason(error) {
   if (error.status === 402 || upperText.includes('INSUFFICIENT_FUNDS') || lowerText.includes('insufficient') && lowerText.includes('credit')) {
     return {
       reason: 'insufficient_credits',
-      message: 'GrayMatter needs credits before this operation can continue. Buy credits or sign up, then retry.'
+      message: 'GrayMatter memory is mandatory for this agent flow, and this operation is blocked until the workspace has credits. Buy credits or complete signup, then retry.'
     };
   }
 
   if (error.status === 401) {
     return {
       reason: 'missing_auth',
-      message: 'Authentication is missing or expired. Sign in, then retry.'
+      message: 'GrayMatter memory is mandatory for this agent flow, but authentication is missing or expired. Sign in, then retry.'
     };
   }
 
@@ -1078,12 +1104,12 @@ function classifyRecoveryReason(error) {
     if (lowerText.includes('read-only') || lowerText.includes('readonly') || lowerText.includes('write') && lowerText.includes('forbidden')) {
       return {
         reason: 'read_only_auth',
-        message: 'This credential is read-only for the requested operation. Use a write-capable token.'
+        message: 'GrayMatter memory is mandatory for this agent flow, but this credential is read-only for the requested operation. Use a write-capable token.'
       };
     }
     return {
       reason: 'missing_auth',
-      message: 'Access was denied. Sign in with the correct account or workspace access, then retry.'
+      message: 'GrayMatter memory is mandatory for this agent flow, but access was denied. Sign in with the correct account or workspace access, then retry.'
     };
   }
 

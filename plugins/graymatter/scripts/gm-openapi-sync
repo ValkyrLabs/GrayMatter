@@ -6,6 +6,9 @@ ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 OUT_JSON="${1:-${ROOT}/tmp/api-docs.json}"
 mkdir -p "$(dirname "$OUT_JSON")"
 
+OPENAPI_SYNC_CURL_MAX_TIME="${GRAYMATTER_OPENAPI_SYNC_CURL_MAX_TIME:-120}"
+export GRAYMATTER_CURL_MAX_TIME="${GRAYMATTER_CURL_MAX_TIME:-$OPENAPI_SYNC_CURL_MAX_TIME}"
+
 TMP_JSON="$(mktemp -t graymatter-api-docs.XXXXXX)"
 cleanup() {
   rm -f "$TMP_JSON"

@@ -36,6 +36,17 @@ Options:
   --source-channel <source>
       Explicit sourceChannel/source filter. Overrides derived scope.
 
+  --format <json|brief|english>
+      Output format. Defaults to json for scripting compatibility.
+
+  --brief
+  --english
+  --summary
+      Print a bounded, human-readable summary instead of raw JSON.
+
+  --text-max <n>
+      Maximum text characters per entry for brief/english output. Defaults to 220.
+
   --runtime <name>
       Runtime prefix used when deriving sourceChannel values. Defaults to codex.
 
@@ -83,7 +94,8 @@ Examples:
   gm-query "local memory" --source-channel codex:workspace:2026-05-12/demo
 
 Output:
-  Prints the JSON response returned by GrayMatter. The request body sent to
+  Prints the JSON response returned by GrayMatter by default. Use --brief or
+  --english for bounded human-readable output. The request body sent to
   /MemoryEntry/query includes q, maxResults, and optional type/source fields.
 
 Environment:
@@ -148,6 +160,8 @@ CHAT_KEY=""
 SESSION_KEY=""
 AUTOMATION_ID=""
 SCOPE_PATH=""
+OUTPUT_FORMAT="${GRAYMATTER_QUERY_FORMAT:-json}"
+TEXT_MAX="${GRAYMATTER_QUERY_TEXT_MAX:-220}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -200,6 +214,20 @@ while [[ $# -gt 0 ]]; do
       LIMIT="${2:-}"
       shift 2
       ;;
+    --format)
+      require_value "$1" "${2:-}"
+      OUTPUT_FORMAT="${2:-}"
+      shift 2
+      ;;
+    --brief|--english|--summary)
+      OUTPUT_FORMAT="english"
+      shift
+      ;;
+    --text-max)
+      require_value "$1" "${2:-}"
+      TEXT_MAX="${2:-}"
+      shift 2
+      ;;
     *)
       echo "Unknown gm-query option: $1" >&2
       echo "Run 'gm-query --help' for usage." >&2
@@ -212,6 +240,17 @@ if [[ ! "$LIMIT" =~ ^[0-9]+$ ]]; then
   echo "gm-query: limit must be a non-negative integer: $LIMIT" >&2
   exit 1
 fi
+if [[ ! "$TEXT_MAX" =~ ^[0-9]+$ || "$TEXT_MAX" -lt 40 ]]; then
+  echo "gm-query: --text-max must be an integer >= 40: $TEXT_MAX" >&2
+  exit 1
+fi
+case "$OUTPUT_FORMAT" in
+  json|brief|english) ;;
+  *)
+    echo "gm-query: --format must be json, brief, or english: $OUTPUT_FORMAT" >&2
+    exit 1
+    ;;
+esac
 
 derive_source_channel() {
   local path="$1"
@@ -245,6 +284,145 @@ if [[ -z "$SOURCE_CHANNEL" ]]; then
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+GRAYMATTER_API_COMMAND="${GRAYMATTER_API_COMMAND:-${SCRIPT_DIR}/graymatter_api.sh}"
+
+is_query_timeout_response() {
+  local file="$1"
+
+  if [[ ! -s "$file" ]]; then
+    return 1
+  fi
+
+  if command -v jq >/dev/null 2>&1; then
+    jq -e '
+      [
+        .error?,
+        .message?,
+        .classification?,
+        .details?.error?,
+        .details?.message?
+      ]
+      | map(select(type == "string") | ascii_downcase)
+      | any(test("transaction timeout|timeout expired|timed out"))
+    ' "$file" >/dev/null 2>&1 && return 0
+  fi
+
+  grep -Eiq 'transaction timeout|timeout expired|timed out' "$file"
+}
+
+fallback_memoryentry_filter() {
+  local list_body="$1"
+
+  command -v jq >/dev/null 2>&1 || return 1
+
+  jq -c \
+    --arg q "$(printf '%s' "$QUERY" | tr '[:upper:]' '[:lower:]')" \
+    --argjson limit "$LIMIT" \
+    --arg type "$TYPE" \
+    --arg source "$SOURCE_CHANNEL" '
+      def entries:
+        if type == "array" then .
+        elif (.content? | type) == "array" then .content
+        elif (.items? | type) == "array" then .items
+        elif (.data? | type) == "array" then .data
+        elif (.results? | type) == "array" then .results
+        elif (.records? | type) == "array" then .records
+        else []
+        end;
+      def tag_text:
+        (.tags // [])
+        | map(if type == "object" then (.name // .id // "") else tostring end)
+        | join(" ");
+      def searchable_text:
+        [
+          .text?,
+          .title?,
+          .summary?,
+          .description?,
+          .content?,
+          .type?,
+          .source?,
+          .sourceChannel?,
+          tag_text
+        ]
+        | map(select(. != null) | tostring)
+        | join(" ")
+        | ascii_downcase;
+      entries
+      | map(select(
+          ($type == "" or (.type? == $type))
+          and ($source == "" or (.source? == $source) or (.sourceChannel? == $source))
+          and (searchable_text | contains($q))
+        ))
+      | .[:$limit]
+    ' "$list_body"
+}
+
+run_memoryentry_query() {
+  "$GRAYMATTER_API_COMMAND" POST /MemoryEntry/query "$BODY"
+}
+
+run_memoryentry_timeout_fallback() {
+  local list_body
+
+  list_body="$(mktemp "${TMPDIR:-/tmp}/gm-query-memoryentry-list.XXXXXX")"
+  trap 'rm -f "$list_body"' RETURN
+
+  "$GRAYMATTER_API_COMMAND" GET /MemoryEntry >"$list_body"
+  fallback_memoryentry_filter "$list_body"
+}
+
+format_response() {
+  local response_file="$1"
+
+  if [[ "$OUTPUT_FORMAT" == "json" ]]; then
+    cat "$response_file"
+    return 0
+  fi
+
+  command -v jq >/dev/null 2>&1 || {
+    echo "gm-query: --brief/--english requires jq" >&2
+    return 1
+  }
+
+  jq -r --arg query "$QUERY" --argjson textMax "$TEXT_MAX" '
+    def entries:
+      if type == "array" then .
+      elif (.content? | type) == "array" then .content
+      elif (.items? | type) == "array" then .items
+      elif (.data? | type) == "array" then .data
+      elif (.results? | type) == "array" then .results
+      elif (.records? | type) == "array" then .records
+      else []
+      end;
+    def compact_text:
+      tostring
+      | gsub("[\\r\\n\\t]+"; " ")
+      | gsub("  +"; " ")
+      | gsub("^\\s+|\\s+$"; "");
+    def bounded:
+      compact_text
+      | if length > $textMax then .[0:($textMax - 3)] + "..." else . end;
+    def tag_names:
+      (.tags // [])
+      | map(if type == "object" then (.name // .id // "") else tostring end)
+      | map(select(length > 0))
+      | unique
+      | join(",");
+    entries as $entries
+    | "GrayMatter returned \($entries | length) matching memory " + (if ($entries | length) == 1 then "entry" else "entries" end) + " for: " + $query,
+      (
+        $entries[]
+        | "- [" + (.type // "unknown") + "] "
+          + ((.text // .title // .summary // .description // .content // "") | bounded)
+          + " (id=" + ((.id // "") | tostring)
+          + ", source=" + ((.sourceChannel // .source // "") | tostring)
+          + (if ((tag_names | length) > 0) then ", tags=" + tag_names else "" end)
+          + ")"
+      )
+  ' "$response_file"
+}
+
 if [[ -n "$TYPE" && -n "$SOURCE_CHANNEL" ]]; then
   BODY="$(jq -nc --arg q "$QUERY" --argjson maxResults "$LIMIT" --arg type "$TYPE" --arg source "$SOURCE_CHANNEL" '{q:$q,maxResults:$maxResults,type:$type,source:$source}')"
 elif [[ -n "$TYPE" ]]; then
@@ -254,4 +432,28 @@ elif [[ -n "$SOURCE_CHANNEL" ]]; then
 else
   BODY="$(jq -nc --arg q "$QUERY" --argjson maxResults "$LIMIT" '{q:$q,maxResults:$maxResults}')"
 fi
-"${SCRIPT_DIR}/graymatter_api.sh" POST /MemoryEntry/query "$BODY"
+
+QUERY_RESPONSE="$(mktemp "${TMPDIR:-/tmp}/gm-query-response.XXXXXX")"
+trap 'rm -f "$QUERY_RESPONSE"' EXIT
+
+if run_memoryentry_query >"$QUERY_RESPONSE"; then
+  format_response "$QUERY_RESPONSE"
+  exit 0
+fi
+
+QUERY_STATUS=$?
+cat "$QUERY_RESPONSE" >&2
+if [[ -s "$QUERY_RESPONSE" ]]; then
+  echo >&2
+fi
+
+if [[ "${GRAYMATTER_QUERY_TIMEOUT_FALLBACK:-true}" == "true" ]] && is_query_timeout_response "$QUERY_RESPONSE"; then
+  echo "gm-query: MemoryEntry/query timed out; falling back to MemoryEntry list filtering" >&2
+  FALLBACK_RESPONSE="$(mktemp "${TMPDIR:-/tmp}/gm-query-fallback-response.XXXXXX")"
+  trap 'rm -f "$QUERY_RESPONSE" "$FALLBACK_RESPONSE"' EXIT
+  run_memoryentry_timeout_fallback >"$FALLBACK_RESPONSE"
+  format_response "$FALLBACK_RESPONSE"
+  exit 0
+fi
+
+exit "$QUERY_STATUS"

@@ -154,6 +154,7 @@ Rule:
 - `scripts/graymatter_api.sh` — authenticated production API transport
 - `scripts/gm-login` — login helper
 - `scripts/gm-activate` — one-shot auth + install + agent registration + schema sync bootstrap
+- `scripts/gm-activation-fastlane` — first-run readiness, one-shot activation, non-secret telemetry, and reviewer-safe demo runner
 - `scripts/gm-self-update` — repo/plugin self-update check for startup, weekly refresh, and auth/connectivity recovery
 - `scripts/gm-install-check` — dependency and auth readiness check
 - `scripts/gm-doctor` — full readiness report for self-update, auth, memory, schema, MCP, replay, and smoke status
@@ -233,7 +234,7 @@ brew install jq
 scripts/gm-activate
 ```
 
-`scripts/gm-activate` is the intended one-shot bootstrap for OpenClaw installs. It first runs `scripts/gm-self-update maybe` so startup checks the source-of-truth repo at least weekly, then authenticates and validates the install. It can use:
+`scripts/gm-activate` is the intended one-shot bootstrap for OpenClaw installs. It first runs `scripts/gm-self-update force` by default so activation and recovery do not skip the source-of-truth update check just because the weekly startup interval has not elapsed, then authenticates and validates the install. Set `GRAYMATTER_ACTIVATE_SELF_UPDATE_MODE=maybe` only when an operator intentionally wants interval-gated startup behavior. It can use:
 - interactive username/password prompts, or
 - credentials already present in environment variables
 
@@ -250,13 +251,24 @@ Supported env inputs:
 
 `scripts/gm-register-agent` is part of the expected startup handshake. When an OpenClaw server connects to api-0, it should create or refresh an Agent record for itself before proceeding with normal work.
 
-`scripts/gm-self-update` is the normal plugin/repo update path. Agents should run it on startup and when auth or transport looks suspicious. It updates clean git checkouts with a fast-forward pull and updates packaged installs from `https://github.com/ValkyrLabs/GrayMatter.git` when the weekly interval is due or `force` is requested. Dirty git checkouts are never overwritten.
+`scripts/gm-self-update` is the normal plugin/repo update path. Agents should run it on startup and when auth or transport looks suspicious. It updates clean git checkouts with a fast-forward pull and updates packaged installs from `https://github.com/ValkyrLabs/GrayMatter.git` when the weekly interval is due or `force` is requested; activation uses `force` unless overridden. Dirty git checkouts are never overwritten.
 
 `scripts/graymatter_api.sh` and the MCP server perform autonomous auth refresh when the stored token expires or api-0 returns a refreshable auth failure. Replay-safe write operations blocked by credits or transport can be deferred and retried with `scripts/gm-replay-deferred`.
 
 At that point the install should be immediately usable.
 
 If auth succeeds but memory query is temporarily credit-gated, `scripts/gm-activate` now continues in a degraded mode: auth is stored, the agent is registered, the OpenAPI is synced, and the script reports that memory query capability is limited until credits are available.
+
+For the app-review or customer first-run path, use the activation fastlane:
+
+```bash
+scripts/gm-activation-fastlane --check-only
+scripts/gm-activation-fastlane --reviewer-demo
+```
+
+`--check-only` verifies install readiness, runtime status, and the portable MCP memory-tool contract without activating or writing demo data. `--reviewer-demo` runs the normal activation path, then performs a bounded sample `MemoryEntry` write/query, graph read, schema summary, and safe `MemoryEntry` entity list. The script emits non-secret events such as `activation_started`, `auth_completed`, `schema_synced`, `first_memory_written`, `first_query_succeeded`, `credit_warning_shown`, and `activation_completed` to stderr, and also appends them to `GRAYMATTER_ACTIVATION_EVENT_LOG` when that env var is set.
+
+Raw bearer-token setup remains a debug/advanced path. The default first-run story is sign in, store securely, validate tools, write/query a demo memory, then continue with starter-credit-aware next actions.
 
 For a one-command post-install report, run:
 
@@ -393,7 +405,7 @@ scripts/gm-entity Note POST '{"title":"Launch","content":"GrayMatter launch work
 GrayMatter uses:
 - `VALKYR_API_BASE`, default `https://api-0.valkyrlabs.com/v1`
 - macOS/iCloud Keychain lookup for `VALKYR_AUTH`
-- `VALKYR_AUTH_TOKEN` as the primary env override/debug path
+- `VALKYR_AUTH_TOKEN` as an advanced debug override, not the normal activation path
 - `VALKYR_JWT_SESSION` as a compatible env fallback for downstream tooling
 
 Preferred auth flow:

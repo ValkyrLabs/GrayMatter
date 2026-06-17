@@ -25,6 +25,7 @@ chmod +x "$TMP_DIR/gm-status"
 out="$(ROOT_DIR="$TMP_DIR" VALKYR_API_BASE="http://127.0.0.1:9/v1" VALKYR_AUTH_TOKEN=test "$TMP_DIR/gm-status")"
 
 echo "$out" | grep -q '^graymatter_auth=env$'
+echo "$out" | grep -q '^tenant_schema_context=unknown$'
 echo "$out" | grep -q '^memory_layer=degraded$'
 echo "$out" | grep -q '^graph_layer=ready$'
 echo "$out" | grep -q '^strategic_layer=ready$'
@@ -33,6 +34,15 @@ echo "$out" | grep -q '^kpi_layer=ready$'
 readonly_jwt='eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.eyJyb2xlcyI6WyJFVkVSWU9ORSJdLCJzY29wZXMiOlsiU0NPUEVfc2NoZW1hLnJlYWQiXX0.'
 out_readonly="$(ROOT_DIR="$TMP_DIR" VALKYR_API_BASE="http://127.0.0.1:9/v1" VALKYR_AUTH_TOKEN="$readonly_jwt" "$TMP_DIR/gm-status")"
 echo "$out_readonly" | grep -q '^graymatter_auth=env:read_only$'
+echo "$out_readonly" | grep -q '^tenant_schema_context=unknown$'
 echo "$out_readonly" | grep -q '^memory_layer=degraded$'
+
+valkyr_agent_jwt='eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.eyJyb2xlcyI6WyJFVkVSWU9ORSIsIlZBTEtZUl9BR0VOVCJdLCJzY29wZXMiOlsiU0NPUEVfc2NoZW1hLnJlYWQiLCJTQ09QRV9zY2hlbWEud3JpdGUiXX0.'
+out_agent="$(ROOT_DIR="$TMP_DIR" VALKYR_API_BASE="http://127.0.0.1:9/v1" VALKYR_AUTH_TOKEN="$valkyr_agent_jwt" "$TMP_DIR/gm-status")"
+echo "$out_agent" | grep -q '^graymatter_auth=env$'
+echo "$out_agent" | grep -q '^tenant_schema_context=ready$'
+echo "$out_agent" | grep -q '^tenant_schema_name=main$'
+echo "$out_agent" | grep -q '^tenant_schema_source=jwt_valkyr_agent_main_schema_fallback$'
+echo "$out_agent" | grep -q '^memory_layer=degraded$'
 
 echo "gm_status_test: ok"

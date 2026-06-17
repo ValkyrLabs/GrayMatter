@@ -1,7 +1,7 @@
 {
   "slug": "graymatter",
   "name": "GrayMatter",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "tags": [
     "memory",
     "durable-memory",
@@ -12,5 +12,5 @@
     "valkyr",
     "latest"
   ],
-  "changelog": "GrayMatter-first OpenClaw launch: primary-memory bootstrap, live OpenAPI schema loading, generic entity access helpers, stronger installability guidance, plus signup and credits-link onboarding notes"
+  "changelog": "GrayMatter skill packaging now ships the activation runtime, graymatter-bootstrap recovery path, MCP server, and install validation scripts required for fresh OpenClaw and ClawHub installs."
 }

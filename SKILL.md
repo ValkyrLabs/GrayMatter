@@ -93,6 +93,15 @@ Only GrayMatter product surfaces such as memory, retrieval, receipts, status, an
 
 This means a properly authenticated OpenClaw instance can understand the business as a live object graph when the schema exposes those objects, not as disconnected chat logs.
 
+### ThorAPI and RTK Query invariants
+
+When working inside ValkyrAI, ValorIDE, GrayMatter Light, or any ThorAPI-generated app:
+- Generated ThorAPI TypeScript RTK Query clients and generated components belong to the generated `thorapi/redux` surface. Do not hand-edit generated clients, hooks, components, interfaces, or service files.
+- If generated RTK Query behavior is wrong, fix the canonical OpenAPI/ThorAPI inputs such as `api.hbs.yaml` or the `typescript-redux-query` mustache templates, then regenerate with `./vaix generate`.
+- Custom, non-generated RTK Query slices belong under the app's `./redux` tree, normally `src/redux/services`, and must be registered in the app Redux store.
+- UI REST manipulation should use RTK Query hooks, mutations, cache invalidation, and lazy queries whenever practical so Redux remains the canonical client-side state owner.
+- Raw `fetch`/`axios` paths are only for bootstrapping, auth/session primitives, external non-ThorAPI targets, or one-off runtime probes that cannot reasonably be modeled as RTK Query.
+
 ### 3) Shared graph coordination
 
 Use SwarmOps and related graph endpoints for the agentic coordination portion of the object graph:
@@ -113,6 +122,7 @@ Core transport:
 Readiness and auth:
 - `scripts/gm-login`
 - `scripts/gm-activate`
+- `scripts/gm-activation-fastlane`
 - `scripts/gm-install-check`
 - `scripts/gm-doctor`
 - `scripts/gm-smoke`
@@ -165,7 +175,16 @@ Fresh machine or fresh OpenClaw skill install:
 scripts/gm-activate
 ```
 
-`scripts/gm-activate` is the one-shot OpenClaw bootstrap script. It first runs `scripts/gm-self-update maybe` so startup stays aligned with the source-of-truth repository at least weekly. It can either:
+For app-review, customer onboarding, or a five-minute value proof, run:
+
+```bash
+scripts/gm-activation-fastlane --check-only
+scripts/gm-activation-fastlane --reviewer-demo
+```
+
+The fastlane validates install/runtime/MCP contract readiness, runs the normal Keychain-backed activation path, emits non-secret activation telemetry, and can run a bounded reviewer-safe demo across MemoryEntry write/query, graph read, schema summary, and safe entity listing.
+
+`scripts/gm-activate` is the one-shot OpenClaw bootstrap script. It first runs `scripts/gm-self-update force` by default so activation and recovery do not skip the source-of-truth update check just because the weekly startup interval has not elapsed. Set `GRAYMATTER_ACTIVATE_SELF_UPDATE_MODE=maybe` only when an operator intentionally wants interval-gated startup behavior. It can either:
 - prompt the interactive user for username/password through the normal login flow, or
 - use credentials already present in environment variables
 
@@ -379,7 +398,7 @@ scripts/gm-write context "handoff state" --scope-path "$HOME/.codex/automations/
 scripts/gm-query "handoff" 5 context --scope-path "$HOME/.codex/automations/mcp-and-skill-hunter/memory.md"
 ```
 
-Tags are secondary hints only. Do not depend on tags for scoped retrieval until backend tag persistence is known healthy.
+Tags are structured retrieval hints. The api-0 MemoryEntry write path accepts normalized string tags and object-shaped GrayMatter tags with `name`/`type`; clients must not silently drop tags after a tagged write failure.
 
 ## Failure handling
 

@@ -455,6 +455,57 @@ elseif ($result -eq "No") { Start-Process $signupUrl }
   fi
 }
 
+required_permission_hint() {
+  local operation_kind
+  operation_kind="$(determine_operation_kind)"
+
+  case "$operation_kind" in
+    memory_write)
+      printf 'MemoryEntry write authority or memory:write scope'
+      ;;
+    memory_query)
+      printf 'MemoryEntry query/read authority or memory:read scope'
+      ;;
+    memory_read)
+      printf 'MemoryEntry read authority or memory:read scope'
+      ;;
+    graph_write)
+      printf 'graph write authority for the requested object graph endpoint'
+      ;;
+    entity_write)
+      printf 'entity write authority for the requested schema object'
+      ;;
+    *)
+      printf 'write authority for %s %s' "$METHOD_UPPER" "$PATH_PART"
+      ;;
+  esac
+}
+
+show_access_denied_guidance() {
+  local response_file="${1:-}"
+  local response_message=""
+  local trace_id=""
+  local permission_hint=""
+  local username_hint="${USERNAME:-unknown}"
+
+  if [[ -n "$response_file" ]] && command -v jq >/dev/null 2>&1; then
+    response_message="$(jq -r '.message // .error // empty' "$response_file" 2>/dev/null || true)"
+    trace_id="$(jq -r '.traceId // .trace_id // .details.traceId // empty' "$response_file" 2>/dev/null || true)"
+  fi
+
+  permission_hint="$(required_permission_hint)"
+  echo "GrayMatter access denied for ${METHOD_UPPER} ${PATH_PART}." >&2
+  echo "Missing permission: ${permission_hint}." >&2
+  echo "Account: ${username_hint}. Refreshing auth succeeded or was unavailable, so this is now treated as an RBAC/scope denial." >&2
+  if [[ -n "$response_message" ]]; then
+    echo "Backend message: ${response_message}." >&2
+  fi
+  if [[ -n "$trace_id" ]]; then
+    echo "Trace id: ${trace_id}." >&2
+  fi
+  echo "Recovery: grant the account MemoryEntry write access, switch to a write-capable VALKYR_AUTH token, then retry or run scripts/gm-replay-deferred." >&2
+}
+
 determine_operation_kind() {
   local normalized_path="${PATH_PART#/}"
   if [[ "$METHOD_UPPER" == "GET" ]]; then
@@ -820,9 +871,13 @@ if [[ "$HTTP_STATUS" =~ ^[0-9]{3}$ ]] && (( HTTP_STATUS >= 400 )); then
   if command -v jq >/dev/null 2>&1; then
     if jq -e '.error == "INSUFFICIENT_FUNDS" or .insufficientFunds == true' "$RESPONSE_FILE" >/dev/null 2>&1; then
       show_insufficient_funds_guidance "$RESPONSE_FILE"
+    elif [[ "$HTTP_STATUS" == "403" ]] && jq -e '(.message // .error // "") | test("Access Denied|Forbidden"; "i")' "$RESPONSE_FILE" >/dev/null 2>&1; then
+      show_access_denied_guidance "$RESPONSE_FILE"
     fi
   elif grep -q "INSUFFICIENT_FUNDS" "$RESPONSE_FILE" 2>/dev/null; then
     show_insufficient_funds_guidance "$RESPONSE_FILE"
+  elif [[ "$HTTP_STATUS" == "403" ]] && grep -Eqi "Access Denied|Forbidden" "$RESPONSE_FILE" 2>/dev/null; then
+    show_access_denied_guidance "$RESPONSE_FILE"
   fi
 
   exit 22

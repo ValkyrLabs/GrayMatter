@@ -122,6 +122,25 @@ token_permission_state() {
   ' <<<"$claims"
 }
 
+token_has_valkyr_agent_role() {
+  local token="${1:-}"
+  local claims=""
+  [[ -n "$token" ]] || return 1
+  claims="$(token_claims_json "$token" 2>/dev/null)" || return 1
+  jq -e '
+    def normalize:
+      tostring
+      | ascii_upcase
+      | if startswith("ROLE_") then . else "ROLE_" + . end;
+    def roles:
+      [(.roles // []), (.roleList // []), (.authorities // []), (.authorityList // [])]
+      | map(if type == "array" then . else [] end)
+      | add
+      | map(select(type == "string") | normalize);
+    any(roles[]?; . == "ROLE_VALKYR_AGENT")
+  ' <<<"$claims" >/dev/null
+}
+
 token_live_state() {
   local token="${1:-}"
   local code=""
@@ -138,6 +157,31 @@ token_live_state() {
     401|403) printf 'invalid\n' ;;
     *) printf 'unknown\n' ;;
   esac
+}
+
+tenant_schema_context_json() {
+  local token="${1:-}"
+  local body_file=""
+  local code=""
+  [[ -n "$token" ]] || {
+    jq -nc '{ready:false, tenantSchemaContext:"missing_auth", schemaName:null, httpStatus:null}'
+    return 0
+  }
+  body_file="$(mktemp "${TMPDIR:-/tmp}/graymatter-status.XXXXXX")"
+  code="$(curl -sS -o "$body_file" -w '%{http_code}' --connect-timeout 5 --max-time 10 \
+    -H "Authorization: Bearer $token" \
+    -H 'accept: application/json' \
+    "$API_BASE/tenant-schemas/preflight/graymatter_status?operation=memory.query" 2>/dev/null || true)"
+  if [[ "$code" =~ ^2 && -s "$body_file" ]]; then
+    cat "$body_file"
+  elif [[ "$code" != "401" && "$code" != "403" ]] && token_has_valkyr_agent_role "$token"; then
+    jq -nc --arg status "${code:-unknown}" \
+      '{ready:true, tenantSchemaContext:"ready", schemaName:"main", databaseScope:"VALKYR_MANAGED", isolationMode:"ORG_SCHEMA", registryStatus:"ACTIVE", httpStatus:$status, source:"jwt_valkyr_agent_main_schema_fallback"}'
+  else
+    jq -nc --arg status "${code:-unknown}" \
+      '{ready:false, tenantSchemaContext:"unknown", schemaName:null, httpStatus:$status}'
+  fi
+  rm -f "$body_file"
 }
 
 fallback_status_json() {
@@ -187,6 +231,11 @@ fi
 TOKEN_STATE="$(token_health_state "$TOKEN")"
 TOKEN_LIVE_STATE="$(token_live_state "$TOKEN")"
 TOKEN_PERMISSION_STATE="$(token_permission_state "$TOKEN")"
+TENANT_CONTEXT_JSON="$(tenant_schema_context_json "$TOKEN")"
+TENANT_CONTEXT_STATE="$(jq -r '.tenantSchemaContext // "unknown"' <<<"$TENANT_CONTEXT_JSON")"
+TENANT_CONTEXT_READY="$(jq -r '.ready // false' <<<"$TENANT_CONTEXT_JSON")"
+TENANT_CONTEXT_SCHEMA="$(jq -r '.schemaName // ""' <<<"$TENANT_CONTEXT_JSON")"
+TENANT_CONTEXT_SOURCE="$(jq -r '.source // ""' <<<"$TENANT_CONTEXT_JSON")"
 FALLBACK_JSON="$(fallback_status_json)"
 FALLBACK_STATE="$(jq -r '.state' <<<"$FALLBACK_JSON")"
 PENDING_WRITES="$(jq -r '.pendingWrites' <<<"$FALLBACK_JSON")"
@@ -194,7 +243,7 @@ PENDING_WRITES="$(jq -r '.pendingWrites' <<<"$FALLBACK_JSON")"
 HEALTH="ok"
 if [[ "$FALLBACK_STATE" == "invalid" ]]; then
   HEALTH="error"
-elif [[ "$AUTH_STATE" == "missing" || "$PENDING_WRITES" != "0" || "$TOKEN_STATE" =~ ^(expired|invalid|read_only)$ || "$TOKEN_LIVE_STATE" == "invalid" || "$TOKEN_PERMISSION_STATE" == "read_only" ]]; then
+elif [[ "$AUTH_STATE" == "missing" || "$PENDING_WRITES" != "0" || "$TOKEN_STATE" =~ ^(expired|invalid|read_only)$ || "$TOKEN_LIVE_STATE" == "invalid" || "$TOKEN_PERMISSION_STATE" == "read_only" || "$TENANT_CONTEXT_READY" != "true" ]]; then
   HEALTH="degraded"
 fi
 
@@ -206,12 +255,14 @@ if [[ "${GM_STATUS_FORMAT:-kv}" == "json" ]]; then
     --arg permission "$TOKEN_PERMISSION_STATE" \
     --arg path "$FALLBACK_PATH" \
     --arg state "$FALLBACK_STATE" \
+    --argjson tenantContext "$TENANT_CONTEXT_JSON" \
     --argjson pending "$PENDING_WRITES" \
     '{
       graymatter: {
         health:$health,
         auth:$auth,
         token:{liveState:$live, permissionState:$permission},
+        tenantSchemaContext:$tenantContext,
         fallback:{path:$path, state:$state, pendingWrites:$pending}
       }
     }'
@@ -232,10 +283,13 @@ else
     AUTH_MEMORY_READY=true
   fi
   MEMORY_LAYER="degraded"
-  [[ "$FALLBACK_STATE" != "invalid" && "$AUTH_MEMORY_READY" == "true" ]] && MEMORY_LAYER="ready"
+  [[ "$FALLBACK_STATE" != "invalid" && "$AUTH_MEMORY_READY" == "true" && "$TENANT_CONTEXT_READY" == "true" ]] && MEMORY_LAYER="ready"
 
   printf 'graymatter_auth=%s\n' "$AUTH_KV"
   printf 'graymatter_token_state=%s\n' "$TOKEN_STATE"
+  printf 'tenant_schema_context=%s\n' "$TENANT_CONTEXT_STATE"
+  [[ -n "$TENANT_CONTEXT_SCHEMA" ]] && printf 'tenant_schema_name=%s\n' "$TENANT_CONTEXT_SCHEMA"
+  [[ -n "$TENANT_CONTEXT_SOURCE" ]] && printf 'tenant_schema_source=%s\n' "$TENANT_CONTEXT_SOURCE"
   printf 'memory_layer=%s\n' "$MEMORY_LAYER"
   printf 'graph_layer=%s\n' "$(openapi_layer_state graph '.paths | keys | any(.[]; test("^(/v1)?/(SwarmOps/graph|swarm-ops/graph|swarm/agents|Agent)(/|$)"))')"
   printf 'strategic_layer=%s\n' "$(openapi_layer_state strategic '.paths | keys | any(.[]; test("^(/v1)?/(StrategicRecord|StrategicPriority|Goal)(/|$)"))')"

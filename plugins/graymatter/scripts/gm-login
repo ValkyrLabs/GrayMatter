@@ -14,7 +14,12 @@ PASSWORD=${GRAYMATTER_PASSWORD:-${VALKYR_PASSWORD:-}}
 FALLBACK_TMPDIR="${GRAYMATTER_TMPDIR:-${SCRIPT_DIR}/../tmp}"
 ALLOW_READONLY_TOKEN=${GRAYMATTER_ALLOW_READONLY_TOKEN:-0}
 CURL_CONNECT_TIMEOUT="${GRAYMATTER_CURL_CONNECT_TIMEOUT:-5}"
-CURL_MAX_TIME="${GRAYMATTER_CURL_MAX_TIME:-20}"
+CURL_MAX_TIME="${GRAYMATTER_CURL_MAX_TIME:-60}"
+BUY_CREDITS_URL_BASE="${VALKYR_BUY_CREDITS_URL:-https://valkyrlabs.com/graymatter/credits}"
+HUMAN_SIGNUP_URL_BASE="${VALKYR_HUMAN_SIGNUP_URL:-https://valkyrlabs.com/graymatter/activate}"
+GRAYMATTER_INSTALL_ID="${GRAYMATTER_INSTALL_ID:-${OPENCLAW_INSTANCE_ID:-}}"
+GRAYMATTER_ACTIVATION_SOURCE="${GRAYMATTER_ACTIVATION_SOURCE:-graymatter}"
+GRAYMATTER_ACTIVATION_RETURN_TO="${GRAYMATTER_ACTIVATION_RETURN_TO:-graymatter://activation/return}"
 
 portable_mktemp() {
   local template="$1"
@@ -101,6 +106,54 @@ if ! command -v jq >/dev/null 2>&1; then
   exit 1
 fi
 
+append_query_param() {
+  local url="$1"
+  local key="$2"
+  local value="${3:-}"
+  local separator="?"
+  local encoded_value=""
+
+  [[ -n "$value" ]] || {
+    printf '%s\n' "$url"
+    return 0
+  }
+
+  if [[ "$url" == *"?"* ]]; then
+    separator="&"
+  fi
+  encoded_value="$(jq -rn --arg value "$value" '$value|@uri')"
+  printf '%s%s%s=%s\n' "$url" "$separator" "$key" "$encoded_value"
+}
+
+activation_context_url() {
+  local base_url="$1"
+  local intent="$2"
+  local operation="${3:-memory_query}"
+  local url="$base_url"
+
+  url="$(append_query_param "$url" source "$GRAYMATTER_ACTIVATION_SOURCE")"
+  url="$(append_query_param "$url" intent "$intent")"
+  url="$(append_query_param "$url" operation "$operation")"
+  url="$(append_query_param "$url" return_to "$GRAYMATTER_ACTIVATION_RETURN_TO")"
+  url="$(append_query_param "$url" api_base "$BASE")"
+  url="$(append_query_param "$url" install_id "$GRAYMATTER_INSTALL_ID")"
+  printf '%s\n' "$url"
+}
+
+show_auth_recovery() {
+  local reason="${1:-missing_auth}"
+  local signup_url=""
+  local credits_url=""
+
+  signup_url="$(activation_context_url "$HUMAN_SIGNUP_URL_BASE" signup auth)"
+  credits_url="$(activation_context_url "$BUY_CREDITS_URL_BASE" recharge memory_query)"
+
+  echo "GrayMatter recovery (${reason}):" >&2
+  echo "  Activation/signup: ${signup_url}" >&2
+  echo "  Credits/recharge:  ${credits_url}" >&2
+  echo "After activation, re-run scripts/gm-activate or scripts/gm-login." >&2
+}
+
 keychain_get() {
   local service="$1"
   local account="$2"
@@ -138,7 +191,7 @@ fi
 if [[ -z "$USERNAME" ]]; then
   if [[ ! -t 0 ]]; then
     echo "No reusable GrayMatter credentials found (env/keychain) and interactive login is unavailable." >&2
-    echo "Autonomous reauth is impossible from current machine state." >&2
+    show_auth_recovery missing_username
     exit 4
   fi
   read -r -p "GrayMatter username: " USERNAME
@@ -176,7 +229,7 @@ APPLESCRIPT
 if [[ -z "$PASSWORD" ]]; then
   if ! PASSWORD="$(prompt_password)" || [[ -z "$PASSWORD" ]]; then
     echo "GrayMatter password not found in env/keychain and interactive login is unavailable." >&2
-    echo "Autonomous reauth is impossible from current machine state." >&2
+    show_auth_recovery missing_password
     exit 4
   fi
 fi
@@ -199,6 +252,7 @@ if [[ $CURL_STATUS -ne 0 ]]; then
     echo "Response headers:" >&2
     cat "$HEADERS_FILE" >&2
   fi
+  show_auth_recovery login_failed
   exit $CURL_STATUS
 fi
 
@@ -262,6 +316,7 @@ if [[ -z "$AUTH_TOKEN" || "$AUTH_TOKEN" == "null" ]]; then
   echo "$RESPONSE" >&2
   echo "Response headers:" >&2
   cat "$HEADERS_FILE" >&2
+  show_auth_recovery missing_token
   exit 2
 fi
 
@@ -269,6 +324,7 @@ if [[ "$ALLOW_READONLY_TOKEN" != "1" ]] && token_is_clearly_read_only "$AUTH_TOK
   echo "GrayMatter login produced a read-only token for ${USERNAME}." >&2
   echo "The issued session only has schema-read access, so GrayMatter writes will fail." >&2
   echo "Fix the ValkyrAI account roles/scopes or re-run with GRAYMATTER_ALLOW_READONLY_TOKEN=1 for read-only diagnostics." >&2
+  show_auth_recovery read_only_token
   exit 4
 fi
 

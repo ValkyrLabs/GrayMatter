@@ -28,7 +28,7 @@ HUMAN_SIGNUP_URL_BASE="${VALKYR_HUMAN_SIGNUP_URL:-https://valkyrlabs.com/graymat
 LOGIN_PATH="${GRAYMATTER_LOGIN_PATH:-/auth/login}"
 FALLBACK_TMPDIR="${GRAYMATTER_TMPDIR:-${SCRIPT_DIR}/../tmp}"
 CURL_CONNECT_TIMEOUT="${GRAYMATTER_CURL_CONNECT_TIMEOUT:-5}"
-CURL_MAX_TIME="${GRAYMATTER_CURL_MAX_TIME:-20}"
+CURL_MAX_TIME="${GRAYMATTER_CURL_MAX_TIME:-60}"
 TOKEN_REFRESH_SKEW_SECONDS="${GRAYMATTER_TOKEN_REFRESH_SKEW_SECONDS:-60}"
 GRAYMATTER_INSTALL_ID="${GRAYMATTER_INSTALL_ID:-${OPENCLAW_INSTANCE_ID:-${HOSTNAME:-graymatter-install}}}"
 GRAYMATTER_ACTIVATION_SOURCE="${GRAYMATTER_ACTIVATION_SOURCE:-graymatter}"
@@ -115,7 +115,78 @@ token_is_clearly_read_only() {
     return $?
   fi
 
+  if printf '%s' "$claims" | grep -Eq '"(ADMIN|USER|OWNER|MANAGER|SUPER_ADMIN|ROLE_[^"]+)"'; then
+    return 1
+  fi
+  if printf '%s' "$claims" | grep -Eq 'SCOPE_[^"]*(write|admin|delete|update|create)'; then
+    return 1
+  fi
+  if printf '%s' "$claims" | grep -Eq '"(EVERYONE|FREE)"|SCOPE_schema\.read'; then
+    return 0
+  fi
   return 1
+}
+
+token_has_valkyr_agent_role() {
+  local token="${1:-}"
+  local claims=""
+
+  claims="$(token_claims_json "$token" 2>/dev/null)" || return 1
+
+  if command -v jq >/dev/null 2>&1; then
+    jq -e '
+      def normalize:
+        tostring
+        | ascii_upcase
+        | if startswith("ROLE_") then . else "ROLE_" + . end;
+      def role_values:
+        [(.roles // []), (.roleList // []), (.authorities // []), (.authorityList // [])]
+        | map(if type == "array" then . else [] end)
+        | add
+        | map(select(type == "string") | normalize);
+      any(role_values[]?; . == "ROLE_VALKYR_AGENT")
+    ' >/dev/null 2>&1 <<<"$claims"
+    return $?
+  fi
+
+  return 1
+}
+
+tenant_id_from_token() {
+  local token="${1:-}"
+  local claims=""
+  local explicit_tenant=""
+
+  claims="$(token_claims_json "$token" 2>/dev/null)" || return 0
+
+  if command -v jq >/dev/null 2>&1; then
+    explicit_tenant="$(
+      jq -r '
+        .tenantId // .organizationId // .orgId // empty
+        | tostring
+        | select(. != "" and ascii_downcase != "null")
+      ' <<<"$claims" 2>/dev/null || true
+    )"
+    if [[ -n "$explicit_tenant" ]]; then
+      printf '%s\n' "$explicit_tenant"
+      return 0
+    fi
+  fi
+
+  if token_has_valkyr_agent_role "$token"; then
+    printf 'main\n'
+  fi
+}
+
+resolve_tenant_id() {
+  local explicit="${GRAYMATTER_TENANT_ID:-${VALKYR_TENANT_ID:-}}"
+
+  if [[ -n "$explicit" ]]; then
+    printf '%s\n' "$explicit"
+    return 0
+  fi
+
+  tenant_id_from_token "$TOKEN"
 }
 
 token_expires_soon() {
@@ -135,7 +206,10 @@ token_expires_soon() {
     return $?
   fi
 
-  return 1
+  local exp=""
+  exp="$(printf '%s' "$claims" | sed -n 's/.*"exp"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p' | head -n 1)"
+  [[ -n "$exp" ]] || return 1
+  [[ "$exp" -le $((now + TOKEN_REFRESH_SKEW_SECONDS)) ]]
 }
 
 method_requires_write_access() {
@@ -379,6 +453,9 @@ show_insufficient_funds_guidance() {
   buy_credits_url="$(append_query_param "$buy_credits_url" current_balance "$current_balance")"
   buy_credits_url="$(append_query_param "$buy_credits_url" trace_id "$trace_id")"
 
+  echo "GrayMatter credit recovery" >&2
+  echo "Account/workspace: install=${GRAYMATTER_INSTALL_ID} api=${BASE}" >&2
+  echo "Blocked operation: ${operation_kind}" >&2
   echo "Insufficient credits. Buy credits: ${buy_credits_url}" >&2
   echo "Need an account? Sign up here: ${human_signup_url}" >&2
   if [[ -n "$required_credits" ]]; then
@@ -440,6 +517,57 @@ elseif ($result -eq "No") { Start-Process $signupUrl }
     cmd.exe /C start "" "$buy_credits_url" >/dev/null 2>&1 || true
     emit_credit_recovery_event "buy_credits_opened" "$operation_kind" "$trace_id" "$deferred_file" "$required_credits" "$current_balance"
   fi
+}
+
+required_permission_hint() {
+  local operation_kind
+  operation_kind="$(determine_operation_kind)"
+
+  case "$operation_kind" in
+    memory_write)
+      printf 'MemoryEntry write authority or memory:write scope'
+      ;;
+    memory_query)
+      printf 'MemoryEntry query/read authority or memory:read scope'
+      ;;
+    memory_read)
+      printf 'MemoryEntry read authority or memory:read scope'
+      ;;
+    graph_write)
+      printf 'graph write authority for the requested object graph endpoint'
+      ;;
+    entity_write)
+      printf 'entity write authority for the requested schema object'
+      ;;
+    *)
+      printf 'write authority for %s %s' "$METHOD_UPPER" "$PATH_PART"
+      ;;
+  esac
+}
+
+show_access_denied_guidance() {
+  local response_file="${1:-}"
+  local response_message=""
+  local trace_id=""
+  local permission_hint=""
+  local username_hint="${USERNAME:-unknown}"
+
+  if [[ -n "$response_file" ]] && command -v jq >/dev/null 2>&1; then
+    response_message="$(jq -r '.message // .error // empty' "$response_file" 2>/dev/null || true)"
+    trace_id="$(jq -r '.traceId // .trace_id // .details.traceId // empty' "$response_file" 2>/dev/null || true)"
+  fi
+
+  permission_hint="$(required_permission_hint)"
+  echo "GrayMatter access denied for ${METHOD_UPPER} ${PATH_PART}." >&2
+  echo "Missing permission: ${permission_hint}." >&2
+  echo "Account: ${username_hint}. Refreshing auth succeeded or was unavailable, so this is now treated as an RBAC/scope denial." >&2
+  if [[ -n "$response_message" ]]; then
+    echo "Backend message: ${response_message}." >&2
+  fi
+  if [[ -n "$trace_id" ]]; then
+    echo "Trace id: ${trace_id}." >&2
+  fi
+  echo "Recovery: grant the account MemoryEntry write access, switch to a write-capable VALKYR_AUTH token, then retry or run scripts/gm-replay-deferred." >&2
 }
 
 determine_operation_kind() {
@@ -739,6 +867,13 @@ perform_request() {
       -H "X-XSRF-TOKEN: ${STATEFUL_XSRF_TOKEN}"
     )
   fi
+  local tenant_id
+  tenant_id="$(resolve_tenant_id)"
+  if [[ -n "$tenant_id" ]]; then
+    COMMON_HEADERS+=(
+      -H "X-Tenant-Id: ${tenant_id}"
+    )
+  fi
 
   CURL_ARGS=(
     -sS
@@ -800,9 +935,13 @@ if [[ "$HTTP_STATUS" =~ ^[0-9]{3}$ ]] && (( HTTP_STATUS >= 400 )); then
   if command -v jq >/dev/null 2>&1; then
     if jq -e '.error == "INSUFFICIENT_FUNDS" or .insufficientFunds == true' "$RESPONSE_FILE" >/dev/null 2>&1; then
       show_insufficient_funds_guidance "$RESPONSE_FILE"
+    elif [[ "$HTTP_STATUS" == "403" ]] && jq -e '(.message // .error // "") | test("Access Denied|Forbidden"; "i")' "$RESPONSE_FILE" >/dev/null 2>&1; then
+      show_access_denied_guidance "$RESPONSE_FILE"
     fi
   elif grep -q "INSUFFICIENT_FUNDS" "$RESPONSE_FILE" 2>/dev/null; then
     show_insufficient_funds_guidance "$RESPONSE_FILE"
+  elif [[ "$HTTP_STATUS" == "403" ]] && grep -Eqi "Access Denied|Forbidden" "$RESPONSE_FILE" 2>/dev/null; then
+    show_access_denied_guidance "$RESPONSE_FILE"
   fi
 
   exit 22

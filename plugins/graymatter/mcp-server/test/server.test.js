@@ -321,6 +321,19 @@ test('tools/list exposes Apps SDK metadata required for review', async () => {
     assert.ok(overview, 'show_graymatter_overview is present');
     assert.equal(overview._meta.ui.resourceUri, 'ui://graymatter/overview.html');
     assert.equal(overview._meta['openai/outputTemplate'], 'ui://graymatter/overview.html');
+
+    for (const name of ['memory_write', 'memory_read', 'memory_query', 'memory_retrieve_with_receipt']) {
+      const memoryTool = result.body.result.tools.find((tool) => tool.name === name);
+      assert.ok(memoryTool, `${name} is present`);
+      assert.equal(memoryTool._meta.graymatter.mandatory, true, `${name} mandatory memory`);
+      assert.equal(memoryTool._meta.graymatter.creditGated, true, `${name} credit gated`);
+      assert.equal(
+        memoryTool._meta.graymatter.recoveryRequiredOnAuthOrCreditFailure,
+        true,
+        `${name} recovery required`
+      );
+      assert.match(memoryTool.description, /consumes ValkyrAI account credits/);
+    }
   } finally {
     server.close();
   }

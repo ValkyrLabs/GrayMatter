@@ -114,6 +114,15 @@ token_is_clearly_read_only() {
     return $?
   fi
 
+  if printf '%s' "$claims" | grep -Eq '"(ADMIN|USER|OWNER|MANAGER|SUPER_ADMIN|ROLE_[^"]+)"'; then
+    return 1
+  fi
+  if printf '%s' "$claims" | grep -Eq 'SCOPE_[^"]*(write|admin|delete|update|create)'; then
+    return 1
+  fi
+  if printf '%s' "$claims" | grep -Eq '"(EVERYONE|FREE)"|SCOPE_schema\.read'; then
+    return 0
+  fi
   return 1
 }
 
@@ -196,7 +205,10 @@ token_expires_soon() {
     return $?
   fi
 
-  return 1
+  local exp=""
+  exp="$(printf '%s' "$claims" | sed -n 's/.*"exp"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p' | head -n 1)"
+  [[ -n "$exp" ]] || return 1
+  [[ "$exp" -le $((now + TOKEN_REFRESH_SKEW_SECONDS)) ]]
 }
 
 method_requires_write_access() {
@@ -384,6 +396,9 @@ show_insufficient_funds_guidance() {
   buy_credits_url="$(append_query_param "$buy_credits_url" current_balance "$current_balance")"
   buy_credits_url="$(append_query_param "$buy_credits_url" trace_id "$trace_id")"
 
+  echo "GrayMatter credit recovery" >&2
+  echo "Account/workspace: install=${GRAYMATTER_INSTALL_ID} api=${BASE}" >&2
+  echo "Blocked operation: ${operation_kind}" >&2
   echo "Insufficient credits. Buy credits: ${buy_credits_url}" >&2
   echo "Need an account? Sign up here: ${human_signup_url}" >&2
   if [[ -n "$required_credits" ]]; then

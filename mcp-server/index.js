@@ -951,20 +951,18 @@ function buildRecoveryResult(error, operation, context) {
     return null;
   }
 
-  const buyCreditsUrl = activationContextUrl(
-    process.env.VALKYR_BUY_CREDITS_URL || DEFAULT_BUY_CREDITS_URL,
-    'recharge',
-    operation,
-    context
-  );
-  const signupUrl = activationContextUrl(
-    process.env.VALKYR_HUMAN_SIGNUP_URL || DEFAULT_SIGNUP_URL,
-    'signup',
-    operation,
-    context
-  );
+  const details = recoveryDetails(error.payload);
+  const attribution = recoveryAttribution(error, operation, context, details);
+  const buyCreditsUrl = attributedRecoveryUrl(process.env.VALKYR_BUY_CREDITS_URL || DEFAULT_BUY_CREDITS_URL, {
+    ...attribution,
+    intent: 'recharge'
+  });
+  const signupUrl = attributedRecoveryUrl(process.env.VALKYR_HUMAN_SIGNUP_URL || DEFAULT_SIGNUP_URL, {
+    ...attribution,
+    intent: signal.reason === 'starter_credits_missing' ? 'repair-starter-credits' : 'signup'
+  });
   const loginUrl = apiUrl(context.apiBase, process.env.GRAYMATTER_LOGIN_PATH || DEFAULT_LOGIN_PATH);
-  const retryable = signal.reason === 'insufficient_credits' || signal.reason === 'missing_auth';
+  const retryable = signal.reason === 'insufficient_credits' || signal.reason === 'starter_credits_missing' || signal.reason === 'missing_auth';
 
   const recoveryActions = recoveryActionsFor(signal.reason, { buyCreditsUrl, signupUrl, loginUrl });
   const structuredContent = {
@@ -976,6 +974,12 @@ function buildRecoveryResult(error, operation, context) {
     buyCreditsUrl,
     signupUrl,
     loginUrl,
+    currentBalance: details.currentBalance,
+    requiredCredits: details.requiredCredits,
+    traceId: details.traceId,
+    workspaceId: details.workspaceId,
+    accountId: details.accountId,
+    retryGuidance: retryable ? 'Complete the recovery action, then call this tool again with the same arguments.' : 'Switch credentials or workspace access before retrying.',
     retryable
   };
 
@@ -1033,6 +1037,12 @@ function activationContextUrl(baseUrl, intent, operation, context = {}) {
 
 function recoveryActionsFor(reason, urls) {
   switch (reason) {
+    case 'starter_credits_missing':
+      return [
+        { id: 'repair_starter_credits', label: 'Repair starter credits', url: urls.signupUrl, primary: true },
+        { id: 'buy_credits', label: 'Buy GrayMatter credits', url: urls.buyCreditsUrl, primary: false },
+        { id: 'sign_in', label: 'Sign in with a funded workspace', url: urls.loginUrl, primary: false }
+      ];
     case 'insufficient_credits':
       return [
         { id: 'buy_credits', label: 'Buy GrayMatter credits', url: urls.buyCreditsUrl, primary: true },
@@ -1058,7 +1068,14 @@ function renderRecoveryText(structuredContent) {
   const actions = (structuredContent.recoveryActions || [])
     .map((action) => `${action.label}: ${action.url}`)
     .join('\n');
-  return `${structuredContent.message}\n\nRecovery actions:\n${actions}`;
+  const facts = [
+    structuredContent.currentBalance ? `Current balance: ${structuredContent.currentBalance}` : '',
+    structuredContent.requiredCredits ? `Required credits: ${structuredContent.requiredCredits}` : '',
+    structuredContent.workspaceId ? `Workspace: ${structuredContent.workspaceId}` : '',
+    structuredContent.traceId ? `Trace: ${structuredContent.traceId}` : ''
+  ].filter(Boolean).join('\n');
+  const factBlock = facts ? `\n\n${facts}` : '';
+  return `${structuredContent.message}${factBlock}\n\nRecovery actions:\n${actions}\n\n${structuredContent.retryGuidance}`;
 }
 
 function classifyRecoveryReason(error) {
@@ -1066,6 +1083,13 @@ function classifyRecoveryReason(error) {
   const bodyText = typeof payload === 'string' ? payload : JSON.stringify(payload || {});
   const upperText = bodyText.toUpperCase();
   const lowerText = bodyText.toLowerCase();
+
+  if (upperText.includes('STARTER_CREDITS_MISSING') || lowerText.includes('starter') && lowerText.includes('credit') && lowerText.includes('missing')) {
+    return {
+      reason: 'starter_credits_missing',
+      message: 'This account is missing its expected GrayMatter starter credits. Repair the starter grant or choose a funded workspace, then retry.'
+    };
+  }
 
   if (error.status === 402 || upperText.includes('INSUFFICIENT_FUNDS') || lowerText.includes('insufficient') && lowerText.includes('credit')) {
     return {
@@ -1095,6 +1119,53 @@ function classifyRecoveryReason(error) {
   }
 
   return null;
+}
+
+function recoveryDetails(payload) {
+  const source = payload && typeof payload === 'object' && !Array.isArray(payload) ? payload : {};
+  const details = source.details && typeof source.details === 'object' ? source.details : {};
+  return {
+    currentBalance: firstDefined(source.currentBalance, source.balance, details.currentBalance, details.balance),
+    requiredCredits: firstDefined(source.requiredCredits, source.required_credits, source.required, details.requiredCredits, details.required),
+    traceId: firstDefined(source.traceId, source.trace_id, details.traceId, details.trace_id),
+    workspaceId: firstDefined(source.workspaceId, source.workspace_id, source.organizationId, source.orgId, details.workspaceId, details.organizationId),
+    accountId: firstDefined(source.accountId, source.account_id, source.principalId, details.accountId, details.principalId)
+  };
+}
+
+function recoveryAttribution(error, operation, context, details) {
+  return {
+    source: process.env.GRAYMATTER_ACTIVATION_SOURCE || 'graymatter',
+    operation,
+    request_path: error.endpoint,
+    api_base: context.apiBase,
+    install_id: process.env.GRAYMATTER_INSTALL_ID || process.env.OPENCLAW_INSTANCE_ID || '',
+    return_to: process.env.GRAYMATTER_ACTIVATION_RETURN_TO || 'graymatter://activation/return',
+    required_credits: details.requiredCredits,
+    current_balance: details.currentBalance,
+    trace_id: details.traceId,
+    workspace_id: details.workspaceId,
+    account_id: details.accountId
+  };
+}
+
+function attributedRecoveryUrl(baseUrl, params) {
+  const url = new URL(baseUrl);
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== null && String(value) !== '') {
+      url.searchParams.set(key, String(value));
+    }
+  }
+  return url.toString();
+}
+
+function firstDefined(...values) {
+  for (const value of values) {
+    if (value !== undefined && value !== null && String(value) !== '') {
+      return String(value);
+    }
+  }
+  return undefined;
 }
 
 function buildMemoryWritePayload(args) {

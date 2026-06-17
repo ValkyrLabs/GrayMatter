@@ -455,6 +455,8 @@ test_insufficient_funds_shows_links_and_uses_macos_prompt() {
   output="$(printf '%s\n' "${result}" | tail -n +2)"
 
   [[ "${status}" == "22" ]] || fail "graymatter_api should return 22 for HTTP errors"
+  assert_contains "${output}" "GrayMatter credit recovery" "graymatter_api should render a branded credit recovery header"
+  assert_contains "${output}" "Blocked operation: memory_read" "graymatter_api should show the blocked operation"
   assert_contains "${output}" "Insufficient credits. Buy credits: https://example.com/buy" "graymatter_api should print buy-credits guidance"
   assert_contains "${output}" "Need an account? Sign up here: https://example.com/signup" "graymatter_api should print signup guidance"
   assert_contains "${output}" "source=graymatter" "graymatter_api should preserve source attribution in activation links"

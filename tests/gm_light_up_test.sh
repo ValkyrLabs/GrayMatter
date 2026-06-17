@@ -55,7 +55,7 @@ PATH="$FAKE_BIN:/usr/bin:/bin" \
 grep -q "docker info" "$DOCKER_LOG"
 grep -q "GRAYMATTER_LIGHT_PORT=8899 THORAPI_IMAGE=example/thorapi:test docker compose -f $BUNDLE_DIR/docker-compose.yaml up -d" "$DOCKER_LOG"
 grep -q "curl .*http://localhost:8899/actuator/health" "$CURL_LOG"
-grep -q "export VALKYR_API_BASE='http://localhost:8899'" "$BUNDLE_DIR/.graymatter-light-env"
+grep -q "export VALKYR_API_BASE='http://localhost:8899/v1'" "$BUNDLE_DIR/.graymatter-light-env"
 grep -q "export THORAPI_IMAGE='example/thorapi:test'" "$BUNDLE_DIR/.graymatter-light-env"
 grep -q "export GRAYMATTER_LIGHT_MODE='true'" "$BUNDLE_DIR/.graymatter-light-env"
 grep -q "export GRAYMATTER_LIGHT_BUNDLE_DIR='$BUNDLE_DIR'" "$BUNDLE_DIR/.graymatter-light-env"
@@ -65,9 +65,9 @@ if grep -q "{{server_url}}" "$BUNDLE_DIR/api.yaml"; then
   echo "Rendered api.yaml should not contain template placeholders" >&2
   exit 1
 fi
-grep -q "VALKYR_API_BASE=http://localhost:8899" "$TMP_DIR/output.txt"
+grep -q "VALKYR_API_BASE=http://localhost:8899/v1" "$TMP_DIR/output.txt"
 
 "$ROOT/scripts/gm-light-env" --bundle-dir "$BUNDLE_DIR" >"$TMP_DIR/env.out"
-grep -q "export VALKYR_API_BASE='http://localhost:8899'" "$TMP_DIR/env.out"
+grep -q "export VALKYR_API_BASE='http://localhost:8899/v1'" "$TMP_DIR/env.out"
 
 echo "gm_light_up_test: ok"

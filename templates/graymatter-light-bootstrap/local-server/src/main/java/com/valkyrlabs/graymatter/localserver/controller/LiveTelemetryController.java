@@ -15,7 +15,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
-@RequestMapping("/api/graymatter/telemetry")
+@RequestMapping("/v1/memory")
 public class LiveTelemetryController {
 
     private final PrincipalRecordRepository principals;
@@ -60,10 +60,22 @@ public class LiveTelemetryController {
                 metric("system.load.average", "System load average", os.getSystemLoadAverage(), "load", "ok"),
                 metric("system.processors", "Available processors", os.getAvailableProcessors(), "cores", "ok"))),
             Map.entry("sources", List.of(
-                "/api/graymatter/dashboard",
-                "/api/graymatter/swarm/protocol",
-                "/api/graymatter/sync/status",
+                "/v1/graymatter/stats",
+                "/v1/swarm-ops/graph",
+                "/v1/graymatter/activation/bridge",
                 "java.lang.management")));
+    }
+
+    @GetMapping("/usage")
+    public Map<String, Object> usage(Principal authenticated) {
+        PrincipalRecord principal = principals.findByUsernameIgnoreCase(authenticated.getName()).orElseThrow();
+        return Map.of(
+            "principal", principal.getUsername(),
+            "mode", "GRAYMATTER_LIGHT_MODE",
+            "memoryEntryCount", memoryEntries.countByPrincipalUsernameIgnoreCase(principal.getUsername()),
+            "workbookCount", workbooks.countByOwnerUsernameIgnoreCase(principal.getUsername()),
+            "creditsRequired", false,
+            "starterCreditsInCloud", 500);
     }
 
     private Map<String, Object> metric(String id, String label, Object value, String unit, String state) {

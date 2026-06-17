@@ -39,6 +39,7 @@ REQUIRED=(
   scripts/gm-light-bootstrap
   scripts/gm-light-up
   scripts/gm-light-env
+  scripts/gm-light-smoke
   scripts/gm-light-json-smoke
   scripts/package-local-server
   scripts/graymatter_api.sh
@@ -50,9 +51,12 @@ REQUIRED=(
 TEMPLATE_FILES=()
 while IFS= read -r rel; do
   TEMPLATE_FILES+=("$rel")
-done < <(cd "$ROOT" && find templates/graymatter-light-bootstrap -type f | sort)
+done < <(cd "$ROOT" && find templates/graymatter-light-bootstrap -type f \
+  ! -path 'templates/graymatter-light-bootstrap/local-server/target/*' \
+  | sort)
 
 OPTIONAL_REPO_ONLY=(
+  scripts/gm-light-smoke
   scripts/gm-light-json-smoke
   examples/memoryentry-basic.json
   examples/memoryentry-decision.json

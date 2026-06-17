@@ -20,7 +20,7 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
-@RequestMapping("/Workbook")
+@RequestMapping("/v1/Workbook")
 public class WorkbookController {
 
     private final PrincipalRecordRepository principals;

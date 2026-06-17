@@ -50,7 +50,7 @@ For local GrayMatter Light, start the ThorAPI instance and point the MCP server 
 scripts/gm-light-up
 source .graymatter-light/.graymatter-light-env
 cd mcp-server
-VALKYR_API_BASE=http://localhost:8080 GRAYMATTER_LIGHT_MODE=true npm start
+VALKYR_API_BASE=http://localhost:8080/v1 GRAYMATTER_LIGHT_MODE=true GRAYMATTER_LIGHT_PASSWORD=graymatter-light npm start
 ```
 
 ## Endpoints
@@ -73,13 +73,17 @@ The server also implements `resources/list` and `resources/read` for the Apps SD
 
 | Tool | Backing API path | Description |
 | --- | --- | --- |
-| `memory_write` | `POST /MemoryEntry` | Write a durable `MemoryEntry` (`decision`, `todo`, `context`, `artifact`, or `preference`). |
-| `memory_read` | `GET /MemoryEntry/{id}` | Read a `MemoryEntry` by ID. |
+| `memory_put` / `memory_write` | `POST /MemoryEntry/write` | Write a durable `MemoryEntry` (`decision`, `todo`, `context`, `artifact`, or `preference`). |
+| `memory_get` / `memory_read` | `GET /MemoryEntry/{id}` | Read a `MemoryEntry` by ID. |
 | `memory_query` | `POST /MemoryEntry/query` | Semantic search across GrayMatter memory. Hosted api-0 may consume credits. |
+| `memory_put_batch` | `POST /MemoryEntry/write` per item | Write up to 100 compact MemoryEntry records. |
+| `memory_link` | Portable contract hook | Record or defer a relation between memory records when graph-link persistence is available. |
+| `memory_health` | `GET /memory/status` | Check the configured GrayMatter memory backend. |
+| `memory_replay_deferred` | Local replay hook | Replay filesystem-deferred memory writes through `scripts/gm-replay-deferred`. |
 | `memory_retrieve_with_receipt` | `POST /graymatter-retrieval-receipts` | Search memory and return a Retrieval Receipt with quality, provenance, policy, and recommended action signals. |
 | `retrieval_receipt_get` | `GET /graymatter-retrieval-receipts/{receiptId}` | Fetch one persisted Retrieval Receipt for audit/debug workflows. |
 | `retrieval_receipt_query` | `GET /graymatter-retrieval-receipts` | List receipts by trace, agent, workflow, status, or time range. |
-| `graph_get` | `GET /SwarmOps/graph` | Inspect the SwarmOps shared object graph. |
+| `graph_get` | `GET /swarm-ops/graph` | Inspect the SwarmOps shared object graph. |
 | `graymatter_status` | `GET /memory/status`, `/memory/capabilities`, `/memory/usage`, `/memory/semantic-health`, `/graymatter/semantic-index/manifest`, `/graymatter/control`, `/graymatter/admin/control` | Inspect memory, semantic index, entitlement, control, and admin status surfaces. |
 | `graymatter_semantic_search` | `POST /memory/semantic-index/search` | Search the semantic/vector memory index directly. |
 | `graymatter_semantic_reindex` | `POST /memory/semantic-index/reindex` | Request semantic reindexing when RBAC permits it. |

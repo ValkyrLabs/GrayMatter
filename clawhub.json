@@ -10,7 +10,16 @@
     "openclaw-skill",
     "schema-awareness",
     "valkyr",
+    "graymatter-light",
+    "mcp",
     "latest"
   ],
-  "changelog": "GrayMatter skill packaging now ships the activation runtime, graymatter-bootstrap recovery path, MCP server, and install validation scripts required for fresh OpenClaw and ClawHub installs."
+  "install": {
+    "repo": "git clone https://github.com/ValkyrLabs/GrayMatter.git && cd GrayMatter && scripts/gm-activate",
+    "lightMode": "scripts/gm-light-up && eval \"$(scripts/gm-light-env)\"",
+    "smoke": "scripts/gm-light-smoke",
+    "productUrl": "https://valkyrlabs.com/graymatter",
+    "hostedApiBase": "https://api-0.valkyrlabs.com/v1"
+  },
+  "changelog": "GrayMatter Light agent distribution sprint plus activation runtime packaging: production api-0-compatible /v1 MemoryEntry subset, local H2 packaged server path, gm-light-smoke, MCP portable contract metadata, agent discovery docs, graymatter-bootstrap recovery, and install validation scripts for fresh OpenClaw and ClawHub installs."
 }

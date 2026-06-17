@@ -18,7 +18,7 @@ public class OpenApiController {
         this.openApi = openApi;
     }
 
-    @GetMapping(value = "/api-docs", produces = MediaType.APPLICATION_JSON_VALUE)
+    @GetMapping(value = "/v1/api-docs", produces = MediaType.APPLICATION_JSON_VALUE)
     public String apiDocs() throws IOException {
         try (InputStream input = openApi.getInputStream()) {
             return new String(input.readAllBytes(), StandardCharsets.UTF_8);

@@ -16,8 +16,11 @@ if [[ -z "$METHOD" || -z "$PATH_PART" ]]; then
 fi
 
 BASE="${VALKYR_API_BASE:-https://api-0.valkyrlabs.com/v1}"
-TOKEN=${VALKYR_AUTH_TOKEN:-${VALKYR_JWT_SESSION:-}}
+EXPLICIT_TOKEN=${VALKYR_AUTH_TOKEN:-${VALKYR_JWT_SESSION:-}}
+TOKEN=$EXPLICIT_TOKEN
 LIGHT_MODE="${GRAYMATTER_LIGHT_MODE:-false}"
+LIGHT_USERNAME="${GRAYMATTER_LIGHT_USERNAME:-admin}"
+LIGHT_PASSWORD="${GRAYMATTER_LIGHT_PASSWORD:-}"
 KEYCHAIN_SERVICE="${VALKYR_KEYCHAIN_SERVICE:-VALKYR_AUTH}"
 USERNAME_SERVICE="${VALKYR_USERNAME_KEYCHAIN_SERVICE:-${KEYCHAIN_SERVICE}_USERNAME}"
 PASSWORD_SERVICE="${VALKYR_PASSWORD_KEYCHAIN_SERVICE:-${KEYCHAIN_SERVICE}_PASSWORD}"
@@ -392,7 +395,7 @@ if [[ -z "$PASSWORD" && -n "$USERNAME" ]] && command -v security >/dev/null 2>&1
   PASSWORD=$(keychain_read "$USERNAME" "$PASSWORD_SERVICE")
 fi
 
-if [[ -z "$TOKEN" ]] && command -v security >/dev/null 2>&1; then
+if [[ -z "$TOKEN" && "$LIGHT_MODE" != "true" ]] && command -v security >/dev/null 2>&1; then
   if [[ -n "$USERNAME" ]]; then
     TOKEN=$(keychain_read "$USERNAME" "$KEYCHAIN_SERVICE")
   fi
@@ -883,7 +886,6 @@ perform_request() {
     -D "$RESPONSE_HEADERS"
     -w "%{http_code}"
     -X "$METHOD_UPPER"
-    "$URL"
     "${COMMON_HEADERS[@]}"
   )
 
@@ -893,12 +895,20 @@ perform_request() {
     )
   fi
 
+  if [[ "$LIGHT_MODE" == "true" && -z "$TOKEN" && -n "$LIGHT_USERNAME" && -n "$LIGHT_PASSWORD" ]]; then
+    CURL_ARGS+=(
+      -u "${LIGHT_USERNAME}:${LIGHT_PASSWORD}"
+    )
+  fi
+
   if [[ -n "$BODY" ]]; then
     CURL_ARGS+=(
       -H "content-type: application/json"
       --data "$BODY"
     )
   fi
+
+  CURL_ARGS+=("$URL")
 
   set +e
   HTTP_STATUS="$(curl "${CURL_ARGS[@]}")"

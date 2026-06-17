@@ -5,9 +5,9 @@ import com.valkyrlabs.graymatter.localserver.model.PrincipalRecord;
 import com.valkyrlabs.graymatter.localserver.repository.MemoryEntryRepository;
 import com.valkyrlabs.graymatter.localserver.repository.PrincipalRecordRepository;
 import jakarta.validation.Valid;
-import jakarta.validation.constraints.NotBlank;
 import java.security.Principal;
 import java.time.Instant;
+import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.data.domain.PageRequest;
@@ -23,7 +23,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
 @RestController
-@RequestMapping({"/api/memory-entries", "/MemoryEntry"})
+@RequestMapping("/v1/MemoryEntry")
 public class MemoryEntryController {
 
     private final PrincipalRecordRepository principals;
@@ -52,10 +52,18 @@ public class MemoryEntryController {
             .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "MemoryEntry not found"));
     }
 
+    @PostMapping("/read")
+    public List<MemoryEntryResponse> read(Principal authenticated, @RequestBody(required = false) MemoryQueryRequest request) {
+        return query(authenticated, request == null ? new MemoryQueryRequest(null, null, null, null, null, null, null) : request).results();
+    }
+
     @PostMapping("/query")
-    public MemoryQueryResponse query(Principal authenticated, @RequestBody MemoryQueryRequest request) {
-        String query = request.query() == null || request.query().isBlank() ? request.q() : request.query();
-        Integer requestedLimit = request.limit() == null ? request.maxResults() : request.limit();
+    public MemoryQueryResponse query(Principal authenticated, @RequestBody(required = false) MemoryQueryRequest request) {
+        MemoryQueryRequest safeRequest = request == null
+            ? new MemoryQueryRequest(null, null, null, null, null, null, null)
+            : request;
+        String query = firstNonBlank(safeRequest.query(), safeRequest.q(), safeRequest.keyword());
+        Integer requestedLimit = safeRequest.limit() == null ? safeRequest.maxResults() : safeRequest.limit();
         int limit = Math.max(1, Math.min(requestedLimit == null ? 25 : requestedLimit, 100));
         List<MemoryEntryResponse> results = memoryEntries.searchForPrincipal(authenticated.getName(), query, PageRequest.of(0, limit))
             .stream()
@@ -64,36 +72,45 @@ public class MemoryEntryController {
         return new MemoryQueryResponse(results);
     }
 
-    @PostMapping
-    @ResponseStatus(HttpStatus.CREATED)
+    @PostMapping({"", "/write"})
     public MemoryEntryResponse create(
         Principal authenticated,
         @Valid @RequestBody CreateMemoryEntryRequest request) {
         PrincipalRecord principal = principals.findByUsernameIgnoreCase(authenticated.getName())
             .orElseThrow();
+        String text = firstNonBlank(request.text(), request.content());
+        if (text == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "MemoryEntry text or content is required");
+        }
         MemoryEntry entry = new MemoryEntry(
             principal,
-            request.type(),
-            request.text(),
-            request.sourceChannel() == null || request.sourceChannel().isBlank()
+            firstNonBlank(request.type(), "context"),
+            text,
+            firstNonBlank(request.sourceChannel(), request.source()) == null
                 ? "graymatter-local-server"
-                : request.sourceChannel(),
-            request.tags());
+                : firstNonBlank(request.sourceChannel(), request.source()),
+            normalizeTags(request.tags()));
         return MemoryEntryResponse.from(memoryEntries.save(entry));
     }
 
     public record CreateMemoryEntryRequest(
         String type,
-        @NotBlank String text,
+        String text,
+        String content,
+        String title,
+        List<String> tags,
         String sourceChannel,
-        String tags) {
+        String source) {
     }
 
     public record MemoryQueryRequest(
         String query,
         String q,
+        String keyword,
         Integer limit,
-        Integer maxResults) {
+        Integer maxResults,
+        String type,
+        String source) {
     }
 
     public record MemoryQueryResponse(List<MemoryEntryResponse> results) {
@@ -105,8 +122,8 @@ public class MemoryEntryController {
         String text,
         String sourceChannel,
         String tags,
-        Instant createdAt,
-        Instant modifiedAt) {
+        Instant createdDate,
+        Instant lastModifiedDate) {
         static MemoryEntryResponse from(MemoryEntry entry) {
             return new MemoryEntryResponse(
                 entry.getId(),
@@ -117,5 +134,23 @@ public class MemoryEntryController {
                 entry.getCreatedAt(),
                 entry.getModifiedAt());
         }
+    }
+
+    private static String firstNonBlank(String... values) {
+        return Arrays.stream(values == null ? new String[0] : values)
+            .filter(value -> value != null && !value.isBlank())
+            .findFirst()
+            .orElse(null);
+    }
+
+    private static String normalizeTags(List<String> tags) {
+        if (tags == null || tags.isEmpty()) {
+            return "";
+        }
+        return String.join(",", tags.stream()
+            .filter(tag -> tag != null && !tag.isBlank())
+            .map(String::trim)
+            .distinct()
+            .toList());
     }
 }

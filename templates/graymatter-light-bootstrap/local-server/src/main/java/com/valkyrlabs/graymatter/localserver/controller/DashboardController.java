@@ -13,7 +13,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
-@RequestMapping("/api/graymatter")
+@RequestMapping("/v1/graymatter")
 public class DashboardController {
 
     private final PrincipalRecordRepository principals;
@@ -32,7 +32,7 @@ public class DashboardController {
         this.workbooks = workbooks;
     }
 
-    @GetMapping("/dashboard")
+    @GetMapping("/stats")
     public Map<String, Object> dashboard(Principal authenticated) {
         PrincipalRecord principal = principals.findByUsernameIgnoreCase(authenticated.getName())
             .orElseThrow();
@@ -51,8 +51,8 @@ public class DashboardController {
                 "UserPreferences",
                 "MemoryEntry",
                 "Data Workbooks",
-                "Mothership Sync",
-                "Swarm Protocol",
+                "GrayMatter Activation Bridge",
+                "SwarmOps",
                 "Live Telemetry")),
             Map.entry("memoryEntryCount", memoryEntries.countByPrincipalUsernameIgnoreCase(principal.getUsername())),
             Map.entry("workbookCount", workbooks.countByOwnerUsernameIgnoreCase(principal.getUsername())),
@@ -62,12 +62,7 @@ public class DashboardController {
                 "id", "graymatter-local",
                 "generationMode", "thorapi-febe",
                 "sourceTemplate", "graymatter-local",
-                "customComponents", List.of(
-                    "GrayMatterDashboard",
-                    "MemoryEntryWorkbench",
-                    "MothershipPromotionBridge",
-                    "SwarmProtocolBridge",
-                    "LiveTelemetryPanel"))),
+                "customComponents", List.of("MemoryEntry", "GrayMatter", "SwarmOps"))),
             Map.entry("mothership", Map.of(
                 "target", "https://valkyrlabs.com",
                 "apiBase", "https://api-0.valkyrlabs.com/v1",

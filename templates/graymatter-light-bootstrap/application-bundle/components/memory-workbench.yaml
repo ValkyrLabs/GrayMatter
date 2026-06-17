@@ -4,5 +4,6 @@ kind: frontend-component
 description: MemoryEntry create and query workbench for local durable agent memory.
 source: static/index.html
 binds:
-  - GET /api/memory-entries
-  - POST /api/memory-entries
+  - GET /v1/MemoryEntry
+  - POST /v1/MemoryEntry/write
+  - POST /v1/MemoryEntry/query

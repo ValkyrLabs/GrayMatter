@@ -22,7 +22,7 @@ public class SecurityConfig {
             .csrf(csrf -> csrf.disable())
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers("/", "/index.html", "/favicon.ico", "/assets/**", "/actuator/health", "/actuator/info").permitAll()
-                .requestMatchers("/api/**", "/MemoryEntry/**", "/Workbook/**").authenticated()
+                .requestMatchers("/v1/**").authenticated()
                 .anyRequest().permitAll())
             .httpBasic(Customizer.withDefaults())
             .formLogin(form -> form.disable())

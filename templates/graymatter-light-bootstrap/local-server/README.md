@@ -7,13 +7,13 @@ It runs a minimum Spring Boot server on your machine with:
 - RBAC-backed login through Spring Security
 - `Principal` identity records
 - `UserPreferences` for local user state
-- `MemoryEntry` create/query APIs
-- Data Workbooks through the `/Workbook` API
+- `MemoryEntry` create/query APIs through `/v1/MemoryEntry/*`
+- Data Workbooks through the `/v1/Workbook` API
 - an embedded Valkyr Labs-branded dashboard at `http://localhost:8787`
-- a Mothership promotion bridge at `/api/graymatter/sync/*`
-- a local GrayMatter SWARM v0.1 light-node adapter at `/api/graymatter/swarm/protocol`
+- a Cloud activation bridge at `/v1/graymatter/activation/bridge`
+- a local GrayMatter SWARM v0.1 light-node adapter at `/v1/swarm-ops/graph`
 - a ValkyrAI app-factory `application-bundle` with ThorAPI FEBE inputs
-- H2 file storage in `./data`
+- H2 file storage under the user-local GrayMatter app data directory
 - a Maven native profile for GraalVM/Spring Native builds
 
 ## Run
@@ -39,7 +39,7 @@ Otherwise it builds from `source` with local Maven or the Maven wrapper.
 
 ## Promote / Synchronize
 
-The dashboard button calls `POST /api/graymatter/sync/mothership`.
+The dashboard button calls `POST /v1/graymatter/activation/bridge/event`.
 This prepares a promotion payload and reports the local bundle, memory, workbook,
 and Swarm Protocol state. It does not claim hosted synchronization completed
 unless the operator supplies hosted auth such as `VALKYR_AUTH_TOKEN`.
@@ -47,7 +47,7 @@ unless the operator supplies hosted auth such as `VALKYR_AUTH_TOKEN`.
 Swarm Protocol status is exposed locally at:
 
 ```bash
-curl -u "admin:$GRAYMATTER_ADMIN_PASSWORD" http://localhost:8787/api/graymatter/swarm/protocol
+curl -u "admin:$GRAYMATTER_ADMIN_PASSWORD" http://localhost:8787/v1/swarm-ops/graph
 ```
 
 ## Native build

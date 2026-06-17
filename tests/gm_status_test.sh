@@ -13,7 +13,7 @@ JSON
 cat > "$TMP_DIR/tmp/openapi.json" <<'JSON'
 {
   "paths": {
-    "/SwarmOps/graph": {},
+    "/v1/swarm-ops/graph": {},
     "/StrategicRecord": {},
     "/KPIRecord": {}
   }

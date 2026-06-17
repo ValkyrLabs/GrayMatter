@@ -58,14 +58,18 @@ if ! docker info >/dev/null 2>&1; then
   exit 1
 fi
 
-API_BASE="http://localhost:${PORT}"
-GRAYMATTER_LIGHT_PUBLIC_URL="$API_BASE" "${SCRIPT_DIR}/gm-light-bootstrap" "$BUNDLE_DIR" >/dev/null
+PUBLIC_BASE="http://localhost:${PORT}"
+API_BASE="${PUBLIC_BASE}/v1"
+GRAYMATTER_LIGHT_PUBLIC_URL="$PUBLIC_BASE" "${SCRIPT_DIR}/gm-light-bootstrap" "$BUNDLE_DIR" >/dev/null
 
 ENV_FILE="${BUNDLE_DIR%/}/.graymatter-light-env"
 cat >"$ENV_FILE" <<EOF
 export VALKYR_API_BASE='${API_BASE}'
 export GRAYMATTER_LIGHT_API_BASE='${API_BASE}'
+export GRAYMATTER_LIGHT_PUBLIC_BASE='${PUBLIC_BASE}'
 export GRAYMATTER_LIGHT_MODE='true'
+export GRAYMATTER_LIGHT_USERNAME='admin'
+export GRAYMATTER_LIGHT_PASSWORD='graymatter-light'
 export GRAYMATTER_LIGHT_BUNDLE_DIR='${BUNDLE_DIR}'
 export THORAPI_IMAGE='${IMAGE}'
 EOF
@@ -73,9 +77,9 @@ EOF
 THORAPI_IMAGE="$IMAGE" GRAYMATTER_LIGHT_PORT="$PORT" docker compose -f "${BUNDLE_DIR%/}/docker-compose.yaml" up -d
 
 deadline=$((SECONDS + TIMEOUT_SECONDS))
-until curl -fsS "${API_BASE}/actuator/health" >/dev/null 2>&1; do
+until curl -fsS "${PUBLIC_BASE}/actuator/health" >/dev/null 2>&1; do
   if (( SECONDS >= deadline )); then
-    echo "GrayMatter Light did not become healthy at ${API_BASE}/actuator/health within ${TIMEOUT_SECONDS}s." >&2
+    echo "GrayMatter Light did not become healthy at ${PUBLIC_BASE}/actuator/health within ${TIMEOUT_SECONDS}s." >&2
     echo "Inspect with: docker compose -f '${BUNDLE_DIR%/}/docker-compose.yaml' logs" >&2
     exit 1
   fi
@@ -85,8 +89,8 @@ done
 cat <<EOF
 GrayMatter Light ThorAPI is running.
 VALKYR_API_BASE=${API_BASE}
-Control panel: ${API_BASE}/dashboard/index.html
-API docs: ${API_BASE}/swagger-ui/index.html
+Control panel: ${PUBLIC_BASE}/dashboard/index.html
+API docs: ${API_BASE}/api-docs
 
 Connect the GrayMatter skill in this shell with:
   source '${ENV_FILE}'

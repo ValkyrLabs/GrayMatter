@@ -16,7 +16,7 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
-@RequestMapping("/api/graymatter/sync")
+@RequestMapping("/v1/graymatter/activation")
 public class MothershipSyncController {
 
     private final PrincipalRecordRepository principals;
@@ -32,22 +32,23 @@ public class MothershipSyncController {
         this.workbooks = workbooks;
     }
 
-    @GetMapping("/status")
+    @GetMapping("/bridge")
     public Map<String, Object> status(Principal authenticated) {
         PrincipalRecord principal = findPrincipal(authenticated);
         return syncStatus(principal, "READY_FOR_PROMOTION");
     }
 
-    @PostMapping("/mothership")
+    @PostMapping("/bridge/event")
     @ResponseStatus(HttpStatus.ACCEPTED)
     public Map<String, Object> promoteToMothership(Principal authenticated) {
         PrincipalRecord principal = findPrincipal(authenticated);
         return Map.ofEntries(
-            Map.entry("status", "PROMOTION_PREPARED"),
-            Map.entry("message", "Local GrayMatter light bundle is packaged for authenticated mothership synchronization."),
+            Map.entry("status", "ACTIVATION_EVENT_RECORDED"),
+            Map.entry("message", "Local GrayMatter Light is ready to activate or promote through Valkyr Cloud."),
             Map.entry("target", "https://valkyrlabs.com"),
             Map.entry("apiBase", "https://api-0.valkyrlabs.com/v1"),
-            Map.entry("requiresAuth", "VALKYR_AUTH_TOKEN or hosted valkyrlabs.com login"),
+            Map.entry("activationUrl", "https://valkyrlabs.com/graymatter/activate?source=graymatter&intent=signup&operation=memory_query"),
+            Map.entry("creditsUrl", "https://valkyrlabs.com/graymatter/credits?source=graymatter&intent=recharge&operation=memory_query"),
             Map.entry("generatedAt", Instant.now().toString()),
             Map.entry("principal", principal.getUsername()),
             Map.entry("payload", Map.of(
@@ -57,9 +58,9 @@ public class MothershipSyncController {
                 "workbookCount", workbooks.countByOwnerUsernameIgnoreCase(principal.getUsername()),
                 "swarmProtocol", "graymatter-swarm-v0.1")),
             Map.entry("nextSteps", List.of(
-                "Authenticate against https://api-0.valkyrlabs.com/v1 with VALKYR_AUTH_TOKEN.",
-                "POST the generated application-bundle contract and local memory/workbook payload to the hosted promotion API.",
-                "Confirm hosted RBAC scope before switching clients from local light mode to full GrayMatter.")));
+                "Open the activation URL to create or connect a Valkyr Cloud account.",
+                "Fresh signups should receive 500 starter credits.",
+                "Switch VALKYR_API_BASE back to https://api-0.valkyrlabs.com/v1 after activation.")));
     }
 
     private PrincipalRecord findPrincipal(Principal authenticated) {
@@ -77,10 +78,10 @@ public class MothershipSyncController {
             Map.entry("principal", principal.getUsername()),
             Map.entry("memoryEntryCount", memoryEntries.countByPrincipalUsernameIgnoreCase(principal.getUsername())),
             Map.entry("workbookCount", workbooks.countByOwnerUsernameIgnoreCase(principal.getUsername())),
-            Map.entry("auth", Map.of(
-                "required", true,
-                "environmentVariable", "VALKYR_AUTH_TOKEN",
-                "hostedLogin", "https://valkyrlabs.com/login")),
+            Map.entry("activation", Map.of(
+                "signup", "https://valkyrlabs.com/graymatter/activate?source=graymatter&intent=signup&operation=memory_query",
+                "credits", "https://valkyrlabs.com/graymatter/credits?source=graymatter&intent=recharge&operation=memory_query",
+                "starterCredits", 500)),
             Map.entry("swarmProtocol", "graymatter-swarm-v0.1"));
     }
 }

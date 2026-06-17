@@ -15,7 +15,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
-@RequestMapping({"/api/graymatter/swarm", "/api/v1/SwarmOps", "/SwarmOps"})
+@RequestMapping("/v1/swarm-ops")
 public class SwarmProtocolController {
 
     private final PrincipalRecordRepository principals;
@@ -31,7 +31,7 @@ public class SwarmProtocolController {
         this.workbooks = workbooks;
     }
 
-    @GetMapping({"/protocol", "/graph"})
+    @GetMapping("/graph")
     public Map<String, Object> protocol(Principal authenticated) {
         PrincipalRecord principal = findPrincipal(authenticated);
         Map<String, Object> node = localNode(principal);
@@ -55,16 +55,16 @@ public class SwarmProtocolController {
                 "rbac-session",
                 "SwarmOps")),
             Map.entry("endpoints", List.of(
-                "/api/graymatter/dashboard",
-                "/api/graymatter/sync/status",
-                "/api/graymatter/sync/mothership",
-                "/api/graymatter/swarm/protocol",
-                "/api/v1/SwarmOps/graph",
-                "/SwarmOps/graph",
-                "/MemoryEntry",
-                "/MemoryEntry/{id}",
-                "/MemoryEntry/query",
-                "/Workbook")),
+                "/v1/graymatter/stats",
+                "/v1/graymatter/activation/bridge",
+                "/v1/graymatter/activation/bridge/event",
+                "/v1/swarm-ops/graph",
+                "/v1/MemoryEntry",
+                "/v1/MemoryEntry/{id}",
+                "/v1/MemoryEntry/query",
+                "/v1/MemoryEntry/read",
+                "/v1/MemoryEntry/write",
+                "/v1/Workbook")),
             Map.entry("generatedAt", Instant.now().toString()));
     }
 

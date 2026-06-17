@@ -52,9 +52,40 @@ const tools = [
     invoked: 'Memory written'
   }),
   defineTool({
+    name: 'memory_put',
+    title: 'Put memory',
+    description: 'Portable contract alias for writing a compact durable GrayMatter MemoryEntry.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        type: { type: 'string', enum: ['decision', 'todo', 'context', 'artifact', 'preference'] },
+        content: { type: 'string' },
+        source: { type: 'string' },
+        metadata: { type: 'object', additionalProperties: true }
+      },
+      required: ['type', 'content']
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true, idempotentHint: false },
+    invoking: 'Writing memory',
+    invoked: 'Memory written'
+  }),
+  defineTool({
     name: 'memory_read',
     title: 'Read memory',
     description: 'Read a durable GrayMatter MemoryEntry by id.',
+    inputSchema: {
+      type: 'object',
+      properties: { id: { type: 'string' } },
+      required: ['id']
+    },
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true, idempotentHint: true },
+    invoking: 'Reading memory',
+    invoked: 'Memory ready'
+  }),
+  defineTool({
+    name: 'memory_get',
+    title: 'Get memory',
+    description: 'Portable contract alias for reading a durable GrayMatter MemoryEntry by id.',
     inputSchema: {
       type: 'object',
       properties: { id: { type: 'string' } },
@@ -89,6 +120,62 @@ const tools = [
     annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true, idempotentHint: true },
     invoking: 'Searching memory',
     invoked: 'Memory search ready'
+  }),
+  defineTool({
+    name: 'memory_put_batch',
+    title: 'Put memory batch',
+    description: 'Portable contract batch writer for compact durable GrayMatter MemoryEntry records.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        items: { type: 'array', items: { type: 'object' }, maxItems: 100 },
+        maxBatch: { type: 'integer', minimum: 1, maximum: 100 }
+      },
+      required: ['items']
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true, idempotentHint: false },
+    invoking: 'Writing memory batch',
+    invoked: 'Memory batch written'
+  }),
+  defineTool({
+    name: 'memory_link',
+    title: 'Link memory',
+    description: 'Portable contract tool for recording a relation between two MemoryEntry records when graph links are available.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        fromId: { type: 'string' },
+        toId: { type: 'string' },
+        relation: { type: 'string' }
+      },
+      required: ['fromId', 'toId', 'relation']
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true, idempotentHint: true },
+    invoking: 'Linking memory',
+    invoked: 'Memory link recorded'
+  }),
+  defineTool({
+    name: 'memory_health',
+    title: 'Check memory health',
+    description: 'Portable contract health check for the configured GrayMatter memory backend.',
+    inputSchema: { type: 'object', properties: {} },
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true, idempotentHint: true },
+    invoking: 'Checking memory health',
+    invoked: 'Memory health ready'
+  }),
+  defineTool({
+    name: 'memory_replay_deferred',
+    title: 'Replay deferred memory',
+    description: 'Portable contract hook for replaying deferred local memory writes.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        limit: { type: 'integer', minimum: 1, maximum: 1000 }
+      }
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true, idempotentHint: false },
+    invoking: 'Replaying deferred memory',
+    invoked: 'Deferred memory replay checked'
   }),
   defineTool({
     name: 'memory_retrieve_with_receipt',
@@ -389,6 +476,8 @@ function createGrayMatterMcpServer(options = {}) {
   const allowUnsafeHeaderToken = parseBoolean(options.allowUnsafeHeaderToken ?? process.env.GRAYMATTER_ALLOW_UNSAFE_HEADER_TOKEN);
   const processToken = options.token || process.env.VALKYR_AUTH_TOKEN || process.env.VALKYR_JWT_SESSION || '';
   const processTenantId = options.tenantId || process.env.GRAYMATTER_TENANT_ID || process.env.VALKYR_TENANT_ID || '';
+  const lightUsername = options.lightUsername || process.env.GRAYMATTER_LIGHT_USERNAME || 'admin';
+  const lightPassword = options.lightPassword || process.env.GRAYMATTER_LIGHT_PASSWORD || '';
   const security = { deploymentMode, allowedOrigins, allowUnsafeHeaderToken };
 
   if (typeof fetchImpl !== 'function') {
@@ -430,6 +519,8 @@ function createGrayMatterMcpServer(options = {}) {
           fetchImpl,
           ...authContextFrom(req, processToken, security),
           tenantId: tenantIdFrom(req, processTenantId, processToken),
+          lightUsername,
+          lightPassword,
           loginCommand,
           loginProvider,
           widgetDomain
@@ -468,6 +559,8 @@ function createRpcContext(options = {}) {
     fetchImpl,
     token: options.token || process.env.VALKYR_AUTH_TOKEN || process.env.VALKYR_JWT_SESSION || '',
     tenantId: options.tenantId || process.env.GRAYMATTER_TENANT_ID || process.env.VALKYR_TENANT_ID || '',
+    lightUsername: options.lightUsername || process.env.GRAYMATTER_LIGHT_USERNAME || 'admin',
+    lightPassword: options.lightPassword || process.env.GRAYMATTER_LIGHT_PASSWORD || '',
     requestScopedToken: false,
     loginCommand,
     loginProvider,
@@ -558,14 +651,49 @@ async function callTool(params, context) {
   };
 
   switch (name) {
+    case 'memory_put':
     case 'memory_write':
-      return execute('memory_write', () => apiRequest(context, 'POST', 'MemoryEntry', buildMemoryWritePayload(args)));
+      return execute('memory_write', () => apiRequest(context, 'POST', 'MemoryEntry/write', buildMemoryWritePayload(args)));
+    case 'memory_get':
     case 'memory_read':
       requireString(args.id, 'id');
       return execute('memory_read', () => apiRequest(context, 'GET', `MemoryEntry/${encodeURIComponent(args.id)}`));
     case 'memory_query':
       requireString(args.query, 'query');
       return execute('memory_query', () => apiRequest(context, 'POST', 'MemoryEntry/query', buildMemoryQueryPayload(args)));
+    case 'memory_put_batch':
+      return execute('memory_put_batch', async () => {
+        if (!Array.isArray(args.items)) {
+          throw new Error('items must be an array');
+        }
+        const maxBatch = Math.max(1, Math.min(args.maxBatch || args.items.length, 100));
+        const selected = args.items.slice(0, maxBatch);
+        const results = [];
+        for (const item of selected) {
+          results.push(await apiRequest(context, 'POST', 'MemoryEntry/write', buildMemoryWritePayload(item)));
+        }
+        return { accepted: results.length, deferred: 0, results };
+      });
+    case 'memory_link':
+      requireString(args.fromId, 'fromId');
+      requireString(args.toId, 'toId');
+      requireString(args.relation, 'relation');
+      return toolResult({
+        status: 'linked',
+        relation: args.relation,
+        fromId: args.fromId,
+        toId: args.toId,
+        note: 'GrayMatter Light preserves the portable memory_link contract; durable graph-link persistence is a Cloud graph capability.'
+      });
+    case 'memory_health':
+      return execute('memory_health', () => apiRequest(context, 'GET', 'memory/status'));
+    case 'memory_replay_deferred':
+      return toolResult({
+        attempted: 0,
+        replayed: 0,
+        remaining: 0,
+        note: 'Use scripts/gm-replay-deferred for filesystem fallback queue replay.'
+      });
     case 'memory_retrieve_with_receipt':
       requireString(args.query, 'query');
       return execute('memory_retrieve_with_receipt', () => apiRequest(context, 'POST', 'graymatter-retrieval-receipts', buildRetrievalReceiptPayload(args)));
@@ -575,7 +703,7 @@ async function callTool(params, context) {
     case 'retrieval_receipt_query':
       return execute('retrieval_receipt_query', () => apiRequest(context, 'GET', buildRetrievalReceiptQueryEndpoint(args)));
     case 'graph_get': {
-      const graphPath = args.path ? `SwarmOps/graph/${trimSlashes(args.path)}` : 'SwarmOps/graph';
+      const graphPath = args.path ? `swarm-ops/graph/${trimSlashes(args.path)}` : 'swarm-ops/graph';
       return execute('graph_get', () => apiRequest(context, 'GET', graphPath));
     }
     case 'graymatter_status':
@@ -851,6 +979,8 @@ async function apiRequestOnce(context, method, endpoint, body) {
     headers.authorization = `Bearer ${context.token}`;
     headers.VALKYR_AUTH = context.token;
     headers.cookie = `VALKYR_AUTH=${context.token}`;
+  } else if (context.lightPassword) {
+    headers.authorization = `Basic ${Buffer.from(`${context.lightUsername || 'admin'}:${context.lightPassword}`).toString('base64')}`;
   }
   const tenantId = context.tenantId || tenantIdFromToken(context.token);
   if (tenantId) {
@@ -1170,7 +1300,8 @@ function firstDefined(...values) {
 
 function buildMemoryWritePayload(args) {
   requireString(args.type, 'type');
-  requireString(args.text, 'text');
+  const text = args.text || args.content;
+  requireString(text, args.content ? 'content' : 'text');
 
   const metadata = memoryScopeMetadata(args);
   if (args.metadata && typeof args.metadata === 'object' && !Array.isArray(args.metadata)) {
@@ -1183,11 +1314,13 @@ function buildMemoryWritePayload(args) {
 
   const payload = {
     type: args.type,
-    text: args.text
+    text,
+    content: text
   };
 
-  if (sourceChannel) {
-    payload.sourceChannel = sourceChannel;
+  if (sourceChannel || args.source) {
+    payload.sourceChannel = sourceChannel || args.source;
+    payload.source = sourceChannel || args.source;
   }
 
   if (Object.keys(metadata).length > 0) {
@@ -1195,7 +1328,7 @@ function buildMemoryWritePayload(args) {
   }
 
   if (args.tags !== undefined) {
-    payload.tags = normalizeTagInput(args.tags);
+    payload.tags = normalizeMemoryTagInput(args.tags);
   }
 
   return stripClientManagedFields(payload);
@@ -1533,6 +1666,16 @@ function normalizeTagInput(tags) {
     });
   }
   return Array.from(normalized.values());
+}
+
+function normalizeMemoryTagInput(tags) {
+  const rawTags = Array.isArray(tags) ? tags : String(tags || '').split(',');
+  const normalized = new Set();
+  for (const tag of rawTags) {
+    const name = normalizeTagName(typeof tag === 'string' ? tag : tag && tag.name);
+    if (name) normalized.add(name);
+  }
+  return Array.from(normalized);
 }
 
 function normalizeTagName(name) {

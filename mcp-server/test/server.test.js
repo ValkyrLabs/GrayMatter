@@ -202,8 +202,14 @@ test('stdio mode exposes the GrayMatter MCP tools for Codex plugin launch', asyn
       listed.result.tools.map((tool) => tool.name),
       [
         'memory_write',
+        'memory_put',
         'memory_read',
+        'memory_get',
         'memory_query',
+        'memory_put_batch',
+        'memory_link',
+        'memory_health',
+        'memory_replay_deferred',
         'memory_retrieve_with_receipt',
         'retrieval_receipt_get',
         'retrieval_receipt_query',
@@ -394,8 +400,14 @@ test('tools/list exposes the GrayMatter tool surface', async () => {
       result.body.result.tools.map((tool) => tool.name),
       [
         'memory_write',
+        'memory_put',
         'memory_read',
+        'memory_get',
         'memory_query',
+        'memory_put_batch',
+        'memory_link',
+        'memory_health',
+        'memory_replay_deferred',
         'memory_retrieve_with_receipt',
         'retrieval_receipt_get',
         'retrieval_receipt_query',
@@ -433,7 +445,7 @@ test('memory_read, memory_query, and graph_get route to api-0', async () => {
       res.end(JSON.stringify({ results: [{ id: 'mem-42' }] }));
       return;
     }
-    if (record.path === '/v1/SwarmOps/graph') {
+    if (record.path === '/v1/swarm-ops/graph') {
       res.end(JSON.stringify({ nodes: [], edges: [] }));
       return;
     }
@@ -647,17 +659,14 @@ test('memory_write forwards per-request auth to api-0 MemoryEntry', async () => 
   });
   const fakeApi = createFakeApi(async (_req, res, record) => {
     assert.equal(record.method, 'POST');
-    assert.equal(record.path, '/v1/MemoryEntry');
+    assert.equal(record.path, '/v1/MemoryEntry/write');
     assert.equal(record.headers.authorization, `Bearer ${credential}`);
     assert.equal(record.headers.valkyr_auth, credential);
     assert.equal(record.headers.cookie, `VALKYR_AUTH=${credential}`);
     assert.equal(record.headers['x-tenant-id'], 'main');
     assert.equal(record.body.type, 'decision');
     assert.equal(record.body.text, 'ship the MCP server');
-    assert.deepEqual(record.body.tags, [
-      { name: 'mcp', type: 'keyword' },
-      { name: 'graymatter', type: 'keyword' }
-    ]);
+    assert.deepEqual(record.body.tags, ['mcp', 'graymatter']);
 
     res.writeHead(200, { 'content-type': 'application/json' });
     res.end(JSON.stringify({ id: 'mem-1', ...record.body }));
@@ -692,9 +701,10 @@ test('memory_write forwards per-request auth to api-0 MemoryEntry', async () => 
       id: 'mem-1',
       type: 'decision',
       text: 'ship the MCP server',
+      content: 'ship the MCP server',
       tags: [
-        { name: 'mcp', type: 'keyword' },
-        { name: 'graymatter', type: 'keyword' }
+        'mcp',
+        'graymatter'
       ]
     });
     assert.equal(fakeApi.requests.length, 1);
@@ -750,7 +760,7 @@ test('memory_query forwards explicit tenant context ahead of JWT fallback', asyn
 test('memory_write sends scope as metadata instead of inline text headers', async () => {
   const fakeApi = createFakeApi(async (_req, res, record) => {
     assert.equal(record.method, 'POST');
-    assert.equal(record.path, '/v1/MemoryEntry');
+    assert.equal(record.path, '/v1/MemoryEntry/write');
     assert.equal(record.body.type, 'context');
     assert.equal(record.body.text, 'handoff state');
     assert.equal(record.body.sourceChannel, 'codex:automation:mcp-and-skill-hunter');
@@ -915,7 +925,7 @@ test('memory tools derive scoped sourceChannel from Codex hierarchy metadata', a
   const automationPath = '/tmp/codex-home/.codex/automations/mcp-and-skill-hunter/memory.md';
   const fakeApi = createFakeApi(async (_req, res, record) => {
     res.writeHead(200, { 'content-type': 'application/json' });
-    if (record.path === '/v1/MemoryEntry') {
+    if (record.path === '/v1/MemoryEntry/write') {
       assert.equal(record.body.type, 'context');
       assert.equal(record.body.sourceChannel, 'codex:automation:mcp-and-skill-hunter');
       assert.equal(record.body.text, 'Research complete');
@@ -1108,8 +1118,8 @@ test('schema_summary fetches and summarizes live OpenAPI metadata', async () => 
       paths: {
         '/Customer': {},
         '/Customer/{id}': {},
-        '/MemoryEntry': {},
-        '/SwarmOps/graph': {}
+        '/v1/MemoryEntry': {},
+        '/v1/swarm-ops/graph': {}
       }
     }));
   });
@@ -1133,7 +1143,7 @@ test('schema_summary fetches and summarizes live OpenAPI metadata', async () => 
     assert.equal(summary.title, 'ValkyrAI API');
     assert.equal(summary.version, '2026.05');
     assert.equal(summary.pathCount, 4);
-    assert.deepEqual(summary.entities, ['Customer', 'MemoryEntry', 'SwarmOps']);
+    assert.deepEqual(summary.entities, ['Customer', 'MemoryEntry']);
   } finally {
     server.close();
     fakeApi.server.close();

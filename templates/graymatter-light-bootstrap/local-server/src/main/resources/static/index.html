@@ -545,7 +545,7 @@
           ["State", data.state],
           ["Target", data.target],
           ["API", data.apiBase],
-          ["Auth", data.auth?.environmentVariable || data.requiresAuth || "VALKYR_AUTH_TOKEN"]
+          ["Activation", data.activation?.signup || data.activationUrl || "https://valkyrlabs.com/graymatter"]
         ]);
       }
 
@@ -587,26 +587,26 @@
       }
 
       async function loadDashboard() {
-        const data = await requestJson("/api/graymatter/dashboard", { headers: plainHeaders() });
+        const data = await requestJson("/v1/graymatter/stats", { headers: plainHeaders() });
         document.body.classList.add("authenticated");
         elements.session.textContent = "";
         renderDashboard(data);
       }
 
       async function loadSyncStatus() {
-        renderSync(await requestJson("/api/graymatter/sync/status", { headers: plainHeaders() }));
+        renderSync(await requestJson("/v1/graymatter/activation/bridge", { headers: plainHeaders() }));
       }
 
       async function loadSwarm() {
-        renderSwarm(await requestJson("/api/graymatter/swarm/protocol", { headers: plainHeaders() }));
+        renderSwarm(await requestJson("/v1/swarm-ops/graph", { headers: plainHeaders() }));
       }
 
       async function loadTelemetry() {
-        renderTelemetry(await requestJson("/api/graymatter/telemetry/status", { headers: plainHeaders() }));
+        renderTelemetry(await requestJson("/v1/memory/status", { headers: plainHeaders() }));
       }
 
       async function loadEntries() {
-        renderEntries(await requestJson("/api/memory-entries", { headers: plainHeaders() }));
+        renderEntries(await requestJson("/v1/MemoryEntry", { headers: plainHeaders() }));
       }
 
       async function establishSession() {
@@ -636,7 +636,7 @@
 
       $("promote").onclick = async () => {
         try {
-          const response = await requestJson("/api/graymatter/sync/mothership", {
+          const response = await requestJson("/v1/graymatter/activation/bridge/event", {
             method: "POST",
             headers: plainHeaders()
           });
@@ -649,12 +649,12 @@
 
       $("save").onclick = async () => {
         try {
-          await requestJson("/api/memory-entries", {
+          await requestJson("/v1/MemoryEntry/write", {
             method: "POST",
             headers: jsonHeaders(),
             body: JSON.stringify({
               type: elements.type.value,
-              tags: elements.tags.value,
+              tags: elements.tags.value.split(",").map((tag) => tag.trim()).filter(Boolean),
               text: elements.text.value,
               sourceChannel: "graymatter-local-dashboard"
             })

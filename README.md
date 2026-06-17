@@ -175,6 +175,7 @@ Rule:
 - `scripts/gm-light-bootstrap` — copy and render the local GrayMatter app bundle and server source scaffold from bash-friendly templates
 - `scripts/gm-light-up` — generate and start the local ThorAPI-backed GrayMatter Light instance
 - `scripts/gm-light-env` — print the environment exports that point skill scripts at the running Light instance
+- `scripts/gm-light-smoke` — prove the local Light loop by writing/querying a decision and checking memory health
 - `scripts/gm-light-json-smoke` — JSON-file fallback smoke test for Light payload shape without ThorAPI
 - `scripts/package-local-server` — package the standalone downloadable GrayMatter Local Server archive
 - `scripts/package-graymatter` — deterministic validation and packaging
@@ -526,6 +527,21 @@ The doctor command continues through all checks and reports the exact required f
 
 ## Packaging
 
+## GrayMatter Light before/after
+
+Before this distribution sprint, Light mode was useful but not strict enough as a drop-in api-0 substitute:
+- local docs and bundles used unprefixed paths such as `/MemoryEntry` and `/SwarmOps/graph`
+- the hand-written Light OpenAPI could drift from the real ValkyrAI `api.hbs.yaml` / api-0 shape
+- the packaged server expected a system Java runtime unless the operator provided one
+- there was no single command proving local write, query, health, and MCP readiness
+
+After this sprint, Light mode is api-0-shaped:
+- `VALKYR_API_BASE=http://localhost:<port>/v1`
+- Light implements the MemoryEntry-first production path subset: `/v1/MemoryEntry/write`, `/v1/MemoryEntry/query`, `/v1/MemoryEntry/read`, `/v1/MemoryEntry/{id}`, `/v1/memory/status`, `/v1/graymatter/stats`, `/v1/graymatter/activation/bridge`, `/v1/swarm-ops/graph`, and `/v1/api-docs`
+- the Light OpenAPI is generated from the real authenticated api-0/ValkyrAI OpenAPI snapshot and carries the production component schemas
+- the packaged local server uses H2 under the user-local app directory and supports bundled-runtime archives
+- `scripts/gm-light-smoke` proves the local write/query/health loop and prints MCP-ready instructions
+
 Rebuild the packaged skill with:
 
 ```bash
@@ -541,7 +557,13 @@ scripts/gm-write context "GrayMatter Light is running" local-light
 scripts/gm-query "GrayMatter Light"
 ```
 
-`gm-light-up` generates the api.hbs.yaml template at `.graymatter-light/api.hbs.yaml`, rendered api.yaml at `.graymatter-light/api.yaml`, the Docker Compose file, and the Light control panel, then starts the ThorAPI image with `THORAPI_TEMPLATE=/app/api.hbs.yaml` and `THORAPI_SPEC=/app/api.yaml`. The default image is `ghcr.io/valkyrlabs/thorapi:latest`; use `--image` or `THORAPI_IMAGE` when running a private, pinned, or locally built ThorAPI image. The rendered spec explicitly includes the MCP backing paths for `memory_write`, `memory_read`, `memory_query`, `graph_get`, entity tools, and `schema_summary`. The env file sets `VALKYR_API_BASE=http://localhost:8080` and `GRAYMATTER_LIGHT_MODE=true`, so the normal GrayMatter skill scripts and the standalone MCP server can connect to the running local instance without requiring hosted api-0 auth.
+`gm-light-up` generates the api.hbs.yaml template at `.graymatter-light/api.hbs.yaml`, rendered api.yaml at `.graymatter-light/api.yaml`, the Docker Compose file, and the Light control panel, then starts the ThorAPI image with `THORAPI_TEMPLATE=/app/api.hbs.yaml` and `THORAPI_SPEC=/app/api.yaml`. The default image is `ghcr.io/valkyrlabs/thorapi:latest`; use `--image` or `THORAPI_IMAGE` when running a private, pinned, or locally built ThorAPI image. The rendered spec explicitly includes the production-shaped MCP backing paths for `memory_put`, `memory_get`, `memory_query`, `memory_health`, graph access, and schema summary. The env file sets `VALKYR_API_BASE=http://localhost:8080/v1` and `GRAYMATTER_LIGHT_MODE=true`, so the normal GrayMatter skill scripts and the standalone MCP server can connect to the running local instance without requiring hosted api-0 auth.
+
+Run the full local loop smoke test with:
+
+```bash
+scripts/gm-light-smoke
+```
 
 Build the standalone downloadable local server with:
 
@@ -554,8 +576,9 @@ That creates `dist/graymatter-local-server-latest.tar.gz`. The archive contains:
 - `source/` with the generated Spring Boot local server
 - `bin/graymatter-local-server` launcher
 - `lib/graymatter-local-server.jar` when Maven is available during packaging
+- `runtime/` when `jlink` is available during packaging, so users do not manually install Java in the happy path
 
-The embedded dashboard includes Valkyr Labs branding, hides the local login panel after successful login, exposes `Promote / Synchronize` for the valkyrlabs.com mothership bridge, and reports the local `graymatter-swarm-v0.1` light-node status.
+The embedded dashboard includes Valkyr Labs branding, hides the local login panel after successful login, exposes activation/recharge links for the valkyrlabs.com Cloud bridge, and reports local `swarm-ops` graph status through the production-shaped `/v1` paths.
 
 ## awesome-codex-plugins listing kit
 

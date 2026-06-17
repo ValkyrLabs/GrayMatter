@@ -50,6 +50,14 @@ grep -q '/v1/api-docs' "$ROOT/plugins/graymatter/skills/graymatter-analytics/SKI
   echo "Codex marketplace plugin activation script missing or not executable" >&2
   exit 1
 }
+[[ -x "$ROOT/plugins/graymatter/scripts/gm-activation-fastlane" ]] || {
+  echo "Codex marketplace plugin activation fastlane missing or not executable" >&2
+  exit 1
+}
+[[ -x "$ROOT/scripts/gm-activation-fastlane" ]] || {
+  echo "first-run activation fastlane missing or not executable" >&2
+  exit 1
+}
 [[ -f "$ROOT/plugins/graymatter/mcp-server/index.js" ]] || {
   echo "Codex marketplace plugin MCP server missing" >&2
   exit 1
@@ -72,6 +80,14 @@ for needle in "Release surfaces" "MCP service" "Codex plugin" "Standalone OpenCl
     exit 1
   }
 done
+grep -q "gm-activation-fastlane" "$ROOT/README.md" || {
+  echo "README missing first-run activation fastlane" >&2
+  exit 1
+}
+grep -q "gm-activation-fastlane" "$ROOT/scripts/package-graymatter" || {
+  echo "package manifest missing first-run activation fastlane" >&2
+  exit 1
+}
 
 ZIP_LIST="$(mktemp "${TMPDIR:-/tmp}/graymatter-skill-list.XXXXXX")"
 trap 'rm -f "$ZIP_LIST"' EXIT
@@ -80,6 +96,7 @@ grep -q '^graymatter/SKILL.md$' "$ZIP_LIST"
 grep -q '^graymatter/skills/graymatter-analytics/SKILL.md$' "$ZIP_LIST"
 grep -q '^graymatter/skills/graymatter-analytics/references/semantic-layer-template.md$' "$ZIP_LIST"
 grep -q '^graymatter/scripts/gm-activate$' "$ZIP_LIST"
+grep -q '^graymatter/scripts/gm-activation-fastlane$' "$ZIP_LIST"
 grep -q '^graymatter/scripts/gm-login$' "$ZIP_LIST"
 grep -q '^graymatter/scripts/gm-install-check$' "$ZIP_LIST"
 grep -q '^graymatter/scripts/gm-doctor$' "$ZIP_LIST"

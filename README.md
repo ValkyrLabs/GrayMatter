@@ -233,7 +233,7 @@ brew install jq
 scripts/gm-activate
 ```
 
-`scripts/gm-activate` is the intended one-shot bootstrap for OpenClaw installs. It first runs `scripts/gm-self-update maybe` so startup checks the source-of-truth repo at least weekly, then authenticates and validates the install. It can use:
+`scripts/gm-activate` is the intended one-shot bootstrap for OpenClaw installs. It first runs `scripts/gm-self-update force` by default so activation and recovery do not skip the source-of-truth update check just because the weekly startup interval has not elapsed, then authenticates and validates the install. Set `GRAYMATTER_ACTIVATE_SELF_UPDATE_MODE=maybe` only when an operator intentionally wants interval-gated startup behavior. It can use:
 - interactive username/password prompts, or
 - credentials already present in environment variables
 
@@ -250,7 +250,7 @@ Supported env inputs:
 
 `scripts/gm-register-agent` is part of the expected startup handshake. When an OpenClaw server connects to api-0, it should create or refresh an Agent record for itself before proceeding with normal work.
 
-`scripts/gm-self-update` is the normal plugin/repo update path. Agents should run it on startup and when auth or transport looks suspicious. It updates clean git checkouts with a fast-forward pull and updates packaged installs from `https://github.com/ValkyrLabs/GrayMatter.git` when the weekly interval is due or `force` is requested. Dirty git checkouts are never overwritten.
+`scripts/gm-self-update` is the normal plugin/repo update path. Agents should run it on startup and when auth or transport looks suspicious. It updates clean git checkouts with a fast-forward pull and updates packaged installs from `https://github.com/ValkyrLabs/GrayMatter.git` when the weekly interval is due or `force` is requested; activation uses `force` unless overridden. Dirty git checkouts are never overwritten.
 
 `scripts/graymatter_api.sh` and the MCP server perform autonomous auth refresh when the stored token expires or api-0 returns a refreshable auth failure. Replay-safe write operations blocked by credits or transport can be deferred and retried with `scripts/gm-replay-deferred`.
 

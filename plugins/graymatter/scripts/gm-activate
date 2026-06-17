@@ -14,6 +14,7 @@ SIGNUP_URL="${VALKYR_HUMAN_SIGNUP_URL:-https://valkyrlabs.com/graymatter/activat
 HARD_FAIL_DEGRADED="${GRAYMATTER_HARD_FAIL_DEGRADED:-0}"
 STATE_DIR="${GRAYMATTER_STATE_DIR:-${HOME:-$SCRIPT_DIR}/.graymatter}"
 DEGRADED_STATE_FILE="${GRAYMATTER_DEGRADED_STATE_FILE:-${STATE_DIR}/activation-degraded.json}"
+SELF_UPDATE_MODE="${GRAYMATTER_ACTIVATE_SELF_UPDATE_MODE:-force}"
 
 have() {
   command -v "$1" >/dev/null 2>&1
@@ -42,7 +43,7 @@ clear_degraded_activation() {
 
 export VALKYR_API_BASE="$BASE"
 if [[ -x "${SCRIPT_DIR}/gm-self-update" ]]; then
-  "${SCRIPT_DIR}/gm-self-update" maybe || true
+  "${SCRIPT_DIR}/gm-self-update" "$SELF_UPDATE_MODE" || true
 fi
 if [[ -z "$USERNAME_ENV" || -z "$PASSWORD_ENV" ]]; then
   echo "GrayMatter username/password not found in environment; gm-login will attempt keychain-based reauth before interactive fallback" >&2

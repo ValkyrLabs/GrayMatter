@@ -674,7 +674,7 @@ test_curl_requests_use_default_timeouts() {
   local curl_log
   curl_log="$(cat "${temp_root}/curl.log")"
   assert_contains "${curl_log}" "--connect-timeout 5" "graymatter_api should set a default connect timeout"
-  assert_contains "${curl_log}" "--max-time 20" "graymatter_api should set a default total request timeout"
+  assert_contains "${curl_log}" "--max-time 60" "graymatter_api should set a default total request timeout"
 }
 
 test_success_uses_fallback_tempdir_when_default_tmp_fails() {

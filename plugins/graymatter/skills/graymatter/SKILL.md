@@ -200,7 +200,7 @@ Fresh machine or fresh OpenClaw skill install:
 scripts/gm-activate
 ```
 
-`scripts/gm-activate` is the one-shot OpenClaw bootstrap script. It first runs `scripts/gm-self-update maybe` so startup stays aligned with the source-of-truth repository at least weekly. It can either:
+`scripts/gm-activate` is the one-shot OpenClaw bootstrap script. It first runs `scripts/gm-self-update force` by default so activation and recovery do not skip the source-of-truth update check just because the weekly startup interval has not elapsed. Set `GRAYMATTER_ACTIVATE_SELF_UPDATE_MODE=maybe` only when an operator intentionally wants interval-gated startup behavior. It can either:
 - prompt the interactive user for username/password through the normal login flow, or
 - use credentials already present in environment variables
 

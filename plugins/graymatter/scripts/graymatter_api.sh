@@ -35,6 +35,7 @@ GRAYMATTER_ACTIVATION_SOURCE="${GRAYMATTER_ACTIVATION_SOURCE:-graymatter}"
 GRAYMATTER_ACTIVATION_RETURN_TO="${GRAYMATTER_ACTIVATION_RETURN_TO:-graymatter://activation/return}"
 GRAYMATTER_DEFERRED_DIR="${GRAYMATTER_DEFERRED_DIR:-${SCRIPT_DIR}/../memory/deferred-ops}"
 GRAYMATTER_SKIP_DEFERRED="${GRAYMATTER_SKIP_DEFERRED:-false}"
+GRAYMATTER_CREDIT_EVENTS_PATH="${GRAYMATTER_CREDIT_EVENTS_PATH:-${SCRIPT_DIR}/../memory/credit-recovery-events.jsonl}"
 
 portable_mktemp() {
   local template="${1:-graymatter.XXXXXX}"
@@ -247,6 +248,62 @@ append_query_param() {
   printf '%s%s%s=%s\n' "$url" "$separator" "$key" "$(url_encode "$value")"
 }
 
+emit_credit_recovery_event() {
+  local event="$1"
+  local operation="${2:-${GRAYMATTER_ACTIVATION_OPERATION:-memory_query}}"
+  local trace_id="${3:-}"
+  local deferred_file="${4:-}"
+  local required_credits="${5:-}"
+  local current_balance="${6:-}"
+  local event_dir=""
+
+  [[ -n "$GRAYMATTER_CREDIT_EVENTS_PATH" ]] || return 0
+  event_dir="$(dirname "$GRAYMATTER_CREDIT_EVENTS_PATH")"
+  mkdir -p "$event_dir"
+
+  if command -v jq >/dev/null 2>&1; then
+    jq -nc \
+      --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+      --arg event "$event" \
+      --arg operation "$operation" \
+      --arg path "$PATH_PART" \
+      --arg method "$METHOD_UPPER" \
+      --arg source "$GRAYMATTER_ACTIVATION_SOURCE" \
+      --arg install_id "$GRAYMATTER_INSTALL_ID" \
+      --arg trace_id "$trace_id" \
+      --arg deferred_file "$deferred_file" \
+      --arg required_credits "$required_credits" \
+      --arg current_balance "$current_balance" \
+      '{
+        timestamp:$ts,
+        event:$event,
+        operation:$operation,
+        method:$method,
+        path:$path,
+        source:$source,
+        installId:$install_id,
+        traceId:$trace_id,
+        deferredFile:$deferred_file,
+        requiredCredits:$required_credits,
+        currentBalance:$current_balance
+      }' >>"$GRAYMATTER_CREDIT_EVENTS_PATH"
+    return 0
+  fi
+
+  printf '{"timestamp":"%s","event":"%s","operation":"%s","method":"%s","path":"%s","source":"%s","installId":"%s","traceId":"%s","deferredFile":"%s","requiredCredits":"%s","currentBalance":"%s"}\n' \
+    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    "$event" \
+    "$operation" \
+    "$METHOD_UPPER" \
+    "$PATH_PART" \
+    "$GRAYMATTER_ACTIVATION_SOURCE" \
+    "$GRAYMATTER_INSTALL_ID" \
+    "$trace_id" \
+    "$deferred_file" \
+    "$required_credits" \
+    "$current_balance" >>"$GRAYMATTER_CREDIT_EVENTS_PATH"
+}
+
 activation_context_url() {
   local base_url="$1"
   local intent="$2"
@@ -393,9 +450,11 @@ show_insufficient_funds_guidance() {
     echo "Current balance: ${current_balance}" >&2
   fi
   echo "Activation context: install=${GRAYMATTER_INSTALL_ID} operation=${GRAYMATTER_ACTIVATION_OPERATION:-memory_query} return=${GRAYMATTER_ACTIVATION_RETURN_TO}" >&2
+  emit_credit_recovery_event "credit_blocked" "$operation_kind" "$trace_id" "" "$required_credits" "$current_balance"
 
   deferred_file="$(create_deferred_operation "$response_file" "$operation_kind")"
   if [[ -n "$deferred_file" ]]; then
+    emit_credit_recovery_event "deferred_write_created" "$operation_kind" "$trace_id" "$deferred_file" "$required_credits" "$current_balance"
     echo "Stored locally for replay: ${deferred_file}" >&2
     echo "Run scripts/gm-replay-deferred to retry after recharge." >&2
   fi
@@ -413,6 +472,7 @@ else if resultButton is "Sign up" then
 end if
 EOF
     then
+      emit_credit_recovery_event "buy_credits_opened" "$operation_kind" "$trace_id" "$deferred_file" "$required_credits" "$current_balance"
       return
     fi
   fi
@@ -427,16 +487,20 @@ $result = [System.Windows.MessageBox]::Show($message, "GrayMatter Credits", "Yes
 if ($result -eq "Yes") { Start-Process $buyUrl }
 elseif ($result -eq "No") { Start-Process $signupUrl }
 ' >/dev/null 2>&1; then
+      emit_credit_recovery_event "buy_credits_opened" "$operation_kind" "$trace_id" "$deferred_file" "$required_credits" "$current_balance"
       return
     fi
   fi
 
   if command -v open >/dev/null 2>&1; then
     open "$buy_credits_url" >/dev/null 2>&1 || true
+    emit_credit_recovery_event "buy_credits_opened" "$operation_kind" "$trace_id" "$deferred_file" "$required_credits" "$current_balance"
   elif command -v xdg-open >/dev/null 2>&1; then
     xdg-open "$buy_credits_url" >/dev/null 2>&1 || true
+    emit_credit_recovery_event "buy_credits_opened" "$operation_kind" "$trace_id" "$deferred_file" "$required_credits" "$current_balance"
   elif command -v cmd.exe >/dev/null 2>&1; then
     cmd.exe /C start "" "$buy_credits_url" >/dev/null 2>&1 || true
+    emit_credit_recovery_event "buy_credits_opened" "$operation_kind" "$trace_id" "$deferred_file" "$required_credits" "$current_balance"
   fi
 }
 

@@ -30,6 +30,7 @@ chmod +x "$api_stub"
 export TEST_REPLAY_LOG="${tmp}/replay.log"
 output="$(
   GRAYMATTER_DEFERRED_DIR="$deferred_dir" \
+  GRAYMATTER_CREDIT_EVENTS_PATH="${tmp}/credit-events.jsonl" \
   GRAYMATTER_API_SCRIPT="$api_stub" \
   "$SCRIPT"
 )"
@@ -37,6 +38,8 @@ output="$(
 [[ "$output" == *"Replayed deferred operation op-1"* ]] || fail "gm-replay-deferred should report replayed operation id"
 [[ -f "${tmp}/replay.log" ]] || fail "gm-replay-deferred should invoke API script"
 [[ ! -f "${deferred_dir}/op.json" ]] || fail "gm-replay-deferred should remove successfully replayed record"
+jq -e 'select(.event == "replay_started" and .deferredId == "op-1")' "${tmp}/credit-events.jsonl" >/dev/null || fail "gm-replay-deferred should emit replay_started telemetry"
+jq -e 'select(.event == "replay_succeeded" and .deferredId == "op-1")' "${tmp}/credit-events.jsonl" >/dev/null || fail "gm-replay-deferred should emit replay_succeeded telemetry"
 
 cat >"${deferred_dir}/op-fail.json" <<'JSON'
 {"id":"op-fail","method":"POST","path":"/MemoryEntry","body":"{\"type\":\"context\",\"text\":\"retry\"}"}
@@ -53,6 +56,7 @@ chmod +x "$api_fail_stub"
 set +e
 fail_output="$(
   GRAYMATTER_DEFERRED_DIR="$deferred_dir" \
+  GRAYMATTER_CREDIT_EVENTS_PATH="${tmp}/credit-events-fail.jsonl" \
   GRAYMATTER_API_SCRIPT="$api_fail_stub" \
   "$SCRIPT" 2>&1
 )"

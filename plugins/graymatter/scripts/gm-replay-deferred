@@ -4,6 +4,37 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEFERRED_DIR="${GRAYMATTER_DEFERRED_DIR:-${SCRIPT_DIR}/../memory/deferred-ops}"
 API_SCRIPT="${GRAYMATTER_API_SCRIPT:-${SCRIPT_DIR}/graymatter_api.sh}"
+GRAYMATTER_CREDIT_EVENTS_PATH="${GRAYMATTER_CREDIT_EVENTS_PATH:-${SCRIPT_DIR}/../memory/credit-recovery-events.jsonl}"
+
+emit_replay_event() {
+  local event="$1"
+  local id="$2"
+  local operation="$3"
+  local path="$4"
+  local event_dir=""
+
+  [[ -n "$GRAYMATTER_CREDIT_EVENTS_PATH" ]] || return 0
+  event_dir="$(dirname "$GRAYMATTER_CREDIT_EVENTS_PATH")"
+  mkdir -p "$event_dir"
+
+  if command -v jq >/dev/null 2>&1; then
+    jq -nc \
+      --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+      --arg event "$event" \
+      --arg id "$id" \
+      --arg operation "$operation" \
+      --arg path "$path" \
+      '{timestamp:$ts,event:$event,deferredId:$id,operation:$operation,path:$path}' >>"$GRAYMATTER_CREDIT_EVENTS_PATH"
+    return 0
+  fi
+
+  printf '{"timestamp":"%s","event":"%s","deferredId":"%s","operation":"%s","path":"%s"}\n' \
+    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    "$event" \
+    "$id" \
+    "$operation" \
+    "$path" >>"$GRAYMATTER_CREDIT_EVENTS_PATH"
+}
 
 if [[ ! -d "$DEFERRED_DIR" ]]; then
   echo "No deferred operations found."
@@ -24,12 +55,15 @@ for file in "${files[@]}"; do
   path="$(jq -r '.path // empty' "$file")"
   body="$(jq -r '.body // empty' "$file")"
   id="$(jq -r '.id // empty' "$file")"
+  operation="$(jq -r '.operation // empty' "$file")"
   if [[ -z "$method" || -z "$path" || -z "$id" ]]; then
     echo "Skipping invalid deferred record: $file" >&2
     continue
   fi
+  emit_replay_event "replay_started" "$id" "$operation" "$path"
   if GRAYMATTER_SKIP_DEFERRED=true "$API_SCRIPT" "$method" "$path" "$body" >/dev/null; then
     rm -f "$file"
+    emit_replay_event "replay_succeeded" "$id" "$operation" "$path"
     echo "Replayed deferred operation ${id}"
   else
     echo "Replay failed for ${id}; stopping." >&2

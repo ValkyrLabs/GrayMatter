@@ -455,6 +455,8 @@ test_insufficient_funds_shows_links_and_uses_macos_prompt() {
   output="$(printf '%s\n' "${result}" | tail -n +2)"
 
   [[ "${status}" == "22" ]] || fail "graymatter_api should return 22 for HTTP errors"
+  assert_contains "${output}" "GrayMatter credit recovery" "graymatter_api should render a branded credit recovery header"
+  assert_contains "${output}" "Blocked operation: memory_read" "graymatter_api should show the blocked operation"
   assert_contains "${output}" "Insufficient credits. Buy credits: https://example.com/buy" "graymatter_api should print buy-credits guidance"
   assert_contains "${output}" "Need an account? Sign up here: https://example.com/signup" "graymatter_api should print signup guidance"
   assert_contains "${output}" "source=graymatter" "graymatter_api should preserve source attribution in activation links"
@@ -674,7 +676,7 @@ test_curl_requests_use_default_timeouts() {
   local curl_log
   curl_log="$(cat "${temp_root}/curl.log")"
   assert_contains "${curl_log}" "--connect-timeout 5" "graymatter_api should set a default connect timeout"
-  assert_contains "${curl_log}" "--max-time 20" "graymatter_api should set a default total request timeout"
+  assert_contains "${curl_log}" "--max-time 60" "graymatter_api should set a default total request timeout"
 }
 
 test_success_uses_fallback_tempdir_when_default_tmp_fails() {
@@ -815,6 +817,60 @@ test_write_uses_stateful_cookie_and_xsrf_after_login() {
   assert_contains "$(cat "${temp_root}/curl.log")" "/auth/login" "graymatter_api should establish a stateful login before hosted writes"
 }
 
+test_valkyr_agent_token_sends_main_tenant_header() {
+  local temp_root="$1"
+  local fake_bin="$2"
+  local script_copy="$3"
+
+  export TEST_CURL_SCENARIO="success"
+  local agent_token="eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.eyJzdWIiOiJhZ2VudC0xIiwicm9sZXMiOlsiVkFMS1lSX0FHRU5UIl0sImF1dGhvcml0aWVzIjpbIk1FTU9SWUVOVFJZX1dSSVRFIl0sInVzZXJuYW1lIjoidmFsb3IifQ."
+
+  PATH="${fake_bin}:/usr/local/bin:/usr/bin:/bin" \
+  TMPDIR="${temp_root}" \
+  VALKYR_AUTH_TOKEN="${agent_token}" \
+  "${script_copy}" GET /MemoryEntry/stats >/dev/null 2>&1
+
+  assert_contains "$(cat "${temp_root}/curl.log")" "X-Tenant-Id: main" "Valkyr agent tokens should default GrayMatter requests to the main schema tenant header"
+}
+
+test_explicit_tenant_header_overrides_valkyr_agent_fallback() {
+  local temp_root="$1"
+  local fake_bin="$2"
+  local script_copy="$3"
+
+  export TEST_CURL_SCENARIO="success"
+  local agent_token="eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.eyJzdWIiOiJhZ2VudC0xIiwicm9sZXMiOlsiVkFMS1lSX0FHRU5UIl0sImF1dGhvcml0aWVzIjpbIk1FTU9SWUVOVFJZX1dSSVRFIl0sInVzZXJuYW1lIjoidmFsb3IifQ."
+
+  PATH="${fake_bin}:/usr/local/bin:/usr/bin:/bin" \
+  TMPDIR="${temp_root}" \
+  GRAYMATTER_TENANT_ID="tenant-abc" \
+  VALKYR_AUTH_TOKEN="${agent_token}" \
+  "${script_copy}" GET /MemoryEntry/stats >/dev/null 2>&1
+
+  local curl_log
+  curl_log="$(cat "${temp_root}/curl.log")"
+  assert_contains "${curl_log}" "X-Tenant-Id: tenant-abc" "Explicit GrayMatter tenant should override the Valkyr agent main-schema fallback"
+  if [[ "${curl_log}" == *"X-Tenant-Id: main"* ]]; then
+    fail "explicit tenant override should not also send the main fallback tenant header"
+  fi
+}
+
+test_token_tenant_claim_sends_tenant_header() {
+  local temp_root="$1"
+  local fake_bin="$2"
+  local script_copy="$3"
+
+  export TEST_CURL_SCENARIO="success"
+  local tenant_token="eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.eyJzdWIiOiJ0ZW5hbnQtdXNlciIsInRlbmFudElkIjoidGVuYW50LXRva2VuIiwicm9sZXMiOlsiRVZFUllPTkUiXSwidXNlcm5hbWUiOiJ2YWxvciJ9."
+
+  PATH="${fake_bin}:/usr/local/bin:/usr/bin:/bin" \
+  TMPDIR="${temp_root}" \
+  VALKYR_AUTH_TOKEN="${tenant_token}" \
+  "${script_copy}" GET /MemoryEntry/stats >/dev/null 2>&1
+
+  assert_contains "$(cat "${temp_root}/curl.log")" "X-Tenant-Id: tenant-token" "GrayMatter transport should forward an explicit tenant claim from the JWT"
+}
+
 with_fixture test_success_passthrough
 with_fixture test_insufficient_funds_shows_links_and_uses_macos_prompt
 with_fixture test_insufficient_funds_falls_back_to_windows_prompt
@@ -824,6 +880,9 @@ with_fixture test_expired_keychain_token_refreshes_before_original_request
 with_fixture test_curl_requests_use_default_timeouts
 with_fixture test_success_uses_fallback_tempdir_when_default_tmp_fails
 with_fixture test_write_uses_stateful_cookie_and_xsrf_after_login
+with_fixture test_valkyr_agent_token_sends_main_tenant_header
+with_fixture test_explicit_tenant_header_overrides_valkyr_agent_fallback
+with_fixture test_token_tenant_claim_sends_tenant_header
 test_write_rejects_read_only_token_before_network_request
 test_light_mode_allows_local_request_without_token
 

@@ -27,6 +27,7 @@ cat >"${tmp}/scripts/graymatter_api.sh" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 printf '%s\n' "$*" >>"${TEST_GRAYMATTER_API_LOG:?}"
+printf 'GRAYMATTER_CURL_MAX_TIME=%s\n' "${GRAYMATTER_CURL_MAX_TIME:-}" >>"${TEST_GRAYMATTER_API_LOG:?}"
 if [[ "$*" != "GET /api-docs" ]]; then
   echo "unexpected graymatter_api call: $*" >&2
   exit 2
@@ -41,6 +42,11 @@ out="${tmp}/tmp/api-docs.json"
 
 [[ -s "${out}" ]] || fail "gm-openapi-sync should write the OpenAPI JSON output"
 assert_contains "$(cat "${TEST_GRAYMATTER_API_LOG}")" "GET /api-docs" "gm-openapi-sync should use graymatter_api.sh so auth, refresh, hosted base URL, and timeouts are shared"
+assert_contains "$(cat "${TEST_GRAYMATTER_API_LOG}")" "GRAYMATTER_CURL_MAX_TIME=120" "gm-openapi-sync should default api-docs fetches to 120 seconds"
 assert_contains "$(cat "${out}")" '"/MemoryEntry"' "gm-openapi-sync should preserve the API docs payload"
+
+: >"${TEST_GRAYMATTER_API_LOG}"
+GRAYMATTER_CURL_MAX_TIME=45 "${tmp}/scripts/gm-openapi-sync" "${out}" >/tmp/gm-openapi-sync-override.out
+assert_contains "$(cat "${TEST_GRAYMATTER_API_LOG}")" "GRAYMATTER_CURL_MAX_TIME=45" "gm-openapi-sync should preserve explicit caller timeouts"
 
 printf 'PASS: gm_openapi_sync_test.sh\n'

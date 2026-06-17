@@ -65,7 +65,14 @@ test('memory_query returns structured recovery for insufficient credits', async 
     GRAYMATTER_ACTIVATION_SOURCE: undefined,
     GRAYMATTER_INSTALL_ID: 'install-123'
   }, async () => {
-    const fakeApi = createFakeApi(402, { code: 'INSUFFICIENT_FUNDS', message: 'insufficient credits' });
+    const fakeApi = createFakeApi(402, {
+      code: 'INSUFFICIENT_FUNDS',
+      message: 'insufficient credits',
+      requiredCredits: 25,
+      currentBalance: '0.00',
+      traceId: 'trace-credits',
+      workspaceId: 'workspace-7'
+    });
     const apiBase = await listen(fakeApi);
     const server = createGrayMatterMcpServer({ apiBase: `${apiBase}/v1` });
     const baseUrl = await listen(server);
@@ -84,21 +91,60 @@ test('memory_query returns structured recovery for insufficient credits', async 
       assert.equal(out.reason, 'insufficient_credits');
       assert.equal(out.blockedOperation, 'memory_query');
       assert.equal(out.retryable, true);
+      assert.equal(out.requiredCredits, '25');
+      assert.equal(out.currentBalance, '0.00');
+      assert.equal(out.traceId, 'trace-credits');
+      assert.equal(out.workspaceId, 'workspace-7');
       assert.equal(`${buyCreditsUrl.origin}${buyCreditsUrl.pathname}`, 'https://valkyrlabs.com/graymatter/credits');
       assert.equal(`${signupUrl.origin}${signupUrl.pathname}`, 'https://valkyrlabs.com/graymatter/activate');
       assert.equal(buyCreditsUrl.searchParams.get('source'), 'graymatter');
       assert.equal(buyCreditsUrl.searchParams.get('intent'), 'recharge');
       assert.equal(buyCreditsUrl.searchParams.get('operation'), 'memory_query');
       assert.equal(buyCreditsUrl.searchParams.get('install_id'), 'install-123');
+      assert.equal(buyCreditsUrl.searchParams.get('workspace_id'), 'workspace-7');
       assert.equal(signupUrl.searchParams.get('intent'), 'signup');
       assert.deepEqual(out.recoveryActions.map((action) => action.id), ['buy_credits', 'create_account', 'sign_in']);
       assert.equal(out.recoveryActions[0].primary, true);
       assert.match(body.result.content[0].text, /Buy GrayMatter credits: https:\/\//);
+      assert.match(body.result.content[0].text, /Current balance: 0\.00/);
     } finally {
       server.close();
       fakeApi.close();
     }
   });
+});
+
+test('memory_query distinguishes missing starter credits from paid credit depletion', async () => {
+  const fakeApi = createFakeApi(402, {
+    code: 'STARTER_CREDITS_MISSING',
+    message: 'starter credit grant missing',
+    requiredCredits: 500,
+    currentBalance: '0.00',
+    accountId: 'acct-1'
+  });
+  const apiBase = await listen(fakeApi);
+  const server = createGrayMatterMcpServer({ apiBase: `${apiBase}/v1` });
+  const baseUrl = await listen(server);
+
+  try {
+    const body = await postRpc(baseUrl, {
+      jsonrpc: '2.0',
+      id: 'starter',
+      method: 'tools/call',
+      params: { name: 'memory_query', arguments: { query: 'hello' } }
+    });
+
+    const out = body.result.structuredContent;
+    assert.equal(out.reason, 'starter_credits_missing');
+    assert.equal(out.retryable, true);
+    assert.equal(out.accountId, 'acct-1');
+    assert.deepEqual(out.recoveryActions.map((action) => action.id), ['repair_starter_credits', 'buy_credits', 'sign_in']);
+    assert.match(out.signupUrl, /intent=repair-starter-credits/);
+    assert.match(body.result.content[0].text, /Repair starter credits:/);
+  } finally {
+    server.close();
+    fakeApi.close();
+  }
 });
 
 test('memory_query returns auth recovery for 401', async () => {

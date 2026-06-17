@@ -109,6 +109,14 @@ printf 'install check passed\n'
 EOF
   chmod +x "${fixture_dir}/gm-install-check"
 
+  cat >"${fixture_dir}/gm-self-update" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "$*" >>"${TEST_SELF_UPDATE_LOG}"
+printf 'self-update %s\n' "${1:-}"
+EOF
+  chmod +x "${fixture_dir}/gm-self-update"
+
   if [[ "${smoke_mode}" == "success" ]]; then
     cat >"${fixture_dir}/gm-smoke" <<'EOF'
 #!/usr/bin/env bash
@@ -165,6 +173,7 @@ run_activate() {
   make_activation_fixture "${fixture_dir}" "${smoke_mode}"
 
   export TEST_SECURITY_LOG="${temp_root}/security.log"
+  export TEST_SELF_UPDATE_LOG="${temp_root}/self-update.log"
   export TEST_REGISTER_CALLED="${temp_root}/register.called"
   export TEST_SYNC_CALLED="${temp_root}/sync.called"
 
@@ -175,6 +184,7 @@ run_activate() {
     PATH="${fake_bin}:/usr/bin:/bin" \
     GRAYMATTER_USERNAME="valor-codex" \
     GRAYMATTER_PASSWORD="secret" \
+    GRAYMATTER_STATE_DIR="${temp_root}/.graymatter" \
     OPENCLAW_AGENT_NAME="valor-codex" \
     OPENCLAW_AGENT_ROLE="job-automation" \
     "${fixture_dir}/gm-activate" 2>&1
@@ -202,6 +212,9 @@ test_activate_stores_runtime_keychain_service() {
 
   local security_log
   security_log="$(cat "${temp_root}/security.log")"
+  local self_update_log
+  self_update_log="$(cat "${temp_root}/self-update.log")"
+  assert_contains "${self_update_log}" "force" "gm-activate should force self-update during activation by default"
   assert_contains "${security_log}" "-s VALKYR_AUTH" "gm-activate should store the token under the VALKYR_AUTH keychain service"
   assert_contains "${output}" "GrayMatter activation complete" "gm-activate should report completion in the happy path"
 }
@@ -220,7 +233,9 @@ test_activate_continues_when_smoke_query_is_credit_gated() {
   [[ "${status}" == "0" ]] || fail "gm-activate should continue when gm-smoke fails with insufficient funds"
   assert_file_exists "${temp_root}/register.called" "gm-activate should still register the agent when query credits are unavailable"
   assert_file_exists "${temp_root}/sync.called" "gm-activate should still sync the OpenAPI when query credits are unavailable"
-  assert_contains "${output}" "limited memory query capability" "gm-activate should explain the degraded activation state"
+  assert_file_exists "${temp_root}/.graymatter/activation-degraded.json" "gm-activate should write degraded pester state"
+  assert_contains "${output}" "continuing in degraded mode" "gm-activate should explain the degraded activation state"
+  assert_contains "${output}" "not optional" "gm-activate should pester about restoring full memory"
 }
 
 test_activate_stores_runtime_keychain_service

@@ -17,6 +17,15 @@ require jq -e '.keywords | index("mcp")' "$ROOT/.codex-plugin/plugin.json" >/dev
 require jq -e '.interface.capabilities | index("Interactive")' "$ROOT/.codex-plugin/plugin.json" >/dev/null
 require jq -e '.interface.longDescription | contains("mcp-server")' "$ROOT/.codex-plugin/plugin.json" >/dev/null
 require jq -e '.plugins[] | select(.name == "graymatter") | .source.path == "./plugins/graymatter"' "$ROOT/.agents/plugins/marketplace.json" >/dev/null
+require jq -e '.slug == "graymatter"' "$ROOT/clawhub.json" >/dev/null
+require jq -e '.tags | index("openclaw-skill")' "$ROOT/clawhub.json" >/dev/null
+
+PLUGIN_VERSION="$(jq -r '.version' "$ROOT/.codex-plugin/plugin.json")"
+CLAW_HUB_VERSION="$(jq -r '.version' "$ROOT/clawhub.json")"
+if [[ "$CLAW_HUB_VERSION" != "$PLUGIN_VERSION" ]]; then
+  echo "clawhub.json version must match .codex-plugin/plugin.json (${CLAW_HUB_VERSION} != ${PLUGIN_VERSION})" >&2
+  exit 1
+fi
 
 require jq -e '.mcpServers.graymatter.command == "node"' "$ROOT/.mcp.json" >/dev/null
 require jq -e '.mcpServers.graymatter.args == ["mcp-server/index.js", "--stdio"]' "$ROOT/.mcp.json" >/dev/null
@@ -88,9 +97,15 @@ grep -q '^graymatter/skills/graymatter-analytics/SKILL.md$' "$ZIP_LIST"
 grep -q '^graymatter/skills/graymatter-analytics/references/semantic-layer-template.md$' "$ZIP_LIST"
 grep -q '^graymatter/scripts/gm-activate$' "$ZIP_LIST"
 grep -q '^graymatter/scripts/gm-activation-fastlane$' "$ZIP_LIST"
+grep -q '^graymatter/scripts/gm-login$' "$ZIP_LIST"
+grep -q '^graymatter/scripts/gm-install-check$' "$ZIP_LIST"
 grep -q '^graymatter/scripts/gm-doctor$' "$ZIP_LIST"
+grep -q '^graymatter/scripts/gm-register-agent$' "$ZIP_LIST"
+grep -q '^graymatter/scripts/gm-openapi-sync$' "$ZIP_LIST"
+grep -q '^graymatter/scripts/gm-openapi-summary$' "$ZIP_LIST"
 grep -q '^graymatter/scripts/gm-light-up$' "$ZIP_LIST"
 grep -q '^graymatter/mcp-server/index.js$' "$ZIP_LIST"
 grep -q '^graymatter/.mcp.json$' "$ZIP_LIST"
+grep -q '^graymatter/graymatter-bootstrap$' "$ZIP_LIST"
 
 echo "release_surfaces_test: ok"

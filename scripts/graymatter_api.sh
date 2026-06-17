@@ -28,7 +28,7 @@ HUMAN_SIGNUP_URL_BASE="${VALKYR_HUMAN_SIGNUP_URL:-https://valkyrlabs.com/graymat
 LOGIN_PATH="${GRAYMATTER_LOGIN_PATH:-/auth/login}"
 FALLBACK_TMPDIR="${GRAYMATTER_TMPDIR:-${SCRIPT_DIR}/../tmp}"
 CURL_CONNECT_TIMEOUT="${GRAYMATTER_CURL_CONNECT_TIMEOUT:-5}"
-CURL_MAX_TIME="${GRAYMATTER_CURL_MAX_TIME:-20}"
+CURL_MAX_TIME="${GRAYMATTER_CURL_MAX_TIME:-60}"
 TOKEN_REFRESH_SKEW_SECONDS="${GRAYMATTER_TOKEN_REFRESH_SKEW_SECONDS:-60}"
 GRAYMATTER_INSTALL_ID="${GRAYMATTER_INSTALL_ID:-${OPENCLAW_INSTANCE_ID:-${HOSTNAME:-graymatter-install}}}"
 GRAYMATTER_ACTIVATION_SOURCE="${GRAYMATTER_ACTIVATION_SOURCE:-graymatter}"
@@ -114,7 +114,78 @@ token_is_clearly_read_only() {
     return $?
   fi
 
+  if printf '%s' "$claims" | grep -Eq '"(ADMIN|USER|OWNER|MANAGER|SUPER_ADMIN|ROLE_[^"]+)"'; then
+    return 1
+  fi
+  if printf '%s' "$claims" | grep -Eq 'SCOPE_[^"]*(write|admin|delete|update|create)'; then
+    return 1
+  fi
+  if printf '%s' "$claims" | grep -Eq '"(EVERYONE|FREE)"|SCOPE_schema\.read'; then
+    return 0
+  fi
   return 1
+}
+
+token_has_valkyr_agent_role() {
+  local token="${1:-}"
+  local claims=""
+
+  claims="$(token_claims_json "$token" 2>/dev/null)" || return 1
+
+  if command -v jq >/dev/null 2>&1; then
+    jq -e '
+      def normalize:
+        tostring
+        | ascii_upcase
+        | if startswith("ROLE_") then . else "ROLE_" + . end;
+      def role_values:
+        [(.roles // []), (.roleList // []), (.authorities // []), (.authorityList // [])]
+        | map(if type == "array" then . else [] end)
+        | add
+        | map(select(type == "string") | normalize);
+      any(role_values[]?; . == "ROLE_VALKYR_AGENT")
+    ' >/dev/null 2>&1 <<<"$claims"
+    return $?
+  fi
+
+  return 1
+}
+
+tenant_id_from_token() {
+  local token="${1:-}"
+  local claims=""
+  local explicit_tenant=""
+
+  claims="$(token_claims_json "$token" 2>/dev/null)" || return 0
+
+  if command -v jq >/dev/null 2>&1; then
+    explicit_tenant="$(
+      jq -r '
+        .tenantId // .organizationId // .orgId // empty
+        | tostring
+        | select(. != "" and ascii_downcase != "null")
+      ' <<<"$claims" 2>/dev/null || true
+    )"
+    if [[ -n "$explicit_tenant" ]]; then
+      printf '%s\n' "$explicit_tenant"
+      return 0
+    fi
+  fi
+
+  if token_has_valkyr_agent_role "$token"; then
+    printf 'main\n'
+  fi
+}
+
+resolve_tenant_id() {
+  local explicit="${GRAYMATTER_TENANT_ID:-${VALKYR_TENANT_ID:-}}"
+
+  if [[ -n "$explicit" ]]; then
+    printf '%s\n' "$explicit"
+    return 0
+  fi
+
+  tenant_id_from_token "$TOKEN"
 }
 
 token_expires_soon() {
@@ -134,7 +205,10 @@ token_expires_soon() {
     return $?
   fi
 
-  return 1
+  local exp=""
+  exp="$(printf '%s' "$claims" | sed -n 's/.*"exp"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p' | head -n 1)"
+  [[ -n "$exp" ]] || return 1
+  [[ "$exp" -le $((now + TOKEN_REFRESH_SKEW_SECONDS)) ]]
 }
 
 method_requires_write_access() {
@@ -322,6 +396,9 @@ show_insufficient_funds_guidance() {
   buy_credits_url="$(append_query_param "$buy_credits_url" current_balance "$current_balance")"
   buy_credits_url="$(append_query_param "$buy_credits_url" trace_id "$trace_id")"
 
+  echo "GrayMatter credit recovery" >&2
+  echo "Account/workspace: install=${GRAYMATTER_INSTALL_ID} api=${BASE}" >&2
+  echo "Blocked operation: ${operation_kind}" >&2
   echo "Insufficient credits. Buy credits: ${buy_credits_url}" >&2
   echo "Need an account? Sign up here: ${human_signup_url}" >&2
   if [[ -n "$required_credits" ]]; then
@@ -673,6 +750,13 @@ perform_request() {
   if [[ -n "$STATEFUL_XSRF_TOKEN" ]]; then
     COMMON_HEADERS+=(
       -H "X-XSRF-TOKEN: ${STATEFUL_XSRF_TOKEN}"
+    )
+  fi
+  local tenant_id
+  tenant_id="$(resolve_tenant_id)"
+  if [[ -n "$tenant_id" ]]; then
+    COMMON_HEADERS+=(
+      -H "X-Tenant-Id: ${tenant_id}"
     )
   fi
 

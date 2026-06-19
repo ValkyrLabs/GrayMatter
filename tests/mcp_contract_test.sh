@@ -4,6 +4,8 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LEGACY_CONTRACT="${ROOT}/references/mcp/memory-tool-contract.v1.json"
 PORTABLE_CONTRACT="${ROOT}/references/contracts/mcp/graymatter_mcp_tools_v1.json"
+PLUGIN_LEGACY_CONTRACT="${ROOT}/plugins/graymatter/references/mcp/memory-tool-contract.v1.json"
+PLUGIN_PORTABLE_CONTRACT="${ROOT}/plugins/graymatter/references/contracts/mcp/graymatter_mcp_tools_v1.json"
 
 jq -e '.version == "v1"' "$LEGACY_CONTRACT" >/dev/null
 jq -e '.errors.AUTH_REQUIRED and .errors.UPSTREAM_UNAVAILABLE' "$LEGACY_CONTRACT" >/dev/null
@@ -17,5 +19,10 @@ jq -e '.tools | map(.name) | sort == ["memory_get","memory_health","memory_link"
 jq -e '.tools | length > 0' < <("${ROOT}/scripts/gm-mcp-contract" --mode=portable --validate) >/dev/null
 jq -e '.errors.AUTH_REQUIRED and .errors.UPSTREAM_UNAVAILABLE' < <("${ROOT}/scripts/gm-mcp-contract" legacy) >/dev/null
 jq -e '.errors.AUTH_REQUIRED and .errors.UPSTREAM_UNAVAILABLE' < <("${ROOT}/scripts/gm-mcp-contract" --mode=legacy --validate) >/dev/null
+
+cmp -s "$PORTABLE_CONTRACT" "$PLUGIN_PORTABLE_CONTRACT"
+cmp -s "$LEGACY_CONTRACT" "$PLUGIN_LEGACY_CONTRACT"
+jq -e '.tools | length > 0' < <("${ROOT}/plugins/graymatter/scripts/gm-mcp-contract" --mode=portable --validate) >/dev/null
+jq -e '.errors.AUTH_REQUIRED and .errors.UPSTREAM_UNAVAILABLE' < <("${ROOT}/plugins/graymatter/scripts/gm-mcp-contract" --mode=legacy --validate) >/dev/null
 
 echo "mcp_contract_test: ok"

@@ -636,7 +636,7 @@ async function handleRpc(message, context) {
 
 async function callTool(params, context) {
   const name = params.name;
-  const args = params.arguments || {};
+  const args = normalizeToolArguments(name, params.arguments);
 
   const execute = async (operation, requestFn) => {
     try {
@@ -772,6 +772,43 @@ async function callTool(params, context) {
     default:
       throw new Error(`Unknown tool: ${name}`);
   }
+}
+
+function normalizeToolArguments(name, rawArguments) {
+  if (typeof rawArguments === 'string') {
+    return queryArgumentTool(name) ? { query: rawArguments } : { text: rawArguments, content: rawArguments };
+  }
+  if (!rawArguments || typeof rawArguments !== 'object' || Array.isArray(rawArguments)) {
+    return {};
+  }
+  const args = { ...rawArguments };
+  if (queryArgumentTool(name) && !hasNonEmptyString(args.query)) {
+    const query = firstDefined(
+      args.q,
+      args.search,
+      args.keyword,
+      args.question,
+      args.prompt,
+      args.text,
+      args.content);
+    if (query !== undefined) {
+      args.query = query;
+    }
+  }
+  return args;
+}
+
+function queryArgumentTool(name) {
+  return [
+    'memory_query',
+    'memory_retrieve_with_receipt',
+    'graymatter_retrieval_context',
+    'graymatter_semantic_search'
+  ].includes(name);
+}
+
+function hasNonEmptyString(value) {
+  return typeof value === 'string' && value.trim().length > 0;
 }
 
 function defineTool(tool) {

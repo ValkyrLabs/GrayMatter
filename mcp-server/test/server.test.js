@@ -486,6 +486,41 @@ test('memory_read, memory_query, and graph_get route to api-0', async () => {
   }
 });
 
+test('memory_query accepts small-model query aliases and raw string arguments', async () => {
+  const seenQueries = [];
+  const fakeApi = createFakeApi(async (_req, res, record) => {
+    assert.equal(record.path, '/v1/MemoryEntry/query');
+    assert.equal(record.method, 'POST');
+    seenQueries.push(record.body.query);
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ results: [] }));
+  });
+
+  const apiBase = await listen(fakeApi.server);
+  const server = createGrayMatterMcpServer({ apiBase: `${apiBase}/v1` });
+  const baseUrl = await listen(server);
+
+  try {
+    await postRpc(baseUrl, {
+      jsonrpc: '2.0',
+      id: 'prompt-alias',
+      method: 'tools/call',
+      params: { name: 'memory_query', arguments: { prompt: 'launch plan', limit: 3 } }
+    });
+    await postRpc(baseUrl, {
+      jsonrpc: '2.0',
+      id: 'raw-string',
+      method: 'tools/call',
+      params: { name: 'memory_query', arguments: 'handoff notes' }
+    });
+
+    assert.deepEqual(seenQueries, ['launch plan', 'handoff notes']);
+  } finally {
+    server.close();
+    fakeApi.server.close();
+  }
+});
+
 test('GrayMatter capability tools expose the server-side memory and graph power surface', async () => {
   const fakeApi = createFakeApi(async (_req, res, record) => {
     res.writeHead(200, { 'content-type': 'application/json' });

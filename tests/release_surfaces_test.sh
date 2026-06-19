@@ -62,6 +62,14 @@ grep -q '/v1/api-docs' "$ROOT/plugins/graymatter/skills/graymatter-analytics/SKI
   echo "Codex marketplace plugin MCP server missing" >&2
   exit 1
 }
+[[ -f "$ROOT/plugins/graymatter/references/contracts/mcp/graymatter_mcp_tools_v1.json" ]] || {
+  echo "Codex marketplace plugin portable MCP contract missing" >&2
+  exit 1
+}
+[[ -f "$ROOT/plugins/graymatter/references/mcp/memory-tool-contract.v1.json" ]] || {
+  echo "Codex marketplace plugin legacy MCP contract missing" >&2
+  exit 1
+}
 
 require jq -e '.scripts.start == "node index.js"' "$ROOT/mcp-server/package.json" >/dev/null
 require jq -e '.scripts.stdio == "node index.js --stdio"' "$ROOT/mcp-server/package.json" >/dev/null
@@ -107,5 +115,8 @@ grep -q '^graymatter/scripts/gm-light-up$' "$ZIP_LIST"
 grep -q '^graymatter/mcp-server/index.js$' "$ZIP_LIST"
 grep -q '^graymatter/.mcp.json$' "$ZIP_LIST"
 grep -q '^graymatter/graymatter-bootstrap$' "$ZIP_LIST"
+grep -q '^graymatter/references/contracts/mcp/graymatter_mcp_tools_v1.json$' "$ZIP_LIST"
+grep -q '^graymatter/references/contracts/mcp/graymatter_mcp_contract_v1.json$' "$ZIP_LIST"
+grep -q '^graymatter/references/mcp/memory-tool-contract.v1.json$' "$ZIP_LIST"
 
 echo "release_surfaces_test: ok"

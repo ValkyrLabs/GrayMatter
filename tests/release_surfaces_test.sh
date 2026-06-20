@@ -54,8 +54,16 @@ grep -q '/v1/api-docs' "$ROOT/plugins/graymatter/skills/graymatter-analytics/SKI
   echo "Codex marketplace plugin activation fastlane missing or not executable" >&2
   exit 1
 }
+[[ -x "$ROOT/plugins/graymatter/scripts/gm-invariant-preflight" ]] || {
+  echo "Codex marketplace plugin invariant preflight missing or not executable" >&2
+  exit 1
+}
 [[ -x "$ROOT/scripts/gm-activation-fastlane" ]] || {
   echo "first-run activation fastlane missing or not executable" >&2
+  exit 1
+}
+[[ -x "$ROOT/scripts/gm-invariant-preflight" ]] || {
+  echo "invariant preflight missing or not executable" >&2
   exit 1
 }
 [[ -f "$ROOT/plugins/graymatter/mcp-server/index.js" ]] || {
@@ -81,6 +89,12 @@ for needle in OpenClaw scripts/gm-activate scripts/gm-login mcp-server/; do
     exit 1
   }
 done
+for needle in "Mandatory invariant preflight" "scripts/gm-invariant-preflight" "graymatter_invariant_preflight"; do
+  grep -q "$needle" "$ROOT/SKILL.md" || {
+    echo "SKILL.md missing invariant surface: $needle" >&2
+    exit 1
+  }
+done
 
 for needle in "Release surfaces" "MCP service" "Codex plugin" "Standalone OpenClaw skill"; do
   grep -q "$needle" "$ROOT/README.md" || {
@@ -96,6 +110,22 @@ grep -q "gm-activation-fastlane" "$ROOT/scripts/package-graymatter" || {
   echo "package manifest missing first-run activation fastlane" >&2
   exit 1
 }
+grep -q "gm-invariant-preflight" "$ROOT/scripts/package-graymatter" || {
+  echo "package manifest missing invariant preflight" >&2
+  exit 1
+}
+grep -q "gm-invariant-preflight" "$ROOT/plugins/graymatter/scripts/package-graymatter" || {
+  echo "plugin package manifest missing invariant preflight" >&2
+  exit 1
+}
+grep -q "graymatter_invariant_preflight" "$ROOT/mcp-server/README.md" || {
+  echo "MCP README missing invariant preflight tool" >&2
+  exit 1
+}
+grep -q "graymatter_invariant_preflight" "$ROOT/plugins/graymatter/mcp-server/README.md" || {
+  echo "plugin MCP README missing invariant preflight tool" >&2
+  exit 1
+}
 
 ZIP_LIST="$(mktemp "${TMPDIR:-/tmp}/graymatter-skill-list.XXXXXX")"
 trap 'rm -f "$ZIP_LIST"' EXIT
@@ -105,6 +135,7 @@ grep -q '^graymatter/skills/graymatter-analytics/SKILL.md$' "$ZIP_LIST"
 grep -q '^graymatter/skills/graymatter-analytics/references/semantic-layer-template.md$' "$ZIP_LIST"
 grep -q '^graymatter/scripts/gm-activate$' "$ZIP_LIST"
 grep -q '^graymatter/scripts/gm-activation-fastlane$' "$ZIP_LIST"
+grep -q '^graymatter/scripts/gm-invariant-preflight$' "$ZIP_LIST"
 grep -q '^graymatter/scripts/gm-login$' "$ZIP_LIST"
 grep -q '^graymatter/scripts/gm-install-check$' "$ZIP_LIST"
 grep -q '^graymatter/scripts/gm-doctor$' "$ZIP_LIST"

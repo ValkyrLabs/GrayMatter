@@ -354,6 +354,30 @@ const tools = [
     invoked: 'Retrieval context ready'
   }),
   defineTool({
+    name: 'graymatter_invariant_preflight',
+    title: 'Load invariant preflight',
+    description: 'Load binding durable invariant decisions for a workspace/product before an agent plans, edits, or acts.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        workspaceKey: { type: 'string', description: 'Workspace or product key, for example ValkyrAI, GrayMatter, or ValorIDE.' },
+        sourceChannel: { type: 'string', description: 'Explicit durable memory source channel, for example codex:workspace:ValkyrAI.' },
+        query: { type: 'string', description: 'Task query or intent.' },
+        keywords: {
+          oneOf: [
+            { type: 'array', items: { type: 'string' } },
+            { type: 'string' }
+          ],
+          description: 'Task keywords to score invariant relevance.'
+        },
+        limit: { type: 'integer', minimum: 1, maximum: 50 }
+      }
+    },
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true, idempotentHint: true },
+    invoking: 'Loading invariant preflight',
+    invoked: 'Invariant preflight ready'
+  }),
+  defineTool({
     name: 'graymatter_activation_bridge',
     title: 'Use activation bridge',
     description: 'Read or post GrayMatter activation bridge events for install, login, signup, retry, and credit recovery flows.',
@@ -727,6 +751,8 @@ async function callTool(params, context) {
     case 'graymatter_retrieval_context':
       requireString(args.query, 'query');
       return execute('graymatter_retrieval_context', () => apiRequest(context, 'POST', 'graymatter/retrieval-context', buildRetrievalReceiptPayload(args)));
+    case 'graymatter_invariant_preflight':
+      return execute('graymatter_invariant_preflight', () => buildInvariantPreflight(context, args));
     case 'graymatter_activation_bridge':
       return execute('graymatter_activation_bridge', () => {
         const action = args.action || 'read';
@@ -803,6 +829,7 @@ function queryArgumentTool(name) {
     'memory_query',
     'memory_retrieve_with_receipt',
     'graymatter_retrieval_context',
+    'graymatter_invariant_preflight',
     'graymatter_semantic_search'
   ].includes(name);
 }
@@ -1447,6 +1474,176 @@ function grayMatterStatusEndpoint(surface = 'memory_status') {
   }
 }
 
+async function buildInvariantPreflight(context, args) {
+  const workspaceKey = firstNonEmptyString(args.workspaceKey, args.workspace, args.product, args.sourceChannel);
+  if (!workspaceKey) {
+    throw new Error('workspaceKey or sourceChannel is required');
+  }
+
+  const sourceChannel = args.sourceChannel || (workspaceKey.includes(':') ? workspaceKey : `codex:workspace:${workspaceKey}`);
+  const workspace = workspaceKey.includes(':') ? workspaceKey.split(':').pop() : workspaceKey;
+  const terms = normalizeInvariantTerms(args);
+  const limit = clampInteger(args.limit, 20, 1, 50);
+
+  const statusResult = await settle(() => apiRequest(context, 'GET', 'memory/status'));
+  const entries = await apiRequest(context, 'GET', 'MemoryEntry');
+  const matches = filterInvariantEntries(entries, {
+    sourceChannel,
+    workspace,
+    terms,
+    limit
+  });
+
+  return {
+    sourceChannel,
+    workspace,
+    terms,
+    status: statusResult.ok
+      ? { state: 'ready', response: statusResult.value }
+      : { state: 'degraded', error: statusResult.error.message },
+    count: matches.length,
+    entries: matches,
+    failClosed: true,
+    instruction: 'Treat returned invariant decisions as binding. Missing or degraded retrieval is not permission to ignore known durable rules.'
+  };
+}
+
+function normalizeInvariantTerms(args) {
+  const values = [];
+  if (typeof args.query === 'string') {
+    values.push(...args.query.split(/\s+/u));
+  }
+  if (typeof args.keywords === 'string') {
+    values.push(...args.keywords.split(/\s+/u));
+  } else if (Array.isArray(args.keywords)) {
+    values.push(...args.keywords);
+  }
+  return uniqueStrings([
+    ...values,
+    'invariant',
+    'decision',
+    'methodology',
+    'security',
+    'rbac',
+    'acl',
+    'thorapi',
+    'aspectj',
+    'generated-code',
+    'testing'
+  ]);
+}
+
+function filterInvariantEntries(response, options) {
+  const entries = extractList(response);
+  const workspaceLower = String(options.workspace || '').toLowerCase();
+  const sourceChannel = String(options.sourceChannel || '');
+  const terms = options.terms.map((term) => term.toLowerCase());
+
+  return entries
+    .filter((entry) => sourceMatchesInvariantScope(entry, sourceChannel, workspaceLower))
+    .filter(isBindingInvariantEntry)
+    .map((entry) => ({
+      ...entry,
+      preflightScore: scoreInvariantEntry(entry, terms)
+    }))
+    .sort((a, b) => {
+      const scoreDelta = (b.preflightScore || 0) - (a.preflightScore || 0);
+      if (scoreDelta !== 0) return scoreDelta;
+      return String(a.sourceChannel || '').localeCompare(String(b.sourceChannel || ''))
+        || String(a.createdDate || '').localeCompare(String(b.createdDate || ''));
+    })
+    .slice(0, options.limit);
+}
+
+function extractList(response) {
+  if (Array.isArray(response)) return response.filter(isPlainObject);
+  if (!isPlainObject(response)) return [];
+  for (const key of ['content', 'items', 'data', 'results', 'records', 'memoryEntries', 'entries']) {
+    if (Array.isArray(response[key])) {
+      return response[key].filter(isPlainObject);
+    }
+  }
+  return [];
+}
+
+function sourceMatchesInvariantScope(entry, sourceChannel, workspaceLower) {
+  const tags = tagNames(entry);
+  const searchable = invariantSearchableText(entry);
+  return entry.sourceChannel === sourceChannel
+    || entry.sourceChannel === 'codex:workspace:GrayMatter'
+    || tags.includes(workspaceLower)
+    || searchable.includes(workspaceLower);
+}
+
+function isBindingInvariantEntry(entry) {
+  if (entry.type !== 'decision') {
+    return false;
+  }
+  const tags = tagNames(entry);
+  const searchable = invariantSearchableText(entry);
+  return [
+    'invariant',
+    'agent-policy',
+    'mandatory-preflight',
+    'fail-closed',
+    'security',
+    'rbac',
+    'acl',
+    'generated-code',
+    'aspectj',
+    'vaix',
+    'vai',
+    'testing',
+    'thorapi',
+    'valkyrai',
+    'valoride',
+    'graymatter'
+  ].some((tag) => tags.includes(tag))
+    || searchable.includes('invariant')
+    || /^Rule:/u.test(String(entry.text || entry.content || ''));
+}
+
+function scoreInvariantEntry(entry, terms) {
+  const searchable = invariantSearchableText(entry);
+  return terms.reduce((score, term) => score + (term && searchable.includes(term) ? 1 : 0), 0);
+}
+
+function invariantSearchableText(entry) {
+  return [
+    entry.text,
+    entry.content,
+    entry.title,
+    entry.summary,
+    entry.description,
+    entry.sourceChannel,
+    typeof entry.metadata === 'string' ? entry.metadata : undefined,
+    tagNames(entry).join(' ')
+  ]
+    .filter((value) => value !== undefined && value !== null)
+    .map((value) => String(value))
+    .join(' ')
+    .toLowerCase();
+}
+
+function tagNames(entry) {
+  return (Array.isArray(entry.tags) ? entry.tags : [])
+    .map((tag) => {
+      if (typeof tag === 'string') return tag;
+      if (tag && typeof tag === 'object') return tag.name || tag.id || '';
+      return '';
+    })
+    .filter(Boolean)
+    .map((tag) => String(tag).toLowerCase());
+}
+
+async function settle(fn) {
+  try {
+    return { ok: true, value: await fn() };
+  } catch (error) {
+    return { ok: false, error };
+  }
+}
+
 function memoryScopeMetadata(args) {
   if (!hasScopeSignal(args)) {
     return {};
@@ -2080,6 +2277,30 @@ function requireEntityType(value) {
   if (!/^[A-Za-z][A-Za-z0-9_]*$/.test(value)) {
     throw new Error('entityType must be a simple schema type name');
   }
+}
+
+function firstNonEmptyString(...values) {
+  return values.find((value) => typeof value === 'string' && value.trim().length > 0)?.trim();
+}
+
+function clampInteger(value, defaultValue, min, max) {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed)) {
+    return defaultValue;
+  }
+  return Math.max(min, Math.min(max, parsed));
+}
+
+function uniqueStrings(values) {
+  return Array.from(new Set(
+    values
+      .map((value) => String(value || '').trim())
+      .filter(Boolean)
+  ));
+}
+
+function isPlainObject(value) {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
 function isEntityName(value) {

@@ -28,6 +28,16 @@ scripts/gm-activate
 
 `scripts/gm-activate` is the preferred first-run path. It checks for updates, signs in, stores the session in Keychain when available, validates the install, registers the agent, syncs the OpenAPI schema, and runs the readiness checks needed for normal use.
 
+Before task planning, code edits, production-affecting actions, or answers based on project history, agents must run the invariant preflight for the current workspace/product:
+
+```bash
+scripts/gm-invariant-preflight ValkyrAI signup acl thorapi aspectj
+```
+
+MCP hosts that cannot shell out should call `graymatter_invariant_preflight`. Returned `decision` records tagged as invariants, security, RBAC/ACL, generated-code, AspectJ, `vaix`/`vai`, testing, or product names are binding operational rules. Missing or degraded retrieval is never permission to ignore known durable rules.
+
+For ValkyrAI, ValorIDE, GrayMatter Light, and ThorAPI-generated application work, agents should prefer repo launchers over direct build shortcuts: `./vaix build`, `./vaix test`, `./vaix run`, and repo-documented `./vai` flows preserve ThorAPI generation, AspectJ weaving, heap defaults, local H2/runtime flags, and end-user operational behavior. Signup, ACL/RBAC, and generated API fixes should normally be proven with `./vaix run` on localhost:8080 plus the frontend on localhost:5174 before using production only as a comparison point.
+
 ## What GrayMatter is for
 
 GrayMatter is the memory and context layer for business-native agent systems.
@@ -159,6 +169,7 @@ Rule:
 - `scripts/gm-install-check` — dependency and auth readiness check
 - `scripts/gm-doctor` — full readiness report for self-update, auth, memory, schema, MCP, replay, and smoke status
 - `scripts/gm-smoke` — production smoke test for write/query validation
+- `scripts/gm-invariant-preflight` — load binding durable invariants before agent planning, edits, or production-impacting actions
 - `scripts/gm-query` — query `MemoryEntry`
 - `scripts/gm-retrieval-receipt` — create, fetch, and list retrieval receipts through ThorAPI
 - `scripts/gm-write` — write `MemoryEntry`, with tagged-write fallback behavior
@@ -179,7 +190,7 @@ Rule:
 - `scripts/gm-light-json-smoke` — JSON-file fallback smoke test for Light payload shape without ThorAPI
 - `scripts/package-local-server` — package the standalone downloadable GrayMatter Local Server archive
 - `scripts/package-graymatter` — deterministic validation and packaging
-- `mcp-server/` — standalone HTTP/SSE and Apps SDK `/mcp` server for GrayMatter memory, retrieval receipt, graph, entity, schema, and overview tools
+- `mcp-server/` — standalone HTTP/SSE and Apps SDK `/mcp` server for GrayMatter memory, invariant preflight, retrieval receipt, graph, entity, schema, and overview tools
 - `docs/architecture.md` — architecture and operating model
 - `docs/openai-app-directory-submission.md` — Apps SDK submission checklist and copy
 - `docs/privacy-policy.md` — GrayMatter-specific public privacy policy source

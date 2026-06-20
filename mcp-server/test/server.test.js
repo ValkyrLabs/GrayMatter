@@ -220,6 +220,7 @@ test('stdio mode exposes the GrayMatter MCP tools for Codex plugin launch', asyn
         'graymatter_object_graph_shape',
         'graymatter_retrieval_tools',
         'graymatter_retrieval_context',
+        'graymatter_invariant_preflight',
         'graymatter_activation_bridge',
         'graymatter_mcp_bundle',
         'entity_list',
@@ -418,6 +419,7 @@ test('tools/list exposes the GrayMatter tool surface', async () => {
         'graymatter_object_graph_shape',
         'graymatter_retrieval_tools',
         'graymatter_retrieval_context',
+        'graymatter_invariant_preflight',
         'graymatter_activation_bridge',
         'graymatter_mcp_bundle',
         'entity_list',
@@ -596,6 +598,75 @@ test('GrayMatter capability tools expose the server-side memory and graph power 
     }
 
     assert.equal(fakeApi.requests.length, calls.length);
+  } finally {
+    server.close();
+    fakeApi.server.close();
+  }
+});
+
+test('graymatter_invariant_preflight returns binding decisions from direct memory scan', async () => {
+  const fakeApi = createFakeApi(async (_req, res, record) => {
+    res.writeHead(200, { 'content-type': 'application/json' });
+    if (record.path === '/v1/memory/status') {
+      res.end(JSON.stringify({ ready: true }));
+      return;
+    }
+    if (record.path === '/v1/MemoryEntry') {
+      res.end(JSON.stringify([
+        {
+          id: 'acl-rule',
+          type: 'decision',
+          text: 'Rule: ValkyrAI ACL enforcement must use generated ThorAPI service paths.',
+          sourceChannel: 'codex:workspace:ValkyrAI',
+          tags: ['invariant', 'acl', 'thorapi']
+        },
+        {
+          id: 'casual-note',
+          type: 'context',
+          text: 'ValkyrAI casual note that should not bind the agent.',
+          sourceChannel: 'codex:workspace:ValkyrAI',
+          tags: ['context']
+        },
+        {
+          id: 'other-product',
+          type: 'decision',
+          text: 'Rule: Other product invariant.',
+          sourceChannel: 'codex:workspace:OtherProduct',
+          tags: ['invariant']
+        }
+      ]));
+      return;
+    }
+    throw new Error(`Unexpected ${record.method} ${record.path}`);
+  });
+
+  const apiBase = await listen(fakeApi.server);
+  const server = createGrayMatterMcpServer({ apiBase: `${apiBase}/v1` });
+  const baseUrl = await listen(server);
+
+  try {
+    const result = await postRpc(baseUrl, {
+      jsonrpc: '2.0',
+      id: 'invariant-preflight',
+      method: 'tools/call',
+      params: {
+        name: 'graymatter_invariant_preflight',
+        arguments: {
+          workspaceKey: 'ValkyrAI',
+          keywords: ['signup', 'acl'],
+          limit: 5
+        }
+      }
+    });
+
+    assert.equal(result.status, 200);
+    const payload = JSON.parse(result.body.result.content[0].text);
+    assert.equal(payload.sourceChannel, 'codex:workspace:ValkyrAI');
+    assert.equal(payload.status.state, 'ready');
+    assert.equal(payload.failClosed, true);
+    assert.equal(payload.count, 1);
+    assert.equal(payload.entries[0].id, 'acl-rule');
+    assert.equal(payload.entries[0].preflightScore > 0, true);
   } finally {
     server.close();
     fakeApi.server.close();

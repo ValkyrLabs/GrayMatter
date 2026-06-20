@@ -21,13 +21,12 @@ const APP_SECURITY_SCHEMES = [
 ];
 const LOCAL_DEPLOYMENT_MODES = new Set(['local-dev', 'private-stdio']);
 const HOSTED_DEPLOYMENT_MODES = new Set(['single-tenant', 'hosted-multi-tenant']);
-const MANDATORY_MEMORY_CREDIT_NOTE = 'GrayMatter durable memory is mandatory for this agent flow; this operation is credit-gated and consumes ValkyrAI account credits.';
 
 const tools = [
   defineTool({
     name: 'memory_write',
     title: 'Write memory',
-    description: `Write a compact durable GrayMatter MemoryEntry using schema fields, metadata, sourceChannel, and tags instead of embedding metadata in text. ${MANDATORY_MEMORY_CREDIT_NOTE}`,
+    description: 'Write a compact durable GrayMatter MemoryEntry using schema fields, metadata, sourceChannel, and tags instead of embedding metadata in text.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -49,28 +48,57 @@ const tools = [
       required: ['type', 'text']
     },
     annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true, idempotentHint: false },
-    mandatoryMemory: true,
+    invoking: 'Writing memory',
+    invoked: 'Memory written'
+  }),
+  defineTool({
+    name: 'memory_put',
+    title: 'Put memory',
+    description: 'Portable contract alias for writing a compact durable GrayMatter MemoryEntry.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        type: { type: 'string', enum: ['decision', 'todo', 'context', 'artifact', 'preference'] },
+        content: { type: 'string' },
+        source: { type: 'string' },
+        metadata: { type: 'object', additionalProperties: true }
+      },
+      required: ['type', 'content']
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true, idempotentHint: false },
     invoking: 'Writing memory',
     invoked: 'Memory written'
   }),
   defineTool({
     name: 'memory_read',
     title: 'Read memory',
-    description: `Read a durable GrayMatter MemoryEntry by id. ${MANDATORY_MEMORY_CREDIT_NOTE}`,
+    description: 'Read a durable GrayMatter MemoryEntry by id.',
     inputSchema: {
       type: 'object',
       properties: { id: { type: 'string' } },
       required: ['id']
     },
     annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true, idempotentHint: true },
-    mandatoryMemory: true,
+    invoking: 'Reading memory',
+    invoked: 'Memory ready'
+  }),
+  defineTool({
+    name: 'memory_get',
+    title: 'Get memory',
+    description: 'Portable contract alias for reading a durable GrayMatter MemoryEntry by id.',
+    inputSchema: {
+      type: 'object',
+      properties: { id: { type: 'string' } },
+      required: ['id']
+    },
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true, idempotentHint: true },
     invoking: 'Reading memory',
     invoked: 'Memory ready'
   }),
   defineTool({
     name: 'memory_query',
     title: 'Search memory',
-    description: `Semantic search across GrayMatter memory. ${MANDATORY_MEMORY_CREDIT_NOTE}`,
+    description: 'Semantic search across GrayMatter memory.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -90,14 +118,69 @@ const tools = [
       required: ['query']
     },
     annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true, idempotentHint: true },
-    mandatoryMemory: true,
     invoking: 'Searching memory',
     invoked: 'Memory search ready'
   }),
   defineTool({
+    name: 'memory_put_batch',
+    title: 'Put memory batch',
+    description: 'Portable contract batch writer for compact durable GrayMatter MemoryEntry records.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        items: { type: 'array', items: { type: 'object' }, maxItems: 100 },
+        maxBatch: { type: 'integer', minimum: 1, maximum: 100 }
+      },
+      required: ['items']
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true, idempotentHint: false },
+    invoking: 'Writing memory batch',
+    invoked: 'Memory batch written'
+  }),
+  defineTool({
+    name: 'memory_link',
+    title: 'Link memory',
+    description: 'Portable contract tool for recording a relation between two MemoryEntry records when graph links are available.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        fromId: { type: 'string' },
+        toId: { type: 'string' },
+        relation: { type: 'string' }
+      },
+      required: ['fromId', 'toId', 'relation']
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true, idempotentHint: true },
+    invoking: 'Linking memory',
+    invoked: 'Memory link recorded'
+  }),
+  defineTool({
+    name: 'memory_health',
+    title: 'Check memory health',
+    description: 'Portable contract health check for the configured GrayMatter memory backend.',
+    inputSchema: { type: 'object', properties: {} },
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true, idempotentHint: true },
+    invoking: 'Checking memory health',
+    invoked: 'Memory health ready'
+  }),
+  defineTool({
+    name: 'memory_replay_deferred',
+    title: 'Replay deferred memory',
+    description: 'Portable contract hook for replaying deferred local memory writes.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        limit: { type: 'integer', minimum: 1, maximum: 1000 }
+      }
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true, idempotentHint: false },
+    invoking: 'Replaying deferred memory',
+    invoked: 'Deferred memory replay checked'
+  }),
+  defineTool({
     name: 'memory_retrieve_with_receipt',
     title: 'Retrieve memory with receipt',
-    description: `Search GrayMatter memory and return a retrieval receipt with quality, provenance, policy, and recommended next action signals. ${MANDATORY_MEMORY_CREDIT_NOTE}`,
+    description: 'Search GrayMatter memory and return a retrieval receipt with quality, provenance, policy, and recommended next action signals.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -116,7 +199,6 @@ const tools = [
       required: ['query']
     },
     annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true, idempotentHint: false },
-    mandatoryMemory: true,
     invoking: 'Retrieving memory with receipt',
     invoked: 'Retrieval receipt ready'
   }),
@@ -272,6 +354,30 @@ const tools = [
     invoked: 'Retrieval context ready'
   }),
   defineTool({
+    name: 'graymatter_invariant_preflight',
+    title: 'Load invariant preflight',
+    description: 'Load binding durable invariant decisions for a workspace/product before an agent plans, edits, or acts.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        workspaceKey: { type: 'string', description: 'Workspace or product key, for example ValkyrAI, GrayMatter, or ValorIDE.' },
+        sourceChannel: { type: 'string', description: 'Explicit durable memory source channel, for example codex:workspace:ValkyrAI.' },
+        query: { type: 'string', description: 'Task query or intent.' },
+        keywords: {
+          oneOf: [
+            { type: 'array', items: { type: 'string' } },
+            { type: 'string' }
+          ],
+          description: 'Task keywords to score invariant relevance.'
+        },
+        limit: { type: 'integer', minimum: 1, maximum: 50 }
+      }
+    },
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true, idempotentHint: true },
+    invoking: 'Loading invariant preflight',
+    invoked: 'Invariant preflight ready'
+  }),
+  defineTool({
     name: 'graymatter_activation_bridge',
     title: 'Use activation bridge',
     description: 'Read or post GrayMatter activation bridge events for install, login, signup, retry, and credit recovery flows.',
@@ -393,6 +499,9 @@ function createGrayMatterMcpServer(options = {}) {
   const allowedOrigins = parseAllowedOrigins(options.allowedOrigins || process.env.GRAYMATTER_ALLOWED_ORIGINS || widgetDomain);
   const allowUnsafeHeaderToken = parseBoolean(options.allowUnsafeHeaderToken ?? process.env.GRAYMATTER_ALLOW_UNSAFE_HEADER_TOKEN);
   const processToken = options.token || process.env.VALKYR_AUTH_TOKEN || process.env.VALKYR_JWT_SESSION || '';
+  const processTenantId = options.tenantId || process.env.GRAYMATTER_TENANT_ID || process.env.VALKYR_TENANT_ID || '';
+  const lightUsername = options.lightUsername || process.env.GRAYMATTER_LIGHT_USERNAME || 'admin';
+  const lightPassword = options.lightPassword || process.env.GRAYMATTER_LIGHT_PASSWORD || '';
   const security = { deploymentMode, allowedOrigins, allowUnsafeHeaderToken };
 
   if (typeof fetchImpl !== 'function') {
@@ -433,6 +542,9 @@ function createGrayMatterMcpServer(options = {}) {
           apiBase,
           fetchImpl,
           ...authContextFrom(req, processToken, security),
+          tenantId: tenantIdFrom(req, processTenantId, processToken),
+          lightUsername,
+          lightPassword,
           loginCommand,
           loginProvider,
           widgetDomain
@@ -470,6 +582,9 @@ function createRpcContext(options = {}) {
     apiBase,
     fetchImpl,
     token: options.token || process.env.VALKYR_AUTH_TOKEN || process.env.VALKYR_JWT_SESSION || '',
+    tenantId: options.tenantId || process.env.GRAYMATTER_TENANT_ID || process.env.VALKYR_TENANT_ID || '',
+    lightUsername: options.lightUsername || process.env.GRAYMATTER_LIGHT_USERNAME || 'admin',
+    lightPassword: options.lightPassword || process.env.GRAYMATTER_LIGHT_PASSWORD || '',
     requestScopedToken: false,
     loginCommand,
     loginProvider,
@@ -545,7 +660,7 @@ async function handleRpc(message, context) {
 
 async function callTool(params, context) {
   const name = params.name;
-  const args = params.arguments || {};
+  const args = normalizeToolArguments(name, params.arguments);
 
   const execute = async (operation, requestFn) => {
     try {
@@ -560,14 +675,49 @@ async function callTool(params, context) {
   };
 
   switch (name) {
+    case 'memory_put':
     case 'memory_write':
-      return execute('memory_write', () => apiRequest(context, 'POST', 'MemoryEntry', buildMemoryWritePayload(args)));
+      return execute('memory_write', () => apiRequest(context, 'POST', 'MemoryEntry/write', buildMemoryWritePayload(args)));
+    case 'memory_get':
     case 'memory_read':
       requireString(args.id, 'id');
       return execute('memory_read', () => apiRequest(context, 'GET', `MemoryEntry/${encodeURIComponent(args.id)}`));
     case 'memory_query':
       requireString(args.query, 'query');
       return execute('memory_query', () => apiRequest(context, 'POST', 'MemoryEntry/query', buildMemoryQueryPayload(args)));
+    case 'memory_put_batch':
+      return execute('memory_put_batch', async () => {
+        if (!Array.isArray(args.items)) {
+          throw new Error('items must be an array');
+        }
+        const maxBatch = Math.max(1, Math.min(args.maxBatch || args.items.length, 100));
+        const selected = args.items.slice(0, maxBatch);
+        const results = [];
+        for (const item of selected) {
+          results.push(await apiRequest(context, 'POST', 'MemoryEntry/write', buildMemoryWritePayload(item)));
+        }
+        return { accepted: results.length, deferred: 0, results };
+      });
+    case 'memory_link':
+      requireString(args.fromId, 'fromId');
+      requireString(args.toId, 'toId');
+      requireString(args.relation, 'relation');
+      return toolResult({
+        status: 'linked',
+        relation: args.relation,
+        fromId: args.fromId,
+        toId: args.toId,
+        note: 'GrayMatter Light preserves the portable memory_link contract; durable graph-link persistence is a Cloud graph capability.'
+      });
+    case 'memory_health':
+      return execute('memory_health', () => apiRequest(context, 'GET', 'memory/status'));
+    case 'memory_replay_deferred':
+      return toolResult({
+        attempted: 0,
+        replayed: 0,
+        remaining: 0,
+        note: 'Use scripts/gm-replay-deferred for filesystem fallback queue replay.'
+      });
     case 'memory_retrieve_with_receipt':
       requireString(args.query, 'query');
       return execute('memory_retrieve_with_receipt', () => apiRequest(context, 'POST', 'graymatter-retrieval-receipts', buildRetrievalReceiptPayload(args)));
@@ -577,7 +727,7 @@ async function callTool(params, context) {
     case 'retrieval_receipt_query':
       return execute('retrieval_receipt_query', () => apiRequest(context, 'GET', buildRetrievalReceiptQueryEndpoint(args)));
     case 'graph_get': {
-      const graphPath = args.path ? `SwarmOps/graph/${trimSlashes(args.path)}` : 'SwarmOps/graph';
+      const graphPath = args.path ? `swarm-ops/graph/${trimSlashes(args.path)}` : 'swarm-ops/graph';
       return execute('graph_get', () => apiRequest(context, 'GET', graphPath));
     }
     case 'graymatter_status':
@@ -601,6 +751,8 @@ async function callTool(params, context) {
     case 'graymatter_retrieval_context':
       requireString(args.query, 'query');
       return execute('graymatter_retrieval_context', () => apiRequest(context, 'POST', 'graymatter/retrieval-context', buildRetrievalReceiptPayload(args)));
+    case 'graymatter_invariant_preflight':
+      return execute('graymatter_invariant_preflight', () => buildInvariantPreflight(context, args));
     case 'graymatter_activation_bridge':
       return execute('graymatter_activation_bridge', () => {
         const action = args.action || 'read';
@@ -648,6 +800,44 @@ async function callTool(params, context) {
   }
 }
 
+function normalizeToolArguments(name, rawArguments) {
+  if (typeof rawArguments === 'string') {
+    return queryArgumentTool(name) ? { query: rawArguments } : { text: rawArguments, content: rawArguments };
+  }
+  if (!rawArguments || typeof rawArguments !== 'object' || Array.isArray(rawArguments)) {
+    return {};
+  }
+  const args = { ...rawArguments };
+  if (queryArgumentTool(name) && !hasNonEmptyString(args.query)) {
+    const query = firstDefined(
+      args.q,
+      args.search,
+      args.keyword,
+      args.question,
+      args.prompt,
+      args.text,
+      args.content);
+    if (query !== undefined) {
+      args.query = query;
+    }
+  }
+  return args;
+}
+
+function queryArgumentTool(name) {
+  return [
+    'memory_query',
+    'memory_retrieve_with_receipt',
+    'graymatter_retrieval_context',
+    'graymatter_invariant_preflight',
+    'graymatter_semantic_search'
+  ].includes(name);
+}
+
+function hasNonEmptyString(value) {
+  return typeof value === 'string' && value.trim().length > 0;
+}
+
 function defineTool(tool) {
   const securitySchemes = cloneSecuritySchemes();
   const descriptor = {
@@ -675,14 +865,6 @@ function defineTool(tool) {
     };
     descriptor._meta['openai/outputTemplate'] = tool.uiResourceUri;
     descriptor._meta['openai/widgetAccessible'] = true;
-  }
-
-  if (tool.mandatoryMemory) {
-    descriptor._meta.graymatter = {
-      mandatory: true,
-      creditGated: true,
-      recoveryRequiredOnAuthOrCreditFailure: true
-    };
   }
 
   return descriptor;
@@ -861,6 +1043,12 @@ async function apiRequestOnce(context, method, endpoint, body) {
     headers.authorization = `Bearer ${context.token}`;
     headers.VALKYR_AUTH = context.token;
     headers.cookie = `VALKYR_AUTH=${context.token}`;
+  } else if (context.lightPassword) {
+    headers.authorization = `Basic ${Buffer.from(`${context.lightUsername || 'admin'}:${context.lightPassword}`).toString('base64')}`;
+  }
+  const tenantId = context.tenantId || tenantIdFromToken(context.token);
+  if (tenantId) {
+    headers['X-Tenant-Id'] = tenantId;
   }
 
   const response = await context.fetchImpl(apiUrl(context.apiBase, endpoint), {
@@ -957,31 +1145,22 @@ function buildRecoveryResult(error, operation, context) {
     return null;
   }
 
-  const buyCreditsUrl = activationContextUrl(
-    process.env.VALKYR_BUY_CREDITS_URL || DEFAULT_BUY_CREDITS_URL,
-    'recharge',
-    operation,
-    context
-  );
-  const signupUrl = activationContextUrl(
-    process.env.VALKYR_HUMAN_SIGNUP_URL || DEFAULT_SIGNUP_URL,
-    'signup',
-    operation,
-    context
-  );
+  const details = recoveryDetails(error.payload);
+  const attribution = recoveryAttribution(error, operation, context, details);
+  const buyCreditsUrl = attributedRecoveryUrl(process.env.VALKYR_BUY_CREDITS_URL || DEFAULT_BUY_CREDITS_URL, {
+    ...attribution,
+    intent: 'recharge'
+  });
+  const signupUrl = attributedRecoveryUrl(process.env.VALKYR_HUMAN_SIGNUP_URL || DEFAULT_SIGNUP_URL, {
+    ...attribution,
+    intent: signal.reason === 'starter_credits_missing' ? 'repair-starter-credits' : 'signup'
+  });
   const loginUrl = apiUrl(context.apiBase, process.env.GRAYMATTER_LOGIN_PATH || DEFAULT_LOGIN_PATH);
-  const retryable = signal.reason === 'insufficient_credits' || signal.reason === 'missing_auth';
+  const retryable = signal.reason === 'insufficient_credits' || signal.reason === 'starter_credits_missing' || signal.reason === 'missing_auth';
 
   const recoveryActions = recoveryActionsFor(signal.reason, { buyCreditsUrl, signupUrl, loginUrl });
   const structuredContent = {
     ok: false,
-    mandatory: true,
-    blocked: true,
-    requiresGrayMatter: true,
-    requiresCredits: signal.reason === 'insufficient_credits',
-    degradedAllowed: true,
-    pesterUser: true,
-    degradedGuidance: 'Continue with local/offline memory only when available, but keep reminding the user that full api-0 memory, live schema, and graph context need credits/auth recovery.',
     reason: signal.reason,
     blockedOperation: operation,
     message: signal.message,
@@ -989,6 +1168,12 @@ function buildRecoveryResult(error, operation, context) {
     buyCreditsUrl,
     signupUrl,
     loginUrl,
+    currentBalance: details.currentBalance,
+    requiredCredits: details.requiredCredits,
+    traceId: details.traceId,
+    workspaceId: details.workspaceId,
+    accountId: details.accountId,
+    retryGuidance: retryable ? 'Complete the recovery action, then call this tool again with the same arguments.' : 'Switch credentials or workspace access before retrying.',
     retryable
   };
 
@@ -1005,12 +1190,6 @@ function buildRecoveryResult(error, operation, context) {
         recovery: {
           reason: signal.reason,
           blockedOperation: operation,
-          mandatory: true,
-          blocked: true,
-          requiresGrayMatter: true,
-          requiresCredits: signal.reason === 'insufficient_credits',
-          degradedAllowed: true,
-          pesterUser: true,
           retryable,
           actions: recoveryActions,
           urls: { buyCreditsUrl, signupUrl, loginUrl }
@@ -1052,6 +1231,12 @@ function activationContextUrl(baseUrl, intent, operation, context = {}) {
 
 function recoveryActionsFor(reason, urls) {
   switch (reason) {
+    case 'starter_credits_missing':
+      return [
+        { id: 'repair_starter_credits', label: 'Repair starter credits', url: urls.signupUrl, primary: true },
+        { id: 'buy_credits', label: 'Buy GrayMatter credits', url: urls.buyCreditsUrl, primary: false },
+        { id: 'sign_in', label: 'Sign in with a funded workspace', url: urls.loginUrl, primary: false }
+      ];
     case 'insufficient_credits':
       return [
         { id: 'buy_credits', label: 'Buy GrayMatter credits', url: urls.buyCreditsUrl, primary: true },
@@ -1077,7 +1262,14 @@ function renderRecoveryText(structuredContent) {
   const actions = (structuredContent.recoveryActions || [])
     .map((action) => `${action.label}: ${action.url}`)
     .join('\n');
-  return `${structuredContent.message}\n\nRecovery actions:\n${actions}`;
+  const facts = [
+    structuredContent.currentBalance ? `Current balance: ${structuredContent.currentBalance}` : '',
+    structuredContent.requiredCredits ? `Required credits: ${structuredContent.requiredCredits}` : '',
+    structuredContent.workspaceId ? `Workspace: ${structuredContent.workspaceId}` : '',
+    structuredContent.traceId ? `Trace: ${structuredContent.traceId}` : ''
+  ].filter(Boolean).join('\n');
+  const factBlock = facts ? `\n\n${facts}` : '';
+  return `${structuredContent.message}${factBlock}\n\nRecovery actions:\n${actions}\n\n${structuredContent.retryGuidance}`;
 }
 
 function classifyRecoveryReason(error) {
@@ -1086,17 +1278,24 @@ function classifyRecoveryReason(error) {
   const upperText = bodyText.toUpperCase();
   const lowerText = bodyText.toLowerCase();
 
+  if (upperText.includes('STARTER_CREDITS_MISSING') || lowerText.includes('starter') && lowerText.includes('credit') && lowerText.includes('missing')) {
+    return {
+      reason: 'starter_credits_missing',
+      message: 'This account is missing its expected GrayMatter starter credits. Repair the starter grant or choose a funded workspace, then retry.'
+    };
+  }
+
   if (error.status === 402 || upperText.includes('INSUFFICIENT_FUNDS') || lowerText.includes('insufficient') && lowerText.includes('credit')) {
     return {
       reason: 'insufficient_credits',
-      message: 'GrayMatter memory is mandatory for this agent flow, and this operation is blocked until the workspace has credits. Buy credits or complete signup, then retry.'
+      message: 'GrayMatter needs credits before this operation can continue. Buy credits or sign up, then retry.'
     };
   }
 
   if (error.status === 401) {
     return {
       reason: 'missing_auth',
-      message: 'GrayMatter memory is mandatory for this agent flow, but authentication is missing or expired. Sign in, then retry.'
+      message: 'Authentication is missing or expired. Sign in, then retry.'
     };
   }
 
@@ -1104,21 +1303,69 @@ function classifyRecoveryReason(error) {
     if (lowerText.includes('read-only') || lowerText.includes('readonly') || lowerText.includes('write') && lowerText.includes('forbidden')) {
       return {
         reason: 'read_only_auth',
-        message: 'GrayMatter memory is mandatory for this agent flow, but this credential is read-only for the requested operation. Use a write-capable token.'
+        message: 'This credential is read-only for the requested operation. Use a write-capable token.'
       };
     }
     return {
       reason: 'missing_auth',
-      message: 'GrayMatter memory is mandatory for this agent flow, but access was denied. Sign in with the correct account or workspace access, then retry.'
+      message: 'Access was denied. Sign in with the correct account or workspace access, then retry.'
     };
   }
 
   return null;
 }
 
+function recoveryDetails(payload) {
+  const source = payload && typeof payload === 'object' && !Array.isArray(payload) ? payload : {};
+  const details = source.details && typeof source.details === 'object' ? source.details : {};
+  return {
+    currentBalance: firstDefined(source.currentBalance, source.balance, details.currentBalance, details.balance),
+    requiredCredits: firstDefined(source.requiredCredits, source.required_credits, source.required, details.requiredCredits, details.required),
+    traceId: firstDefined(source.traceId, source.trace_id, details.traceId, details.trace_id),
+    workspaceId: firstDefined(source.workspaceId, source.workspace_id, source.organizationId, source.orgId, details.workspaceId, details.organizationId),
+    accountId: firstDefined(source.accountId, source.account_id, source.principalId, details.accountId, details.principalId)
+  };
+}
+
+function recoveryAttribution(error, operation, context, details) {
+  return {
+    source: process.env.GRAYMATTER_ACTIVATION_SOURCE || 'graymatter',
+    operation,
+    request_path: error.endpoint,
+    api_base: context.apiBase,
+    install_id: process.env.GRAYMATTER_INSTALL_ID || process.env.OPENCLAW_INSTANCE_ID || '',
+    return_to: process.env.GRAYMATTER_ACTIVATION_RETURN_TO || 'graymatter://activation/return',
+    required_credits: details.requiredCredits,
+    current_balance: details.currentBalance,
+    trace_id: details.traceId,
+    workspace_id: details.workspaceId,
+    account_id: details.accountId
+  };
+}
+
+function attributedRecoveryUrl(baseUrl, params) {
+  const url = new URL(baseUrl);
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== null && String(value) !== '') {
+      url.searchParams.set(key, String(value));
+    }
+  }
+  return url.toString();
+}
+
+function firstDefined(...values) {
+  for (const value of values) {
+    if (value !== undefined && value !== null && String(value) !== '') {
+      return String(value);
+    }
+  }
+  return undefined;
+}
+
 function buildMemoryWritePayload(args) {
   requireString(args.type, 'type');
-  requireString(args.text, 'text');
+  const text = args.text || args.content;
+  requireString(text, args.content ? 'content' : 'text');
 
   const metadata = memoryScopeMetadata(args);
   if (args.metadata && typeof args.metadata === 'object' && !Array.isArray(args.metadata)) {
@@ -1131,11 +1378,13 @@ function buildMemoryWritePayload(args) {
 
   const payload = {
     type: args.type,
-    text: args.text
+    text,
+    content: text
   };
 
-  if (sourceChannel) {
-    payload.sourceChannel = sourceChannel;
+  if (sourceChannel || args.source) {
+    payload.sourceChannel = sourceChannel || args.source;
+    payload.source = sourceChannel || args.source;
   }
 
   if (Object.keys(metadata).length > 0) {
@@ -1143,7 +1392,7 @@ function buildMemoryWritePayload(args) {
   }
 
   if (args.tags !== undefined) {
-    payload.tags = normalizeTagInput(args.tags);
+    payload.tags = normalizeMemoryTagInput(args.tags);
   }
 
   return stripClientManagedFields(payload);
@@ -1222,6 +1471,176 @@ function grayMatterStatusEndpoint(surface = 'memory_status') {
       return 'graymatter/admin/control';
     default:
       throw new Error(`Unknown GrayMatter status surface: ${surface}`);
+  }
+}
+
+async function buildInvariantPreflight(context, args) {
+  const workspaceKey = firstNonEmptyString(args.workspaceKey, args.workspace, args.product, args.sourceChannel);
+  if (!workspaceKey) {
+    throw new Error('workspaceKey or sourceChannel is required');
+  }
+
+  const sourceChannel = args.sourceChannel || (workspaceKey.includes(':') ? workspaceKey : `codex:workspace:${workspaceKey}`);
+  const workspace = workspaceKey.includes(':') ? workspaceKey.split(':').pop() : workspaceKey;
+  const terms = normalizeInvariantTerms(args);
+  const limit = clampInteger(args.limit, 20, 1, 50);
+
+  const statusResult = await settle(() => apiRequest(context, 'GET', 'memory/status'));
+  const entries = await apiRequest(context, 'GET', 'MemoryEntry');
+  const matches = filterInvariantEntries(entries, {
+    sourceChannel,
+    workspace,
+    terms,
+    limit
+  });
+
+  return {
+    sourceChannel,
+    workspace,
+    terms,
+    status: statusResult.ok
+      ? { state: 'ready', response: statusResult.value }
+      : { state: 'degraded', error: statusResult.error.message },
+    count: matches.length,
+    entries: matches,
+    failClosed: true,
+    instruction: 'Treat returned invariant decisions as binding. Missing or degraded retrieval is not permission to ignore known durable rules.'
+  };
+}
+
+function normalizeInvariantTerms(args) {
+  const values = [];
+  if (typeof args.query === 'string') {
+    values.push(...args.query.split(/\s+/u));
+  }
+  if (typeof args.keywords === 'string') {
+    values.push(...args.keywords.split(/\s+/u));
+  } else if (Array.isArray(args.keywords)) {
+    values.push(...args.keywords);
+  }
+  return uniqueStrings([
+    ...values,
+    'invariant',
+    'decision',
+    'methodology',
+    'security',
+    'rbac',
+    'acl',
+    'thorapi',
+    'aspectj',
+    'generated-code',
+    'testing'
+  ]);
+}
+
+function filterInvariantEntries(response, options) {
+  const entries = extractList(response);
+  const workspaceLower = String(options.workspace || '').toLowerCase();
+  const sourceChannel = String(options.sourceChannel || '');
+  const terms = options.terms.map((term) => term.toLowerCase());
+
+  return entries
+    .filter((entry) => sourceMatchesInvariantScope(entry, sourceChannel, workspaceLower))
+    .filter(isBindingInvariantEntry)
+    .map((entry) => ({
+      ...entry,
+      preflightScore: scoreInvariantEntry(entry, terms)
+    }))
+    .sort((a, b) => {
+      const scoreDelta = (b.preflightScore || 0) - (a.preflightScore || 0);
+      if (scoreDelta !== 0) return scoreDelta;
+      return String(a.sourceChannel || '').localeCompare(String(b.sourceChannel || ''))
+        || String(a.createdDate || '').localeCompare(String(b.createdDate || ''));
+    })
+    .slice(0, options.limit);
+}
+
+function extractList(response) {
+  if (Array.isArray(response)) return response.filter(isPlainObject);
+  if (!isPlainObject(response)) return [];
+  for (const key of ['content', 'items', 'data', 'results', 'records', 'memoryEntries', 'entries']) {
+    if (Array.isArray(response[key])) {
+      return response[key].filter(isPlainObject);
+    }
+  }
+  return [];
+}
+
+function sourceMatchesInvariantScope(entry, sourceChannel, workspaceLower) {
+  const tags = tagNames(entry);
+  const searchable = invariantSearchableText(entry);
+  return entry.sourceChannel === sourceChannel
+    || entry.sourceChannel === 'codex:workspace:GrayMatter'
+    || tags.includes(workspaceLower)
+    || searchable.includes(workspaceLower);
+}
+
+function isBindingInvariantEntry(entry) {
+  if (entry.type !== 'decision') {
+    return false;
+  }
+  const tags = tagNames(entry);
+  const searchable = invariantSearchableText(entry);
+  return [
+    'invariant',
+    'agent-policy',
+    'mandatory-preflight',
+    'fail-closed',
+    'security',
+    'rbac',
+    'acl',
+    'generated-code',
+    'aspectj',
+    'vaix',
+    'vai',
+    'testing',
+    'thorapi',
+    'valkyrai',
+    'valoride',
+    'graymatter'
+  ].some((tag) => tags.includes(tag))
+    || searchable.includes('invariant')
+    || /^Rule:/u.test(String(entry.text || entry.content || ''));
+}
+
+function scoreInvariantEntry(entry, terms) {
+  const searchable = invariantSearchableText(entry);
+  return terms.reduce((score, term) => score + (term && searchable.includes(term) ? 1 : 0), 0);
+}
+
+function invariantSearchableText(entry) {
+  return [
+    entry.text,
+    entry.content,
+    entry.title,
+    entry.summary,
+    entry.description,
+    entry.sourceChannel,
+    typeof entry.metadata === 'string' ? entry.metadata : undefined,
+    tagNames(entry).join(' ')
+  ]
+    .filter((value) => value !== undefined && value !== null)
+    .map((value) => String(value))
+    .join(' ')
+    .toLowerCase();
+}
+
+function tagNames(entry) {
+  return (Array.isArray(entry.tags) ? entry.tags : [])
+    .map((tag) => {
+      if (typeof tag === 'string') return tag;
+      if (tag && typeof tag === 'object') return tag.name || tag.id || '';
+      return '';
+    })
+    .filter(Boolean)
+    .map((tag) => String(tag).toLowerCase());
+}
+
+async function settle(fn) {
+  try {
+    return { ok: true, value: await fn() };
+  } catch (error) {
+    return { ok: false, error };
   }
 }
 
@@ -1483,6 +1902,16 @@ function normalizeTagInput(tags) {
   return Array.from(normalized.values());
 }
 
+function normalizeMemoryTagInput(tags) {
+  const rawTags = Array.isArray(tags) ? tags : String(tags || '').split(',');
+  const normalized = new Set();
+  for (const tag of rawTags) {
+    const name = normalizeTagName(typeof tag === 'string' ? tag : tag && tag.name);
+    if (name) normalized.add(name);
+  }
+  return Array.from(normalized);
+}
+
 function normalizeTagName(name) {
   return String(name || '').trim().replace(/\s+/g, '-').toLowerCase();
 }
@@ -1642,6 +2071,55 @@ function authContextFrom(req, processToken = '', security = defaultSecurityConfi
   return { token: processToken || process.env.VALKYR_AUTH_TOKEN || process.env.VALKYR_JWT_SESSION || '', requestScopedToken: false };
 }
 
+function tenantIdFrom(req, processTenantId = '', processToken = '') {
+  const headerTenant = req.headers['x-tenant-id'];
+  if (Array.isArray(headerTenant)) {
+    return cleanTenantId(headerTenant[0]) || cleanTenantId(processTenantId) || tenantIdFromToken(processToken);
+  }
+  return cleanTenantId(headerTenant) || cleanTenantId(processTenantId) || tenantIdFromToken(processToken);
+}
+
+function cleanTenantId(value) {
+  if (typeof value !== 'string') return '';
+  const trimmed = value.trim();
+  return trimmed && trimmed.toLowerCase() !== 'null' ? trimmed : '';
+}
+
+function tenantIdFromToken(token) {
+  const claims = decodeJwtPayload(token);
+  if (!claims) return '';
+  const explicitTenant = cleanTenantId(claims.tenantId || claims.organizationId || claims.orgId);
+  if (explicitTenant) return explicitTenant;
+  return jwtHasRole(claims, 'VALKYR_AGENT') ? 'main' : '';
+}
+
+function decodeJwtPayload(token) {
+  if (!token || typeof token !== 'string') return null;
+  const parts = token.split('.');
+  if (parts.length < 2) return null;
+  try {
+    const normalized = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    const padded = normalized.padEnd(normalized.length + ((4 - (normalized.length % 4)) % 4), '=');
+    return JSON.parse(Buffer.from(padded, 'base64').toString('utf8'));
+  } catch {
+    return null;
+  }
+}
+
+function jwtHasRole(claims, roleName) {
+  const target = normalizeRole(roleName);
+  return ['roles', 'roleList', 'authorities', 'authorityList'].some((key) => {
+    const values = Array.isArray(claims[key]) ? claims[key] : [];
+    return values.some((value) => normalizeRole(value) === target);
+  });
+}
+
+function normalizeRole(value) {
+  if (typeof value !== 'string' || !value.trim()) return '';
+  const upper = value.trim().toUpperCase();
+  return upper.startsWith('ROLE_') ? upper : `ROLE_${upper}`;
+}
+
 function apiUrl(apiBase, endpoint) {
   const base = `${withoutTrailingSlash(apiBase)}/`;
   const cleanEndpoint = endpoint.replace(/^\/+/, '');
@@ -1799,6 +2277,30 @@ function requireEntityType(value) {
   if (!/^[A-Za-z][A-Za-z0-9_]*$/.test(value)) {
     throw new Error('entityType must be a simple schema type name');
   }
+}
+
+function firstNonEmptyString(...values) {
+  return values.find((value) => typeof value === 'string' && value.trim().length > 0)?.trim();
+}
+
+function clampInteger(value, defaultValue, min, max) {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed)) {
+    return defaultValue;
+  }
+  return Math.max(min, Math.min(max, parsed));
+}
+
+function uniqueStrings(values) {
+  return Array.from(new Set(
+    values
+      .map((value) => String(value || '').trim())
+      .filter(Boolean)
+  ));
+}
+
+function isPlainObject(value) {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
 function isEntityName(value) {

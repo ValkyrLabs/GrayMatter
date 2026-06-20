@@ -1,0 +1,219 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+Usage:
+  gm-invariant-preflight <workspace-key|sourceChannel> [task keywords...] [--format brief|json] [--limit n]
+
+Load binding GrayMatter invariant decisions before an agent plans or acts.
+
+Examples:
+  gm-invariant-preflight ValkyrAI signup acl thorapi aspectj
+  gm-invariant-preflight codex:workspace:GrayMatter mandatory preflight --format json
+
+This command confirms GrayMatter status and performs a direct /MemoryEntry
+scan instead of relying only on semantic search. This is intentional:
+invariant enforcement must fail closed when vector search is stale, empty,
+credit-limited, or degraded.
+EOF
+}
+
+WORKSPACE_KEY="${1:-}"
+if [[ -z "$WORKSPACE_KEY" || "$WORKSPACE_KEY" == "-h" || "$WORKSPACE_KEY" == "--help" ]]; then
+  usage
+  [[ "$WORKSPACE_KEY" == "-h" || "$WORKSPACE_KEY" == "--help" ]] && exit 0
+  exit 1
+fi
+shift
+
+FORMAT="brief"
+LIMIT="20"
+TERMS=()
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --format)
+      [[ $# -ge 2 ]] || { echo "gm-invariant-preflight: --format requires a value" >&2; exit 1; }
+      FORMAT="$2"
+      shift 2
+      ;;
+    --limit)
+      [[ $# -ge 2 ]] || { echo "gm-invariant-preflight: --limit requires a value" >&2; exit 1; }
+      LIMIT="$2"
+      shift 2
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      TERMS+=("$1")
+      shift
+      ;;
+  esac
+done
+
+case "$FORMAT" in
+  brief|json) ;;
+  *) echo "gm-invariant-preflight: --format must be brief or json" >&2; exit 1 ;;
+esac
+[[ "$LIMIT" =~ ^[0-9]+$ && "$LIMIT" -gt 0 ]] || {
+  echo "gm-invariant-preflight: --limit must be a positive integer" >&2
+  exit 1
+}
+
+if [[ "$WORKSPACE_KEY" == *:* ]]; then
+  SOURCE_CHANNEL="$WORKSPACE_KEY"
+  WORKSPACE_NAME="${WORKSPACE_KEY##*:}"
+else
+  SOURCE_CHANNEL="codex:workspace:$WORKSPACE_KEY"
+  WORKSPACE_NAME="$WORKSPACE_KEY"
+fi
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+GRAYMATTER_API_COMMAND="${GRAYMATTER_API_COMMAND:-${SCRIPT_DIR}/graymatter_api.sh}"
+
+command -v jq >/dev/null 2>&1 || {
+  echo "gm-invariant-preflight requires jq" >&2
+  exit 1
+}
+
+STATUS_FILE="$(mktemp "${TMPDIR:-/tmp}/gm-invariant-status.XXXXXX")"
+RESPONSE_FILE="$(mktemp "${TMPDIR:-/tmp}/gm-invariant-preflight.XXXXXX")"
+trap 'rm -f "$STATUS_FILE" "$RESPONSE_FILE"' EXIT
+
+STATUS_STATE="ready"
+if ! "$GRAYMATTER_API_COMMAND" GET /memory/status >"$STATUS_FILE" 2>/dev/null; then
+  STATUS_STATE="degraded"
+  printf '{"status":"unavailable"}\n' >"$STATUS_FILE"
+fi
+
+"$GRAYMATTER_API_COMMAND" GET /MemoryEntry >"$RESPONSE_FILE"
+
+TERMS_JSON="$(
+  if [[ ${#TERMS[@]} -eq 0 ]]; then
+    printf '[]'
+  else
+    printf '%s\n' "${TERMS[@]}" | jq -R . | jq -cs .
+  fi
+)"
+
+FILTERED="$(
+  jq -c \
+    --arg source "$SOURCE_CHANNEL" \
+    --arg workspace "$WORKSPACE_NAME" \
+    --argjson limit "$LIMIT" \
+    --argjson terms "$TERMS_JSON" '
+      def entries:
+        if type == "array" then .
+        elif (.content? | type) == "array" then .content
+        elif (.items? | type) == "array" then .items
+        elif (.data? | type) == "array" then .data
+        elif (.results? | type) == "array" then .results
+        elif (.records? | type) == "array" then .records
+        else []
+        end;
+      def tag_names:
+        (.tags // [])
+        | map(if type == "object" then (.name // .id // "") else tostring end)
+        | map(ascii_downcase);
+      def searchable:
+        [
+          .text?,
+          .content?,
+          .title?,
+          .summary?,
+          .description?,
+          .sourceChannel?,
+          (.metadata? | if type == "string" then . else empty end),
+          (.tags // [] | map(if type == "object" then (.name // "") else tostring end) | join(" "))
+        ]
+        | map(select(. != null) | tostring)
+        | join(" ")
+        | ascii_downcase;
+      def invariant_tags:
+        [
+          "invariant",
+          "agent-policy",
+          "mandatory-preflight",
+          "fail-closed",
+          "security",
+          "rbac",
+          "acl",
+          "generated-code",
+          "aspectj",
+          "vaix",
+          "vai",
+          "testing",
+          "thorapi",
+          "valkyrai",
+          "valoride",
+          "graymatter"
+        ];
+      def source_match:
+        (.sourceChannel == $source)
+        or (.sourceChannel == "codex:workspace:GrayMatter")
+        or (tag_names | index($workspace | ascii_downcase) != null)
+        or (searchable | contains($workspace | ascii_downcase));
+      def invariant_match:
+        (.type == "decision")
+        and (
+          (tag_names as $tags | any(invariant_tags[]; . as $tag | ($tags | index($tag) != null)))
+          or (searchable | contains("invariant"))
+          or ((.text // .content // "") | test("^Rule:"))
+        );
+      def term_score:
+        . as $entry
+        | reduce ($terms[]? | ascii_downcase) as $term (0; . + if ($entry | searchable | contains($term)) then 1 else 0 end);
+      entries
+      | map(select(source_match and invariant_match) | . + {preflightScore: term_score})
+      | sort_by([-(.preflightScore // 0), (.sourceChannel // ""), (.createdDate // "")])
+      | .[:$limit]
+    ' "$RESPONSE_FILE"
+)"
+
+if [[ "$FORMAT" == "json" ]]; then
+  jq -n \
+    --arg source "$SOURCE_CHANNEL" \
+    --arg workspace "$WORKSPACE_NAME" \
+    --arg statusState "$STATUS_STATE" \
+    --slurpfile status "$STATUS_FILE" \
+    --argjson terms "$TERMS_JSON" \
+    --argjson entries "$FILTERED" \
+    '{
+      sourceChannel:$source,
+      workspace:$workspace,
+      status:{state:$statusState, response:($status[0] // null)},
+      terms:$terms,
+      count:($entries|length),
+      entries:$entries,
+      failClosed:true,
+      instruction:"Treat returned invariant decisions as binding. Missing or degraded retrieval is not permission to ignore known durable rules."
+    }'
+  exit 0
+fi
+
+jq -nr \
+  --arg source "$SOURCE_CHANNEL" \
+  --arg workspace "$WORKSPACE_NAME" \
+  --arg statusState "$STATUS_STATE" \
+  --argjson terms "$TERMS_JSON" \
+  --argjson entries "$FILTERED" '
+    "GrayMatter invariant preflight",
+    "sourceChannel=" + $source,
+    "workspace=" + $workspace,
+    "status=" + $statusState,
+    "terms=" + (($terms | join(" ")) // ""),
+    "matches=" + (($entries | length) | tostring),
+    (
+      $entries[]
+      | "- [" + (.sourceChannel // "") + "] "
+        + ((.text // .content // "") | gsub("[\\r\\n\\t]+"; " ") | if length > 420 then .[0:417] + "..." else . end)
+        + " (id=" + (.id // "") + ")"
+    )
+  '
+
+if [[ "$(jq 'length' <<<"$FILTERED")" -eq 0 ]]; then
+  echo "No binding invariants were found by direct scan. Agents must not treat this as proof that no invariant exists if the user or known IDs indicate otherwise." >&2
+fi

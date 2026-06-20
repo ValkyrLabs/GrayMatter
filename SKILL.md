@@ -22,6 +22,22 @@ Use local workspace files only as:
 GrayMatter is not only a note store.
 It is the authenticated memory and object-graph layer that lets an OpenClaw instance inhabit the organization's live data model safely, within RBAC and the current account's permissions.
 
+## Mandatory invariant preflight
+
+GrayMatter exists so humans do not have to re-teach critical product, security, and methodology constraints to every agent. Durable invariants are operational rules, not optional background context.
+
+Before any agent using GrayMatter plans, edits code, runs production-affecting operations, changes generated surfaces, writes business data, or answers from project history, it must:
+
+1. Confirm GrayMatter auth/status is available.
+2. Query durable memory for the current workspace/product plus task keywords, including `invariant`, `decision`, `methodology`, and any named platform such as ValkyrAI, ThorAPI, AspectJ, RBAC, ACL, api-0, ValorIDE, or GrayMatter.
+3. Prefer retrieval receipts when available; otherwise use `MemoryEntry/query`, `graymatter_invariant_preflight`, `scripts/gm-invariant-preflight`, and direct reads for any known IDs.
+4. Treat returned `decision` entries tagged `invariant`, `security`, `rbac`, `acl`, `generated-code`, `aspectj`, `vaix`, `vai`, `testing`, or product names as binding constraints.
+5. Reconcile the intended work with those constraints before acting. If the task conflicts with an invariant, stop and surface the conflict instead of improvising around it.
+6. If semantic query is unavailable, stale, empty when known IDs exist, or credit-limited, fall back to direct known-ID reads, list filtering, or local bootstrap context and clearly report the degraded retrieval state.
+7. After discovering a new durable invariant from the user, write it to GrayMatter immediately, with stable source scope and tags, then read it back by ID to prove persistence.
+
+Fail closed on safety and platform invariants. Missing or degraded retrieval is never permission to ignore known durable rules.
+
 ## Startup behavior
 
 On startup or first use in a workspace that depends on GrayMatter:
@@ -32,7 +48,8 @@ On startup or first use in a workspace that depends on GrayMatter:
 3. Register the OpenClaw instance as an Agent record for itself in api-0
 4. Load the live OpenAPI from `https://api-0.valkyrlabs.com/v1/api-docs`
 5. Treat `/v1/api-docs` as the source of truth for the environment's available business objects and actions
-6. Use GrayMatter and the broader schema as the primary operational context
+6. Run the mandatory invariant preflight for the current workspace/product before task planning or edits
+7. Use GrayMatter and the broader schema as the primary operational context
 
 Minimum activation flow:
 
@@ -96,6 +113,8 @@ This means a properly authenticated OpenClaw instance can understand the busines
 ### ThorAPI and RTK Query invariants
 
 When working inside ValkyrAI, ValorIDE, GrayMatter Light, or any ThorAPI-generated app:
+- Prefer the project launchers for builds, tests, generation, and local runtime validation: use `./vaix build`, `./vaix test`, `./vaix run`, and the repo-documented `./vai` flows instead of ambiguous direct Maven/npm shortcuts. These launchers preserve ThorAPI generation, AspectJ weaving, heap defaults, local H2/runtime flags, and the same operational path users exercise.
+- For ValkyrAI signup, ACL, RBAC, and generated API work, prefer `./vaix run` on localhost:8080 with H2 plus the frontend on localhost:5174 for development validation before comparing to production behavior.
 - Generated ThorAPI TypeScript RTK Query clients and generated components belong to the generated `thorapi/redux` surface. Do not hand-edit generated clients, hooks, components, interfaces, or service files.
 - If generated RTK Query behavior is wrong, fix the canonical OpenAPI/ThorAPI inputs such as `api.hbs.yaml` or the `typescript-redux-query` mustache templates, then regenerate with `./vaix generate`.
 - Custom, non-generated RTK Query slices belong under the app's `./redux` tree, normally `src/redux/services`, and must be registered in the app Redux store.
@@ -132,6 +151,7 @@ Readiness and auth:
 - `scripts/gm-status`
 
 Memory and graph helpers:
+- `scripts/gm-invariant-preflight`
 - `scripts/gm-write`
 - `scripts/gm-query`
 - `scripts/gm-retrieval-receipt`
@@ -148,7 +168,7 @@ Local/server packaging:
 - `scripts/package-local-server`
 
 MCP server:
-- `mcp-server/` exposes `memory_write`, `memory_read`, `memory_query`, `memory_retrieve_with_receipt`, `retrieval_receipt_get`, `retrieval_receipt_query`, `graph_get`, GrayMatter status/semantic/retrieval/activation/MCP-bundle tools, `entity_list`, `entity_get`, `entity_create`, and `schema_summary`
+- `mcp-server/` exposes `memory_write`, `memory_read`, `memory_query`, `memory_retrieve_with_receipt`, `retrieval_receipt_get`, `retrieval_receipt_query`, `graph_get`, GrayMatter status/semantic/retrieval/activation/MCP-bundle tools, `graymatter_invariant_preflight`, `entity_list`, `entity_get`, `entity_create`, and `schema_summary`
 - set `VALKYR_API_BASE` to hosted api-0 for Cloud mode or to the running GrayMatter Light base URL for local ThorAPI mode
 
 Design boundary:
@@ -262,6 +282,9 @@ Use `scripts/gm-openapi-sync`, `scripts/gm-openapi-summary`, and `docs/server-ca
 ```bash
 # query durable memory
 scripts/gm-query "graymatter launch" 10
+
+# load binding invariants before planning or edits
+scripts/gm-invariant-preflight ValkyrAI signup acl thorapi aspectj
 
 # retrieve memory with an auditable receipt before answering
 scripts/gm-retrieval-receipt create "graymatter launch status" 8 DEFAULT

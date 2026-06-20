@@ -86,6 +86,7 @@ The server also implements `resources/list` and `resources/read` for the Apps SD
 | `graymatter_object_graph_shape` | `GET /graymatter/object-graph/shape` | Inspect relationship-aware object graph shape. |
 | `graymatter_retrieval_tools` | `GET /graymatter/retrieval-tools` | List server-side retrieval tools and retrieval-context capabilities. |
 | `graymatter_retrieval_context` | `POST /graymatter/retrieval-context` | Build server-side retrieval context for a query. |
+| `graymatter_invariant_preflight` | `GET /memory/status`, `GET /MemoryEntry` | Load binding durable invariant decisions for a workspace/product before an agent plans, edits, or acts. |
 | `graymatter_activation_bridge` | `GET /graymatter/activation/bridge`, `GET /graymatter/activation/bridge/retry`, `POST /graymatter/activation/bridge/event` | Use install/login/signup/credit activation bridge flows. |
 | `graymatter_mcp_bundle` | `POST /graymatter/mcp/bundles`, `GET /graymatter/mcp/bundles/{bundleId}` | Create or fetch GrayMatter MCP bundles. |
 | `entity_list` | `GET /{entityType}` | List business entities such as `Customer`, `Task`, `Invoice`, or `Goal`. |
@@ -94,6 +95,18 @@ The server also implements `resources/list` and `resources/read` for the Apps SD
 | `schema_summary` | `GET /api-docs` | Summarize the live ValkyrAI OpenAPI schema. |
 
 See `../docs/server-capabilities.md` for the broader live api-0 capability map. The generic entity tools are intentionally broad because GrayMatter should use the RBAC-visible business object graph, not just a narrow memory endpoint list.
+
+## Invariant Preflight
+
+Use `graymatter_invariant_preflight` before task planning, code edits, production-impacting operations, generated-surface changes, or project-history answers. The tool confirms memory status, directly scans RBAC-visible `MemoryEntry` records, and returns binding `decision` entries tagged or written as invariants.
+
+For shell-based installs, the equivalent command is:
+
+```bash
+scripts/gm-invariant-preflight ValkyrAI signup acl thorapi aspectj
+```
+
+Agents must fail closed on safety and platform invariants. Empty, degraded, or credit-limited retrieval is not permission to ignore durable rules already known by the user, workspace, or product.
 
 ## Scoped Memory
 

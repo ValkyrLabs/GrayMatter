@@ -13,6 +13,7 @@ REQUIRED=(
   mcp-server/package.json
   scripts/gm-activate
   scripts/gm-activation-fastlane
+  scripts/gm-invariant-preflight
   scripts/gm-doctor
   scripts/gm-install-check
   scripts/gm-mcp-contract

@@ -17,6 +17,7 @@ REQUIRED=(
   mcp-server/package.json
   docs/server-capabilities.md
   scripts/gm-activation-fastlane
+  scripts/gm-invariant-preflight
   scripts/gm-query
   scripts/gm-retrieval-receipt
   scripts/gm-graph

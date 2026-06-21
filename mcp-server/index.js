@@ -495,6 +495,9 @@ function createGrayMatterMcpServer(options = {}) {
   const fetchImpl = options.fetch || globalThis.fetch;
   const loginProvider = options.loginProvider || runLoginCommand;
   const loginCommand = options.loginCommand || process.env.GRAYMATTER_LOGIN_COMMAND || path.join(__dirname, '..', 'scripts', 'gm-login');
+  const apiShellProvider = options.apiShellProvider || runShellApiCommand;
+  const apiCommand = options.apiCommand || process.env.GRAYMATTER_API_COMMAND || path.join(__dirname, '..', 'scripts', 'graymatter_api.sh');
+  const keychainReader = options.keychainReader || readTokenFromKeychain;
   const deploymentMode = normalizeDeploymentMode(options.deploymentMode || process.env.GRAYMATTER_MCP_MODE || 'local-dev');
   const allowedOrigins = parseAllowedOrigins(options.allowedOrigins || process.env.GRAYMATTER_ALLOWED_ORIGINS || widgetDomain);
   const allowUnsafeHeaderToken = parseBoolean(options.allowUnsafeHeaderToken ?? process.env.GRAYMATTER_ALLOW_UNSAFE_HEADER_TOKEN);
@@ -547,6 +550,9 @@ function createGrayMatterMcpServer(options = {}) {
           lightPassword,
           loginCommand,
           loginProvider,
+          apiCommand,
+          apiShellProvider,
+          keychainReader,
           widgetDomain
         });
 
@@ -573,6 +579,8 @@ function createRpcContext(options = {}) {
   const fetchImpl = options.fetch || globalThis.fetch;
   const loginProvider = options.loginProvider || runLoginCommand;
   const loginCommand = options.loginCommand || process.env.GRAYMATTER_LOGIN_COMMAND || path.join(__dirname, '..', 'scripts', 'gm-login');
+  const apiShellProvider = options.apiShellProvider || runShellApiCommand;
+  const apiCommand = options.apiCommand || process.env.GRAYMATTER_API_COMMAND || path.join(__dirname, '..', 'scripts', 'graymatter_api.sh');
 
   if (typeof fetchImpl !== 'function') {
     throw new Error('Global fetch is required. Use Node 20 or newer.');
@@ -588,6 +596,9 @@ function createRpcContext(options = {}) {
     requestScopedToken: false,
     loginCommand,
     loginProvider,
+    apiCommand,
+    apiShellProvider,
+    keychainReader: options.keychainReader || readTokenFromKeychain,
     widgetDomain
   };
 }
@@ -1020,13 +1031,33 @@ function overviewWidgetHtml() {
 }
 
 async function apiRequest(context, method, endpoint, body) {
+  if (!context.requestScopedToken && !context.token) {
+    hydrateLocalAuth(context);
+  }
   try {
     return await apiRequestOnce(context, method, endpoint, body);
   } catch (error) {
-    if (!isRefreshableAuthError(error) || !(await refreshAuth(context))) {
+    if (!isRefreshableAuthError(error)) {
       throw error;
     }
-    return apiRequestOnce(context, method, endpoint, body);
+
+    let authError = error;
+    if (await refreshAuth(context)) {
+      try {
+        return await apiRequestOnce(context, method, endpoint, body);
+      } catch (retryError) {
+        authError = retryError;
+        if (!isRefreshableAuthError(retryError)) {
+          throw retryError;
+        }
+      }
+    }
+
+    if (shouldUseShellApiFallback(context, method)) {
+      return context.apiShellProvider(context, method, endpoint, body);
+    }
+
+    throw authError;
   }
 }
 
@@ -1075,6 +1106,23 @@ async function apiRequestOnce(context, method, endpoint, body) {
   return payload;
 }
 
+function hydrateLocalAuth(context) {
+  if (!context || context.requestScopedToken || context.token || typeof context.keychainReader !== 'function') {
+    return false;
+  }
+
+  try {
+    const token = context.keychainReader(context);
+    if (!token || typeof token !== 'string') {
+      return false;
+    }
+    context.token = token.trim();
+    return Boolean(context.token);
+  } catch {
+    return false;
+  }
+}
+
 async function refreshAuth(context) {
   if (!context || context.requestScopedToken || typeof context.loginProvider !== 'function') {
     return false;
@@ -1093,13 +1141,58 @@ async function refreshAuth(context) {
 }
 
 function isRefreshableAuthError(error) {
-  if (!error || error.name !== 'ApiRequestError' || error.status !== 401) {
+  if (!error || error.name !== 'ApiRequestError') {
     return false;
   }
 
   const payload = error.payload;
   const text = typeof payload === 'string' ? payload : JSON.stringify(payload || {});
-  return /SESSION_EXPIRED|TOKEN_EXPIRED|expired|missing auth|unauthorized/i.test(text);
+  if (error.status === 401) {
+    return /SESSION_EXPIRED|TOKEN_EXPIRED|expired|missing auth|unauthorized/i.test(text);
+  }
+  if (error.status === 403) {
+    return /cannot perform this action|required write|write scope|write-capable|permission|forbidden|access denied/i.test(text);
+  }
+  return false;
+}
+
+function readTokenFromKeychain() {
+  if (process.platform !== 'darwin') {
+    return '';
+  }
+
+  const service = process.env.VALKYR_KEYCHAIN_SERVICE || 'VALKYR_AUTH';
+  const accounts = [
+    process.env.GRAYMATTER_USERNAME || process.env.VALKYR_USERNAME || '',
+    'default'
+  ].filter(Boolean);
+  const services = [...new Set([service, 'VALKYR_AUTH', 'openclaw-valkyrai-admin-jwtSession'])];
+
+  for (const account of accounts) {
+    for (const candidateService of services) {
+      try {
+        const token = execFileSync('security', [
+          'find-generic-password',
+          '-a',
+          account,
+          '-s',
+          candidateService,
+          '-w'
+        ], {
+          encoding: 'utf8',
+          stdio: ['ignore', 'pipe', 'ignore'],
+          timeout: 1000
+        }).trim();
+        if (token) {
+          return token;
+        }
+      } catch {
+        // Try the next account/service pair.
+      }
+    }
+  }
+
+  return '';
 }
 
 function runLoginCommand(context) {
@@ -1114,6 +1207,40 @@ function runLoginCommand(context) {
     timeout: Number(process.env.GRAYMATTER_LOGIN_TIMEOUT_MS || 30000)
   });
   return parseExportedToken(output);
+}
+
+function runShellApiCommand(context, method, endpoint, body) {
+  const apiCommand = context.apiCommand || process.env.GRAYMATTER_API_COMMAND || path.join(__dirname, '..', 'scripts', 'graymatter_api.sh');
+  const args = [
+    method,
+    endpoint
+  ];
+  if (body !== undefined) {
+    args.push(JSON.stringify(body));
+  }
+  const output = execFileSync(apiCommand, args, {
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      VALKYR_API_BASE: context.apiBase,
+      VALKYR_AUTH_TOKEN: context.token || process.env.VALKYR_AUTH_TOKEN || '',
+      GRAYMATTER_SKIP_SELF_UPDATE: 'true'
+    },
+    stdio: ['ignore', 'pipe', 'pipe'],
+    timeout: Number(process.env.GRAYMATTER_API_COMMAND_TIMEOUT_MS || 90000)
+  });
+  return output ? parseJson(output) : null;
+}
+
+function shouldUseShellApiFallback(context, method) {
+  return Boolean(context)
+    && !context.requestScopedToken
+    && typeof context.apiShellProvider === 'function'
+    && methodRequiresStatefulFallback(method);
+}
+
+function methodRequiresStatefulFallback(method) {
+  return /^(POST|PUT|PATCH|DELETE)$/i.test(String(method || ''));
 }
 
 function parseExportedToken(output) {

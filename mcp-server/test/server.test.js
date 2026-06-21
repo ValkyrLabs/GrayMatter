@@ -987,6 +987,151 @@ test('MCP process auth reauthenticates once on SESSION_EXPIRED and retries', asy
   }
 });
 
+test('MCP process auth hydrates from local credential reader before first local request', async () => {
+  let keychainCalls = 0;
+  const fakeApi = createFakeApi(async (_req, res, record) => {
+    assert.equal(record.headers.authorization, 'Bearer keychain-token');
+    assert.equal(record.path, '/v1/MemoryEntry/write');
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ id: 'mem-hydrated' }));
+  });
+
+  const apiBase = await listen(fakeApi.server);
+  const server = createGrayMatterMcpServer({
+    apiBase: `${apiBase}/v1`,
+    token: '',
+    keychainReader: () => {
+      keychainCalls += 1;
+      return 'keychain-token';
+    }
+  });
+  const baseUrl = await listen(server);
+
+  try {
+    const result = await postRpc(baseUrl, {
+      jsonrpc: '2.0',
+      id: 'hydrate-auth',
+      method: 'tools/call',
+      params: { name: 'memory_write', arguments: { type: 'context', text: 'hello' } }
+    }, {}, '/mcp');
+
+    assert.equal(result.status, 200);
+    assert.equal(result.body.result.content[0].text, JSON.stringify({ id: 'mem-hydrated' }));
+    assert.equal(keychainCalls, 1);
+    assert.equal(fakeApi.requests.length, 1);
+  } finally {
+    server.close();
+    fakeApi.server.close();
+  }
+});
+
+test('MCP process auth refreshes once when a stale keychain token receives write-scope denial', async () => {
+  let loginCalls = 0;
+  const fakeApi = createFakeApi(async (_req, res, record) => {
+    if (fakeApi.requests.length === 1) {
+      assert.equal(record.headers.authorization, 'Bearer stale-keychain-token');
+      assert.equal(record.path, '/v1/MemoryEntry/write');
+      res.writeHead(403, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({
+        message: 'Authenticated token cannot perform this action. Verify required write scopes or role permissions.'
+      }));
+      return;
+    }
+
+    assert.equal(record.headers.authorization, 'Bearer write-capable-token');
+    assert.equal(record.path, '/v1/MemoryEntry/write');
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ id: 'mem-refreshed-write' }));
+  });
+
+  const apiBase = await listen(fakeApi.server);
+  const server = createGrayMatterMcpServer({
+    apiBase: `${apiBase}/v1`,
+    token: '',
+    keychainReader: () => 'stale-keychain-token',
+    loginProvider: async () => {
+      loginCalls += 1;
+      return 'write-capable-token';
+    }
+  });
+  const baseUrl = await listen(server);
+
+  try {
+    const result = await postRpc(baseUrl, {
+      jsonrpc: '2.0',
+      id: 'refresh-write-denial',
+      method: 'tools/call',
+      params: { name: 'memory_write', arguments: { type: 'context', text: 'hello' } }
+    }, {}, '/mcp');
+
+    assert.equal(result.status, 200);
+    assert.equal(result.body.result.content[0].text, JSON.stringify({ id: 'mem-refreshed-write' }));
+    assert.equal(loginCalls, 1);
+    assert.equal(fakeApi.requests.length, 2);
+  } finally {
+    server.close();
+    fakeApi.server.close();
+  }
+});
+
+test('MCP process auth can fall back to stateful shell transport for write denials', async () => {
+  let loginCalls = 0;
+  let shellCalls = 0;
+  const fakeApi = createFakeApi(async (_req, res, record) => {
+    if (fakeApi.requests.length === 1) {
+      assert.equal(record.headers.authorization, 'Bearer stale-keychain-token');
+    } else {
+      assert.equal(record.headers.authorization, 'Bearer refreshed-bearer-token');
+    }
+    assert.equal(record.path, '/v1/MemoryEntry/write');
+    res.writeHead(403, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({
+      message: 'Authenticated token cannot perform this action. Verify required write scopes or role permissions.'
+    }));
+  });
+
+  const apiBase = await listen(fakeApi.server);
+  const server = createGrayMatterMcpServer({
+    apiBase: `${apiBase}/v1`,
+    token: '',
+    keychainReader: () => 'stale-keychain-token',
+    loginProvider: async () => {
+      loginCalls += 1;
+      return 'refreshed-bearer-token';
+    },
+    apiShellProvider: async (_context, method, endpoint, body) => {
+      shellCalls += 1;
+      assert.equal(method, 'POST');
+      assert.equal(endpoint, 'MemoryEntry/write');
+      assert.deepEqual(body, {
+        type: 'context',
+        text: 'stateful fallback please',
+        content: 'stateful fallback please'
+      });
+      return { id: 'mem-stateful-shell' };
+    }
+  });
+  const baseUrl = await listen(server);
+
+  try {
+    const result = await postRpc(baseUrl, {
+      jsonrpc: '2.0',
+      id: 'shell-fallback-write-denial',
+      method: 'tools/call',
+      params: { name: 'memory_write', arguments: { type: 'context', text: 'stateful fallback please' } }
+    }, {}, '/mcp');
+
+    assert.equal(result.status, 200);
+    assert.equal(result.body.result.content[0].text, JSON.stringify({ id: 'mem-stateful-shell' }));
+    assert.equal(loginCalls, 1);
+    assert.equal(shellCalls, 1);
+    assert.equal(fakeApi.requests.length, 2);
+  } finally {
+    server.close();
+    fakeApi.server.close();
+  }
+});
+
 test('MCP per-request auth does not reauthenticate into a shared process token', async () => {
   let loginCalls = 0;
   const fakeApi = createFakeApi(async (_req, res, record) => {
@@ -1020,6 +1165,46 @@ test('MCP per-request auth does not reauthenticate into a shared process token',
     assert.equal(result.status, 200);
     assert.equal(result.body.result.structuredContent.reason, 'missing_auth');
     assert.equal(loginCalls, 0);
+    assert.equal(fakeApi.requests.length, 1);
+  } finally {
+    server.close();
+    fakeApi.server.close();
+  }
+});
+
+test('MCP per-request auth does not fall back to shared stateful shell transport', async () => {
+  let shellCalls = 0;
+  const fakeApi = createFakeApi(async (_req, res, record) => {
+    assert.equal(record.headers.authorization, 'Bearer user-scoped-token');
+    assert.equal(record.path, '/v1/MemoryEntry/write');
+    res.writeHead(403, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({
+      message: 'Authenticated token cannot perform this action. Verify required write scopes or role permissions.'
+    }));
+  });
+
+  const apiBase = await listen(fakeApi.server);
+  const server = createGrayMatterMcpServer({
+    apiBase: `${apiBase}/v1`,
+    token: 'process-token',
+    apiShellProvider: async () => {
+      shellCalls += 1;
+      return { id: 'must-not-use-shared-shell' };
+    }
+  });
+  const baseUrl = await listen(server);
+
+  try {
+    const result = await postRpc(baseUrl, {
+      jsonrpc: '2.0',
+      id: 'request-scoped-shell-blocked',
+      method: 'tools/call',
+      params: { name: 'memory_write', arguments: { type: 'context', text: 'hello' } }
+    }, { authorization: 'Bearer user-scoped-token' }, '/mcp');
+
+    assert.equal(result.status, 200);
+    assert.equal(result.body.result.structuredContent.reason, 'missing_auth');
+    assert.equal(shellCalls, 0);
     assert.equal(fakeApi.requests.length, 1);
   } finally {
     server.close();

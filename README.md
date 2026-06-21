@@ -38,6 +38,10 @@ MCP hosts that cannot shell out should call `graymatter_invariant_preflight`. Re
 
 For ValkyrAI, ValorIDE, GrayMatter Light, and ThorAPI-generated application work, agents should prefer repo launchers over direct build shortcuts: `./vaix build`, `./vaix test`, `./vaix run`, and repo-documented `./vai` flows preserve ThorAPI generation, AspectJ weaving, heap defaults, local H2/runtime flags, and end-user operational behavior. Signup, ACL/RBAC, and generated API fixes should normally be proven with `./vaix run` on localhost:8080 plus the frontend on localhost:5174 before using production only as a comparison point.
 
+P0 RBAC/ACL security invariant: generated ThorAPI ACL behavior is the authorization source of truth. No custom controller, delegate, service, frontend filter, status check, type check, role shortcut, catalog rule, or "public-ish" heuristic may bypass, weaken, replace, or shadow generated ACL behavior. Users may see owned records and records shared by explicit ACL grants only; public access requires explicit `anonymousUser` READ. Solve ACL scale with indexed owner/ACL query selection plus final generated ACL guards, never by scanning private rows or adding object-specific bypasses.
+
+P0 Valkyr Way UX/auth invariant: product UX must be integrated into the shared application shell and centralized auth/session primitives. Do not create one-off screens, standalone admin affordances, self-managed auth checks, browser-cache shortcuts, or cobbled mini-apps that bypass LCARS navigation, route guards, shared access-control state, RTK Query cache invalidation, or generated RBAC/ACL contracts. Admin and finance tools belong inside the appropriate LCARS dashboard/sidebar surfaces; user management has one Users & Roles surface with card/list modes rather than separate `/userList` and dashboard implementations. If authentication behavior changes, update the centralized auth/access-control modules and tests instead of scattering per-component checks.
+
 ## What GrayMatter is for
 
 GrayMatter is the memory and context layer for business-native agent systems.

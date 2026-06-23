@@ -22,6 +22,7 @@ chmod +x "${install_dir}/graymatter-bootstrap"
 (cd "${install_dir}" && ./graymatter-bootstrap >/tmp/graymatter-bootstrap.out)
 
 [[ -x "${install_dir}/scripts/gm-activate" ]] || fail "graymatter-bootstrap should restore runtime scripts from graymatter.skill"
+[[ -x "${install_dir}/scripts/gm-read" ]] || fail "graymatter-bootstrap should restore gm-read"
 [[ -x "${install_dir}/scripts/graymatter_api.sh" ]] || fail "graymatter-bootstrap should restore graymatter_api.sh"
 [[ -f "${install_dir}/mcp-server/index.js" ]] || fail "graymatter-bootstrap should restore MCP server files"
 

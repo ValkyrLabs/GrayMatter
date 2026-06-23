@@ -439,9 +439,10 @@ trap 'rm -f "$QUERY_RESPONSE"' EXIT
 if run_memoryentry_query >"$QUERY_RESPONSE"; then
   format_response "$QUERY_RESPONSE"
   exit 0
+else
+  QUERY_STATUS=$?
 fi
 
-QUERY_STATUS=$?
 cat "$QUERY_RESPONSE" >&2
 if [[ -s "$QUERY_RESPONSE" ]]; then
   echo >&2

@@ -19,6 +19,7 @@ REQUIRED=(
   scripts/gm-activation-fastlane
   scripts/gm-invariant-preflight
   scripts/gm-query
+  scripts/gm-read
   scripts/gm-retrieval-receipt
   scripts/gm-graph
   scripts/gm-write

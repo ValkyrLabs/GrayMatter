@@ -1,0 +1,135 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+Usage:
+  gm-read <memory-entry-id> [--format json|brief|english] [--text-max n]
+
+Read one GrayMatter MemoryEntry by ID through the shared authenticated
+graymatter_api.sh transport.
+
+Options:
+  --format <json|brief|english>
+      Output format. Defaults to json.
+
+  --brief
+  --english
+  --summary
+      Print a bounded human-readable summary.
+
+  --text-max <n>
+      Maximum text characters for brief/english output. Defaults to 500.
+
+  -h, --help
+      Show this help text.
+
+Examples:
+  gm-read f7c29154-216f-4934-ac02-2d5e8b242180
+  gm-read f7c29154-216f-4934-ac02-2d5e8b242180 --brief
+EOF
+}
+
+require_value() {
+  local option="$1"
+  local value="${2:-}"
+  if [[ -z "$value" || "$value" == --* ]]; then
+    echo "gm-read: $option requires a value" >&2
+    echo "Run 'gm-read --help' for usage." >&2
+    exit 1
+  fi
+}
+
+ID="${1:-}"
+if [[ "$ID" == "-h" || "$ID" == "--help" ]]; then
+  usage
+  exit 0
+fi
+if [[ -z "$ID" ]]; then
+  usage >&2
+  exit 1
+fi
+shift
+
+OUTPUT_FORMAT="${GRAYMATTER_READ_FORMAT:-json}"
+TEXT_MAX="${GRAYMATTER_READ_TEXT_MAX:-500}"
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    --format)
+      require_value "$1" "${2:-}"
+      OUTPUT_FORMAT="${2:-}"
+      shift 2
+      ;;
+    --brief|--english|--summary)
+      OUTPUT_FORMAT="english"
+      shift
+      ;;
+    --text-max)
+      require_value "$1" "${2:-}"
+      TEXT_MAX="${2:-}"
+      shift 2
+      ;;
+    *)
+      echo "Unknown gm-read option: $1" >&2
+      echo "Run 'gm-read --help' for usage." >&2
+      exit 1
+      ;;
+  esac
+done
+
+case "$OUTPUT_FORMAT" in
+  json|brief|english) ;;
+  *)
+    echo "gm-read: --format must be json, brief, or english: $OUTPUT_FORMAT" >&2
+    exit 1
+    ;;
+esac
+if [[ ! "$TEXT_MAX" =~ ^[0-9]+$ || "$TEXT_MAX" -lt 40 ]]; then
+  echo "gm-read: --text-max must be an integer >= 40: $TEXT_MAX" >&2
+  exit 1
+fi
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+GRAYMATTER_API_COMMAND="${GRAYMATTER_API_COMMAND:-${SCRIPT_DIR}/graymatter_api.sh}"
+
+RESPONSE_FILE="$(mktemp "${TMPDIR:-/tmp}/gm-read-response.XXXXXX")"
+trap 'rm -f "$RESPONSE_FILE"' EXIT
+
+"$GRAYMATTER_API_COMMAND" GET "/MemoryEntry/${ID}" >"$RESPONSE_FILE"
+
+if [[ "$OUTPUT_FORMAT" == "json" ]]; then
+  cat "$RESPONSE_FILE"
+  exit 0
+fi
+
+command -v jq >/dev/null 2>&1 || {
+  echo "gm-read: --brief/--english requires jq" >&2
+  exit 1
+}
+
+jq -r --argjson textMax "$TEXT_MAX" '
+  def compact_text:
+    tostring
+    | gsub("[\\r\\n\\t]+"; " ")
+    | gsub("  +"; " ")
+    | gsub("^\\s+|\\s+$"; "");
+  def bounded:
+    compact_text
+    | if length > $textMax then .[0:($textMax - 3)] + "..." else . end;
+  def tag_names:
+    (.tags // [])
+    | map(if type == "object" then (.name // .id // "") else tostring end)
+    | map(select(length > 0))
+    | unique
+    | join(",");
+  "GrayMatter memory entry " + ((.id // "") | tostring),
+  "- type=" + ((.type // "unknown") | tostring)
+    + ", source=" + ((.sourceChannel // .source // "") | tostring)
+    + (if ((tag_names | length) > 0) then ", tags=" + tag_names else "" end),
+  ((.text // .title // .summary // .description // .content // "") | bounded)
+' "$RESPONSE_FILE"

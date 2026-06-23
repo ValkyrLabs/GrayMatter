@@ -58,12 +58,20 @@ grep -q '/v1/api-docs' "$ROOT/plugins/graymatter/skills/graymatter-analytics/SKI
   echo "Codex marketplace plugin invariant preflight missing or not executable" >&2
   exit 1
 }
+[[ -x "$ROOT/plugins/graymatter/scripts/gm-read" ]] || {
+  echo "Codex marketplace plugin memory read script missing or not executable" >&2
+  exit 1
+}
 [[ -x "$ROOT/scripts/gm-activation-fastlane" ]] || {
   echo "first-run activation fastlane missing or not executable" >&2
   exit 1
 }
 [[ -x "$ROOT/scripts/gm-invariant-preflight" ]] || {
   echo "invariant preflight missing or not executable" >&2
+  exit 1
+}
+[[ -x "$ROOT/scripts/gm-read" ]] || {
+  echo "memory read script missing or not executable" >&2
   exit 1
 }
 [[ -f "$ROOT/plugins/graymatter/mcp-server/index.js" ]] || {
@@ -114,8 +122,16 @@ grep -q "gm-invariant-preflight" "$ROOT/scripts/package-graymatter" || {
   echo "package manifest missing invariant preflight" >&2
   exit 1
 }
+grep -q "gm-read" "$ROOT/scripts/package-graymatter" || {
+  echo "package manifest missing memory read script" >&2
+  exit 1
+}
 grep -q "gm-invariant-preflight" "$ROOT/plugins/graymatter/scripts/package-graymatter" || {
   echo "plugin package manifest missing invariant preflight" >&2
+  exit 1
+}
+grep -q "gm-read" "$ROOT/plugins/graymatter/scripts/package-graymatter" || {
+  echo "plugin package manifest missing memory read script" >&2
   exit 1
 }
 grep -q "graymatter_invariant_preflight" "$ROOT/mcp-server/README.md" || {
@@ -136,6 +152,7 @@ grep -q '^graymatter/skills/graymatter-analytics/references/semantic-layer-templ
 grep -q '^graymatter/scripts/gm-activate$' "$ZIP_LIST"
 grep -q '^graymatter/scripts/gm-activation-fastlane$' "$ZIP_LIST"
 grep -q '^graymatter/scripts/gm-invariant-preflight$' "$ZIP_LIST"
+grep -q '^graymatter/scripts/gm-read$' "$ZIP_LIST"
 grep -q '^graymatter/scripts/gm-login$' "$ZIP_LIST"
 grep -q '^graymatter/scripts/gm-install-check$' "$ZIP_LIST"
 grep -q '^graymatter/scripts/gm-doctor$' "$ZIP_LIST"

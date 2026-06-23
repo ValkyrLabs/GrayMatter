@@ -14,6 +14,7 @@ REQUIRED=(
   scripts/gm-activate
   scripts/gm-activation-fastlane
   scripts/gm-invariant-preflight
+  scripts/gm-read
   scripts/gm-doctor
   scripts/gm-install-check
   scripts/gm-mcp-contract

@@ -175,6 +175,7 @@ Rule:
 - `scripts/gm-smoke` — production smoke test for write/query validation
 - `scripts/gm-invariant-preflight` — load binding durable invariants before agent planning, edits, or production-impacting actions
 - `scripts/gm-query` — query `MemoryEntry`
+- `scripts/gm-read` — read one `MemoryEntry` by ID
 - `scripts/gm-retrieval-receipt` — create, fetch, and list retrieval receipts through ThorAPI
 - `scripts/gm-write` — write `MemoryEntry`, with tagged-write fallback behavior
 - `scripts/gm-fallback-append` — append failed writes to local replay queue at `memory/graymatter-fallback.json`
@@ -339,6 +340,7 @@ That startup model keeps local files useful for recovery while making GrayMatter
 ```bash
 scripts/gm-write decision "GrayMatter is primary memory for this instance"
 scripts/gm-query "GrayMatter" 10
+scripts/gm-read f7c29154-216f-4934-ac02-2d5e8b242180 --brief
 ```
 
 Receipt-backed retrieval:

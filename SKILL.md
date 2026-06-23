@@ -159,6 +159,7 @@ Memory and graph helpers:
 - `scripts/gm-invariant-preflight`
 - `scripts/gm-write`
 - `scripts/gm-query`
+- `scripts/gm-read`
 - `scripts/gm-retrieval-receipt`
 - `scripts/gm-graph`
 - `scripts/gm-entity`
@@ -293,6 +294,9 @@ scripts/gm-invariant-preflight ValkyrAI signup acl thorapi aspectj
 
 # retrieve memory with an auditable receipt before answering
 scripts/gm-retrieval-receipt create "graymatter launch status" 8 DEFAULT
+
+# read a known MemoryEntry by id
+scripts/gm-read f7c29154-216f-4934-ac02-2d5e8b242180 --brief
 
 # write durable context
 scripts/gm-write context "GrayMatter is primary memory for this OpenClaw instance"

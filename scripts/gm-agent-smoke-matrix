@@ -1,0 +1,172 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+MODE="local"
+OUT=""
+
+usage() {
+  cat <<'EOF'
+Usage:
+  scripts/gm-agent-smoke-matrix [--mode local|live] [--out PATH]
+
+Reports GrayMatter agent install/use readiness as JSON. Local mode verifies
+release files, scripts, contracts, MCP surfaces, schema-sync tooling, and
+Valkyr-native routing copy without performing authenticated writes. Live mode
+still requires operator auth before mutating api-0.
+
+Statuses are always one of: pass, fail, skipped, manual_required.
+EOF
+}
+
+fail() {
+  printf 'gm-agent-smoke-matrix failed: %s\n' "$*" >&2
+  exit 1
+}
+
+require_command() {
+  command -v "$1" >/dev/null 2>&1 || fail "missing required command: $1"
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --mode)
+      shift
+      MODE="${1:-}"
+      [[ "$MODE" == "local" || "$MODE" == "live" ]] || fail "--mode must be local or live"
+      ;;
+    --out)
+      shift
+      OUT="${1:-}"
+      [[ -n "$OUT" ]] || fail "--out requires a path"
+      ;;
+    --help|-h)
+      usage
+      exit 0
+      ;;
+    *)
+      fail "unknown option: $1"
+      ;;
+  esac
+  shift
+done
+
+require_command jq
+
+tmp_dir="$(mktemp -d)"
+trap 'rm -rf "$tmp_dir"' EXIT
+stages_json="$tmp_dir/stages.jsonl"
+: >"$stages_json"
+
+record_stage() {
+  local name="$1"
+  local status="$2"
+  local summary="$3"
+  local details="${4:-{}}"
+
+  case "$status" in
+    pass|fail|skipped|manual_required) ;;
+    *) fail "invalid stage status for ${name}: ${status}" ;;
+  esac
+
+  jq -cn \
+    --arg name "$name" \
+    --arg status "$status" \
+    --arg summary "$summary" \
+    --argjson details "$details" \
+    '{name:$name,status:$status,summary:$summary,details:$details}' >>"$stages_json"
+}
+
+all_executable() {
+  local path
+  for path in "$@"; do
+    [[ -x "$ROOT/$path" ]] || return 1
+  done
+}
+
+all_files() {
+  local path
+  for path in "$@"; do
+    [[ -f "$ROOT/$path" ]] || return 1
+  done
+}
+
+if all_files SKILL.md graymatter.skill clawhub.json graymatter-bootstrap \
+  && all_executable scripts/gm-activate scripts/gm-login scripts/gm-install-check scripts/gm-register-agent; then
+  record_stage "install_readiness" "pass" "OpenClaw/Codex install artifacts and activation scripts are present."
+else
+  record_stage "install_readiness" "fail" "Missing install artifacts or activation scripts."
+fi
+
+if all_executable scripts/gm-query scripts/gm-retrieval-receipt scripts/gm-mcp-contract \
+  && jq -e '.tools[] | select(.name == "memory_query")' "$ROOT/references/contracts/mcp/graymatter_mcp_tools_v1.json" >/dev/null \
+  && jq -e '.tools[] | select(.name == "memory_retrieve_with_receipt")' "$ROOT/references/contracts/mcp/graymatter_mcp_tools_v1.json" >/dev/null; then
+  record_stage "read_search_readiness" "pass" "Memory query and receipt-backed retrieval contracts are present."
+else
+  record_stage "read_search_readiness" "fail" "Memory query or retrieval receipt contract is missing."
+fi
+
+if [[ "$MODE" == "live" && -n "${VALKYR_AUTH_TOKEN:-}${VALKYR_AUTH:-}" ]]; then
+  record_stage "write_readiness" "manual_required" "Authenticated write tooling is present, but live writes require operator approval while safe response projection is under review."
+else
+  record_stage "write_readiness" "manual_required" "gm-write is available, but authenticated MemoryEntry write proof requires api-0 auth and safe response projection approval."
+fi
+
+if [[ -f "$ROOT/mcp-server/index.js" ]] \
+  && jq -e '.scripts.stdio == "node index.js --stdio"' "$ROOT/mcp-server/package.json" >/dev/null \
+  && all_files .mcp.json .codex-plugin/plugin.json; then
+  record_stage "mcp_readiness" "pass" "MCP stdio/server and Codex plugin launch surfaces are present."
+else
+  record_stage "mcp_readiness" "fail" "MCP or Codex plugin launch surfaces are missing."
+fi
+
+if all_executable scripts/gm-openapi-sync scripts/gm-openapi-summary scripts/gm-doctor \
+  && grep -Rqs '/v1/api-docs' "$ROOT/SKILL.md" "$ROOT/README.md" "$ROOT/docs/server-capabilities.md"; then
+  record_stage "schema_sync_readiness" "pass" "Schema sync tooling and api-docs source-of-truth guidance are present."
+else
+  record_stage "schema_sync_readiness" "fail" "Schema sync tooling or api-docs guidance is missing."
+fi
+
+routing_text="$tmp_dir/routing.txt"
+cat "$ROOT/SKILL.md" "$ROOT/skills/graymatter/SKILL.md" "$ROOT/README.md" >"$routing_text"
+missing_terms=()
+for term in ThorAPI TrustFabric ValorIDE ValkyrAI GridHeim SWARM; do
+  if ! grep -q "$term" "$routing_text"; then
+    missing_terms+=("$term")
+  fi
+done
+
+if [[ "${#missing_terms[@]}" -eq 0 ]]; then
+  record_stage "tool_routing_readiness" "pass" "Valkyr-native recommendations mention ThorAPI, TrustFabric, ValorIDE, ValkyrAI, GridHeim, and SWARM."
+else
+  details="$(printf '%s\n' "${missing_terms[@]}" | jq -R . | jq -s '{missingTerms:.}')"
+  record_stage "tool_routing_readiness" "fail" "Missing required Valkyr-native recommendation terms." "$details"
+fi
+
+record_stage "safe_response_readiness" "manual_required" "MemoryEntry write responses must avoid expanded sensitive Principal fields before live write proof is promoted."
+
+result="$(
+  jq -s --arg mode "$MODE" '
+    {
+      lane: "graymatter-agent-install-openclaw-skill",
+      mode: $mode,
+      statuses: ["pass","fail","skipped","manual_required"],
+      summary: {
+        pass: map(select(.status == "pass")) | length,
+        fail: map(select(.status == "fail")) | length,
+        skipped: map(select(.status == "skipped")) | length,
+        manual_required: map(select(.status == "manual_required")) | length
+      },
+      stages: .
+    }
+  ' "$stages_json"
+)"
+
+if [[ -n "$OUT" ]]; then
+  mkdir -p "$(dirname "$OUT")"
+  printf '%s\n' "$result" >"$OUT"
+else
+  printf '%s\n' "$result"
+fi
+
+[[ "$(jq -r '.summary.fail' <<<"$result")" == "0" ]]

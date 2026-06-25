@@ -45,4 +45,22 @@ echo "$out_agent" | grep -q '^tenant_schema_name=main$'
 echo "$out_agent" | grep -q '^tenant_schema_source=jwt_valkyr_agent_main_schema_fallback$'
 echo "$out_agent" | grep -q '^memory_layer=degraded$'
 
+json_out="$(ROOT_DIR="$TMP_DIR" VALKYR_API_BASE="http://127.0.0.1:9/v1" VALKYR_AUTH_TOKEN="$valkyr_agent_jwt" "$TMP_DIR/gm-status" --json)"
+jq -e '
+  .graymatter.health == "ok"
+  and .graymatter.auth == "env_token"
+  and .graymatter.tenantSchemaContext.tenantSchemaContext == "ready"
+  and .graymatter.tenantSchemaContext.schemaName == "main"
+  and .graymatter.fallback.pendingWrites == 0
+' <<<"$json_out" >/dev/null
+
+format_json_out="$(ROOT_DIR="$TMP_DIR" VALKYR_API_BASE="http://127.0.0.1:9/v1" VALKYR_AUTH_TOKEN="$valkyr_agent_jwt" "$TMP_DIR/gm-status" --format=json)"
+jq -e '.graymatter.tenantSchemaContext.source == "jwt_valkyr_agent_main_schema_fallback"' <<<"$format_json_out" >/dev/null
+
+if "$TMP_DIR/gm-status" --format yaml >/tmp/gm-status-invalid.out 2>&1; then
+  echo "expected invalid format failure" >&2
+  exit 1
+fi
+grep -q "unsupported format yaml" /tmp/gm-status-invalid.out
+
 echo "gm_status_test: ok"

@@ -29,6 +29,7 @@ REQUIRED=(
   scripts/gm-doctor
   scripts/gm-smoke
   scripts/gm-status
+  scripts/gm-agent-smoke-matrix
   scripts/gm-self-update
   scripts/gm-openapi-sync
   scripts/gm-openapi-summary

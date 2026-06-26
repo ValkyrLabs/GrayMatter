@@ -1,6 +1,8 @@
 const assert = require('node:assert/strict');
 const { spawn } = require('node:child_process');
+const fs = require('node:fs');
 const http = require('node:http');
+const os = require('node:os');
 const { once } = require('node:events');
 const path = require('node:path');
 const test = require('node:test');
@@ -283,6 +285,40 @@ test('initialize works through the Apps SDK /mcp endpoint', async () => {
     assert.equal(result.body.result.serverInfo.name, 'graymatter');
   } finally {
     server.close();
+  }
+});
+
+test('memory_replay_deferred executes replay command and reports sync deletion posture', async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'graymatter-replay-test-'));
+  const replayCommand = path.join(tmpDir, 'gm-replay-deferred');
+  fs.writeFileSync(replayCommand, '#!/usr/bin/env bash\necho "Replayed deferred operation one"\necho "Replayed deferred operation two"\n');
+  fs.chmodSync(replayCommand, 0o755);
+
+  const server = createGrayMatterMcpServer({
+    apiBase: 'https://api-0.example.test/v1',
+    replayCommand
+  });
+  const baseUrl = await listen(server);
+
+  try {
+    const response = await postRpc(baseUrl, {
+      jsonrpc: '2.0',
+      id: 'replay',
+      method: 'tools/call',
+      params: {
+        name: 'memory_replay_deferred',
+        arguments: { limit: 2 }
+      }
+    });
+
+    assert.equal(response.status, 200);
+    const result = JSON.parse(response.body.result.content[0].text);
+    assert.equal(result.replayed, 2);
+    assert.equal(result.deletedAfterSync, true);
+    assert.equal(result.localFallbackPolicy, 'temporary_replay_queue_only_delete_after_successful_sync');
+  } finally {
+    server.close();
+    fs.rmSync(tmpDir, { recursive: true, force: true });
   }
 });
 

@@ -5,6 +5,41 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEFERRED_DIR="${GRAYMATTER_DEFERRED_DIR:-${SCRIPT_DIR}/../memory/deferred-ops}"
 API_SCRIPT="${GRAYMATTER_API_SCRIPT:-${SCRIPT_DIR}/graymatter_api.sh}"
 GRAYMATTER_CREDIT_EVENTS_PATH="${GRAYMATTER_CREDIT_EVENTS_PATH:-${SCRIPT_DIR}/../memory/credit-recovery-events.jsonl}"
+LIMIT=""
+
+usage() {
+  cat <<'EOF'
+Usage:
+  gm-replay-deferred [--limit n]
+
+Replay temporary local GrayMatter fallback records into api-0.
+Records are removed from the local filesystem only after the durable API write succeeds.
+EOF
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --limit)
+      [[ $# -ge 2 ]] || { echo "gm-replay-deferred: --limit requires a value" >&2; exit 1; }
+      LIMIT="$2"
+      shift 2
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "Unknown gm-replay-deferred option: $1" >&2
+      usage >&2
+      exit 1
+      ;;
+  esac
+done
+
+if [[ -n "$LIMIT" && ! "$LIMIT" =~ ^[0-9]+$ ]]; then
+  echo "gm-replay-deferred: --limit must be a non-negative integer: $LIMIT" >&2
+  exit 1
+fi
 
 emit_replay_event() {
   local event="$1"
@@ -50,7 +85,11 @@ if [[ "${#files[@]}" -eq 0 ]]; then
   exit 0
 fi
 
+processed=0
 for file in "${files[@]}"; do
+  if [[ -n "$LIMIT" && "$processed" -ge "$LIMIT" ]]; then
+    break
+  fi
   method="$(jq -r '.method // empty' "$file")"
   path="$(jq -r '.path // empty' "$file")"
   body="$(jq -r '.body // empty' "$file")"
@@ -65,6 +104,7 @@ for file in "${files[@]}"; do
     rm -f "$file"
     emit_replay_event "replay_succeeded" "$id" "$operation" "$path"
     echo "Replayed deferred operation ${id}"
+    processed=$((processed + 1))
   else
     echo "Replay failed for ${id}; stopping." >&2
     exit 1

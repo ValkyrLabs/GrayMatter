@@ -3,10 +3,34 @@
   "$id": "https://valkyrlabs.com/graymatter/contracts/mcp/v1",
   "title": "GrayMatter MCP Portable Tool Contract v1",
   "type": "object",
-  "required": ["version", "tools"],
+  "required": ["version", "memoryContract", "tools"],
   "additionalProperties": false,
   "properties": {
     "version": {"const": "v1"},
+    "memoryContract": {
+      "type": "object",
+      "required": [
+        "durableMemoryMode",
+        "sourceOfTruth",
+        "authPosture",
+        "startupRequiredAction",
+        "taskStartQueries",
+        "localFallbackPolicy"
+      ],
+      "additionalProperties": true,
+      "properties": {
+        "durableMemoryMode": {"const": "exclusive_primary_graymatter"},
+        "sourceOfTruth": {"const": "api-0"},
+        "authPosture": {"const": "authenticate_first"},
+        "startupRequiredAction": {"const": "run_graymatter_invariant_preflight_before_planning_or_edits"},
+        "taskStartQueries": {
+          "type": "array",
+          "items": {"type": "string"},
+          "contains": {"const": "organizational_truth"}
+        },
+        "localFallbackPolicy": {"const": "temporary_replay_queue_only_delete_after_successful_sync"}
+      }
+    },
     "tools": {
       "type": "array",
       "minItems": 10,

@@ -3,6 +3,12 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LOGIN_SRC="${ROOT}/scripts/gm-login"
+REAL_JQ="$(command -v jq || true)"
+[[ -n "${REAL_JQ}" ]] || {
+  printf 'FAIL: jq is required for gm_login_test.sh\n' >&2
+  exit 1
+}
+export TEST_REAL_JQ="${REAL_JQ}"
 
 fail() {
   printf 'FAIL: %s\n' "$1" >&2
@@ -27,7 +33,7 @@ set -euo pipefail
 if [[ "${1:-}" == "-nc" ]]; then
   printf '{"username":"%s","password":"%s"}\n' valor fixture-password
 else
-  /usr/bin/jq "$@"
+  "${TEST_REAL_JQ}" "$@"
 fi
 EOF
   chmod +x "${dir}/jq"

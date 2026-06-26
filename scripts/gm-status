@@ -19,6 +19,54 @@ fi
 KEYCHAIN_SERVICE="${VALKYR_KEYCHAIN_SERVICE:-VALKYR_AUTH}"
 API_BASE="${VALKYR_API_BASE:-https://api-0.valkyrlabs.com/v1}"
 API_BASE="${API_BASE%/}"
+GM_STATUS_FORMAT="${GM_STATUS_FORMAT:-kv}"
+
+usage() {
+  cat <<'USAGE'
+Usage: gm-status [--json|--format kv|--format json]
+
+Report GrayMatter auth, tenant schema, fallback queue, and cached schema readiness.
+USAGE
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --json)
+      GM_STATUS_FORMAT="json"
+      shift
+      ;;
+    --format)
+      [[ $# -ge 2 ]] || {
+        usage >&2
+        exit 2
+      }
+      GM_STATUS_FORMAT="$2"
+      shift 2
+      ;;
+    --format=*)
+      GM_STATUS_FORMAT="${1#--format=}"
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      printf 'gm-status: unknown option %s\n' "$1" >&2
+      usage >&2
+      exit 2
+      ;;
+  esac
+done
+
+case "$GM_STATUS_FORMAT" in
+  kv|json) ;;
+  *)
+    printf 'gm-status: unsupported format %s\n' "$GM_STATUS_FORMAT" >&2
+    usage >&2
+    exit 2
+    ;;
+esac
 
 decode_base64_url() {
   local value="${1:-}"
@@ -247,7 +295,7 @@ elif [[ "$AUTH_STATE" == "missing" || "$PENDING_WRITES" != "0" || "$TOKEN_STATE"
   HEALTH="degraded"
 fi
 
-if [[ "${GM_STATUS_FORMAT:-kv}" == "json" ]]; then
+if [[ "$GM_STATUS_FORMAT" == "json" ]]; then
   jq -nc \
     --arg health "$HEALTH" \
     --arg auth "$AUTH_STATE" \

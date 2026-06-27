@@ -16,8 +16,11 @@ if [[ -z "$METHOD" || -z "$PATH_PART" ]]; then
 fi
 
 BASE="${VALKYR_API_BASE:-https://api-0.valkyrlabs.com/v1}"
-TOKEN=${VALKYR_AUTH_TOKEN:-${VALKYR_JWT_SESSION:-}}
+EXPLICIT_TOKEN=${VALKYR_AUTH_TOKEN:-${VALKYR_JWT_SESSION:-}}
+TOKEN=$EXPLICIT_TOKEN
 LIGHT_MODE="${GRAYMATTER_LIGHT_MODE:-false}"
+LIGHT_USERNAME="${GRAYMATTER_LIGHT_USERNAME:-admin}"
+LIGHT_PASSWORD="${GRAYMATTER_LIGHT_PASSWORD:-}"
 KEYCHAIN_SERVICE="${VALKYR_KEYCHAIN_SERVICE:-VALKYR_AUTH}"
 USERNAME_SERVICE="${VALKYR_USERNAME_KEYCHAIN_SERVICE:-${KEYCHAIN_SERVICE}_USERNAME}"
 PASSWORD_SERVICE="${VALKYR_PASSWORD_KEYCHAIN_SERVICE:-${KEYCHAIN_SERVICE}_PASSWORD}"
@@ -115,6 +118,15 @@ token_is_clearly_read_only() {
     return $?
   fi
 
+  if printf '%s' "$claims" | grep -Eq '"(ADMIN|USER|OWNER|MANAGER|SUPER_ADMIN|ROLE_[^"]+)"'; then
+    return 1
+  fi
+  if printf '%s' "$claims" | grep -Eq 'SCOPE_[^"]*(write|admin|delete|update|create)'; then
+    return 1
+  fi
+  if printf '%s' "$claims" | grep -Eq '"(EVERYONE|FREE)"|SCOPE_schema\.read'; then
+    return 0
+  fi
   return 1
 }
 
@@ -197,7 +209,10 @@ token_expires_soon() {
     return $?
   fi
 
-  return 1
+  local exp=""
+  exp="$(printf '%s' "$claims" | sed -n 's/.*"exp"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p' | head -n 1)"
+  [[ -n "$exp" ]] || return 1
+  [[ "$exp" -le $((now + TOKEN_REFRESH_SKEW_SECONDS)) ]]
 }
 
 method_requires_write_access() {
@@ -380,7 +395,7 @@ if [[ -z "$PASSWORD" && -n "$USERNAME" ]] && command -v security >/dev/null 2>&1
   PASSWORD=$(keychain_read "$USERNAME" "$PASSWORD_SERVICE")
 fi
 
-if [[ -z "$TOKEN" ]] && command -v security >/dev/null 2>&1; then
+if [[ -z "$TOKEN" && "$LIGHT_MODE" != "true" ]] && command -v security >/dev/null 2>&1; then
   if [[ -n "$USERNAME" ]]; then
     TOKEN=$(keychain_read "$USERNAME" "$KEYCHAIN_SERVICE")
   fi
@@ -441,6 +456,9 @@ show_insufficient_funds_guidance() {
   buy_credits_url="$(append_query_param "$buy_credits_url" current_balance "$current_balance")"
   buy_credits_url="$(append_query_param "$buy_credits_url" trace_id "$trace_id")"
 
+  echo "GrayMatter credit recovery" >&2
+  echo "Account/workspace: install=${GRAYMATTER_INSTALL_ID} api=${BASE}" >&2
+  echo "Blocked operation: ${operation_kind}" >&2
   echo "Insufficient credits. Buy credits: ${buy_credits_url}" >&2
   echo "Need an account? Sign up here: ${human_signup_url}" >&2
   if [[ -n "$required_credits" ]]; then
@@ -504,13 +522,64 @@ elseif ($result -eq "No") { Start-Process $signupUrl }
   fi
 }
 
+required_permission_hint() {
+  local operation_kind
+  operation_kind="$(determine_operation_kind)"
+
+  case "$operation_kind" in
+    memory_write)
+      printf 'MemoryEntry write authority or memory:write scope'
+      ;;
+    memory_query)
+      printf 'MemoryEntry query/read authority or memory:read scope'
+      ;;
+    memory_read)
+      printf 'MemoryEntry read authority or memory:read scope'
+      ;;
+    graph_write)
+      printf 'graph write authority for the requested object graph endpoint'
+      ;;
+    entity_write)
+      printf 'entity write authority for the requested schema object'
+      ;;
+    *)
+      printf 'write authority for %s %s' "$METHOD_UPPER" "$PATH_PART"
+      ;;
+  esac
+}
+
+show_access_denied_guidance() {
+  local response_file="${1:-}"
+  local response_message=""
+  local trace_id=""
+  local permission_hint=""
+  local username_hint="${USERNAME:-unknown}"
+
+  if [[ -n "$response_file" ]] && command -v jq >/dev/null 2>&1; then
+    response_message="$(jq -r '.message // .error // empty' "$response_file" 2>/dev/null || true)"
+    trace_id="$(jq -r '.traceId // .trace_id // .details.traceId // empty' "$response_file" 2>/dev/null || true)"
+  fi
+
+  permission_hint="$(required_permission_hint)"
+  echo "GrayMatter access denied for ${METHOD_UPPER} ${PATH_PART}." >&2
+  echo "Missing permission: ${permission_hint}." >&2
+  echo "Account: ${username_hint}. Refreshing auth succeeded or was unavailable, so this is now treated as an RBAC/scope denial." >&2
+  if [[ -n "$response_message" ]]; then
+    echo "Backend message: ${response_message}." >&2
+  fi
+  if [[ -n "$trace_id" ]]; then
+    echo "Trace id: ${trace_id}." >&2
+  fi
+  echo "Recovery: grant the account MemoryEntry write access, switch to a write-capable VALKYR_AUTH token, then retry or run scripts/gm-replay-deferred." >&2
+}
+
 determine_operation_kind() {
   local normalized_path="${PATH_PART#/}"
+  if [[ "$normalized_path" == "MemoryEntry/query"* ]]; then
+    printf 'memory_query\n'
+    return 0
+  fi
   if [[ "$METHOD_UPPER" == "GET" ]]; then
-    if [[ "$normalized_path" == "MemoryEntry/query"* ]]; then
-      printf 'memory_query\n'
-      return 0
-    fi
     printf 'memory_read\n'
     return 0
   fi
@@ -817,7 +886,6 @@ perform_request() {
     -D "$RESPONSE_HEADERS"
     -w "%{http_code}"
     -X "$METHOD_UPPER"
-    "$URL"
     "${COMMON_HEADERS[@]}"
   )
 
@@ -827,12 +895,20 @@ perform_request() {
     )
   fi
 
+  if [[ "$LIGHT_MODE" == "true" && -z "$TOKEN" && -n "$LIGHT_USERNAME" && -n "$LIGHT_PASSWORD" ]]; then
+    CURL_ARGS+=(
+      -u "${LIGHT_USERNAME}:${LIGHT_PASSWORD}"
+    )
+  fi
+
   if [[ -n "$BODY" ]]; then
     CURL_ARGS+=(
       -H "content-type: application/json"
       --data "$BODY"
     )
   fi
+
+  CURL_ARGS+=("$URL")
 
   set +e
   HTTP_STATUS="$(curl "${CURL_ARGS[@]}")"
@@ -869,9 +945,13 @@ if [[ "$HTTP_STATUS" =~ ^[0-9]{3}$ ]] && (( HTTP_STATUS >= 400 )); then
   if command -v jq >/dev/null 2>&1; then
     if jq -e '.error == "INSUFFICIENT_FUNDS" or .insufficientFunds == true' "$RESPONSE_FILE" >/dev/null 2>&1; then
       show_insufficient_funds_guidance "$RESPONSE_FILE"
+    elif [[ "$HTTP_STATUS" == "403" ]] && jq -e '(.message // .error // "") | test("Access Denied|Forbidden"; "i")' "$RESPONSE_FILE" >/dev/null 2>&1; then
+      show_access_denied_guidance "$RESPONSE_FILE"
     fi
   elif grep -q "INSUFFICIENT_FUNDS" "$RESPONSE_FILE" 2>/dev/null; then
     show_insufficient_funds_guidance "$RESPONSE_FILE"
+  elif [[ "$HTTP_STATUS" == "403" ]] && grep -Eqi "Access Denied|Forbidden" "$RESPONSE_FILE" 2>/dev/null; then
+    show_access_denied_guidance "$RESPONSE_FILE"
   fi
 
   exit 22

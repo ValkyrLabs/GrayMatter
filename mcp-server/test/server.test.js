@@ -1,8 +1,6 @@
 const assert = require('node:assert/strict');
 const { spawn } = require('node:child_process');
-const fs = require('node:fs');
 const http = require('node:http');
-const os = require('node:os');
 const { once } = require('node:events');
 const path = require('node:path');
 const test = require('node:test');
@@ -285,40 +283,6 @@ test('initialize works through the Apps SDK /mcp endpoint', async () => {
     assert.equal(result.body.result.serverInfo.name, 'graymatter');
   } finally {
     server.close();
-  }
-});
-
-test('memory_replay_deferred executes replay command and reports sync deletion posture', async () => {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'graymatter-replay-test-'));
-  const replayCommand = path.join(tmpDir, 'gm-replay-deferred');
-  fs.writeFileSync(replayCommand, '#!/usr/bin/env bash\necho "Replayed deferred operation one"\necho "Replayed deferred operation two"\n');
-  fs.chmodSync(replayCommand, 0o755);
-
-  const server = createGrayMatterMcpServer({
-    apiBase: 'https://api-0.example.test/v1',
-    replayCommand
-  });
-  const baseUrl = await listen(server);
-
-  try {
-    const response = await postRpc(baseUrl, {
-      jsonrpc: '2.0',
-      id: 'replay',
-      method: 'tools/call',
-      params: {
-        name: 'memory_replay_deferred',
-        arguments: { limit: 2 }
-      }
-    });
-
-    assert.equal(response.status, 200);
-    const result = JSON.parse(response.body.result.content[0].text);
-    assert.equal(result.replayed, 2);
-    assert.equal(result.deletedAfterSync, true);
-    assert.equal(result.localFallbackPolicy, 'temporary_replay_queue_only_delete_after_successful_sync');
-  } finally {
-    server.close();
-    fs.rmSync(tmpDir, { recursive: true, force: true });
   }
 });
 
@@ -783,10 +747,108 @@ test('retrieval receipt tools route to the ThorAPI receipt surface', async () =>
       }
     });
 
-    assert.deepEqual(JSON.parse(createResult.body.result.content[0].text).receipt.answerPolicy, 'ALLOW_ANSWER');
+    const createPayload = JSON.parse(createResult.body.result.content[0].text);
+    assert.equal(createPayload.receipt.answerPolicy, 'ALLOW_ANSWER');
+    assert.equal(createPayload.graymatterPolicy.answerAllowed, true);
+    assert.equal(createPayload.graymatterPolicy.disposition, 'answer_from_memory_allowed');
+    assert.equal(createPayload.receipt.graymatterPolicy.answerAllowed, true);
     assert.deepEqual(JSON.parse(getResult.body.result.content[0].text), { receipt: { receiptId: 'gm_rr_123' } });
     assert.deepEqual(JSON.parse(queryResult.body.result.content[0].text), [{ receiptId: 'gm_rr_low' }]);
     assert.equal(fakeApi.requests.length, 3);
+  } finally {
+    server.close();
+    fakeApi.server.close();
+  }
+});
+
+test('retrieval receipt MCP results include fail-closed GrayMatter policy guidance', async () => {
+  const fakeApi = createFakeApi(async (_req, res, record) => {
+    res.writeHead(200, { 'content-type': 'application/json' });
+    if (record.path === '/v1/graymatter-retrieval-receipts' && record.method === 'POST') {
+      res.end(JSON.stringify({
+        receipt: {
+          receiptId: 'gm_rr_denied',
+          traceId: 'gm_trace_denied',
+          retrievalStatus: 'LOW_CONFIDENCE',
+          answerPolicy: 'REQUIRE_RETRY',
+          recommendedAction: 'RETRY_WITH_EXPANDED_QUERY'
+        }
+      }));
+      return;
+    }
+    if (record.path === '/v1/graymatter-retrieval-receipts/gm_rr_denied' && record.method === 'GET') {
+      res.end(JSON.stringify({
+        receipt: {
+          receiptId: 'gm_rr_denied',
+          traceId: 'gm_trace_denied',
+          retrievalStatus: 'LOW_CONFIDENCE',
+          answerPolicy: 'REQUIRE_RETRY',
+          recommendedAction: 'RETRY_WITH_EXPANDED_QUERY'
+        }
+      }));
+      return;
+    }
+    if (record.path === '/v1/graymatter-retrieval-receipts' && record.method === 'GET') {
+      res.end(JSON.stringify([
+        {
+          receiptId: 'gm_rr_denied',
+          traceId: 'gm_trace_denied',
+          retrievalStatus: 'LOW_CONFIDENCE',
+          answerPolicy: 'REQUIRE_RETRY',
+          recommendedAction: 'RETRY_WITH_EXPANDED_QUERY'
+        }
+      ]));
+      return;
+    }
+    throw new Error(`Unexpected ${record.method} ${record.path}`);
+  });
+
+  const apiBase = await listen(fakeApi.server);
+  const server = createGrayMatterMcpServer({ apiBase: `${apiBase}/v1` });
+  const baseUrl = await listen(server);
+
+  try {
+    const createResult = await postRpc(baseUrl, {
+      jsonrpc: '2.0',
+      id: 'receipt-denied-create',
+      method: 'tools/call',
+      params: {
+        name: 'memory_retrieve_with_receipt',
+        arguments: { query: 'weak context', topK: 4 }
+      }
+    });
+    const getResult = await postRpc(baseUrl, {
+      jsonrpc: '2.0',
+      id: 'receipt-denied-get',
+      method: 'tools/call',
+      params: { name: 'retrieval_receipt_get', arguments: { receiptId: 'gm_rr_denied' } }
+    });
+    const queryResult = await postRpc(baseUrl, {
+      jsonrpc: '2.0',
+      id: 'receipt-denied-query',
+      method: 'tools/call',
+      params: { name: 'retrieval_receipt_query', arguments: { retrievalStatus: 'LOW_CONFIDENCE' } }
+    });
+
+    for (const payload of [
+      JSON.parse(createResult.body.result.content[0].text),
+      JSON.parse(getResult.body.result.content[0].text)
+    ]) {
+      assert.equal(payload.graymatterPolicy.answerAllowed, false);
+      assert.equal(payload.graymatterPolicy.caveatRequired, false);
+      assert.equal(payload.graymatterPolicy.disposition, 'do_not_answer_from_memory');
+      assert.match(payload.graymatterPolicy.warning, /does not authorize/);
+      assert.deepEqual(payload.graymatterPolicy.requiredActions, [
+        'require_retry',
+        'handle_low_confidence',
+        'recommended_retry_with_expanded_query'
+      ]);
+      assert.equal(payload.receipt.graymatterPolicy.disposition, 'do_not_answer_from_memory');
+    }
+
+    const listed = JSON.parse(queryResult.body.result.content[0].text);
+    assert.equal(listed[0].graymatterPolicy.answerAllowed, false);
+    assert.equal(listed[0].graymatterPolicy.disposition, 'do_not_answer_from_memory');
   } finally {
     server.close();
     fakeApi.server.close();

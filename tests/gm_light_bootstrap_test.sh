@@ -3,7 +3,8 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT="$(mktemp -d "${TMPDIR:-/tmp}/gm-light-bundle.XXXXXX")"
-trap 'rm -rf "$OUT" >/dev/null 2>&1 || true' EXIT
+PLUGIN_OUT="$(mktemp -d "${TMPDIR:-/tmp}/gm-light-plugin-bundle.XXXXXX")"
+trap 'rm -rf "$OUT" "$PLUGIN_OUT" >/dev/null 2>&1 || true' EXIT
 
 assert_file() {
   if [[ ! -f "$1" ]]; then
@@ -143,5 +144,17 @@ assert_contains "system.equalizer" "$OUT/local-server/src/main/java/com/valkyrla
 assert_contains "graymatter-swarm-v0.1" "$OUT/local-server/src/main/java/com/valkyrlabs/graymatter/localserver/controller/SwarmProtocolController.java"
 assert_contains "ACTIVATION_EVENT_RECORDED" "$OUT/local-server/src/main/java/com/valkyrlabs/graymatter/localserver/controller/MothershipSyncController.java"
 assert_contains "GrayMatter Local Server" "$OUT/local-server/README.md"
+
+"$ROOT/plugins/graymatter/scripts/gm-light-bootstrap" "$PLUGIN_OUT" >/dev/null
+assert_file "$PLUGIN_OUT/api.hbs.yaml"
+assert_file "$PLUGIN_OUT/api.yaml"
+assert_file "$PLUGIN_OUT/local-server/manifest.json"
+assert_executable "$PLUGIN_OUT/local-server/bin/graymatter-local-server"
+assert_contains "/v1/MemoryEntry/query" "$PLUGIN_OUT/api.hbs.yaml"
+assert_contains "/v1/api-docs" "$PLUGIN_OUT/local-server/src/main/resources/openapi.json"
+if grep -q "{{server_url}}" "$PLUGIN_OUT/api.yaml"; then
+  echo "Rendered plugin api.yaml should not contain template placeholders" >&2
+  exit 1
+fi
 
 echo "gm_light_bootstrap_test: ok"

@@ -1,0 +1,85 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+APP_HOME="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+JAR="$APP_HOME/lib/graymatter-local-server.jar"
+SOURCE_DIR="$APP_HOME/source"
+
+export SERVER_PORT="${SERVER_PORT:-8787}"
+
+default_data_dir() {
+  case "$(uname -s 2>/dev/null || printf unknown)" in
+    Darwin)
+      printf '%s\n' "${HOME}/Library/Application Support/ValkyrLabs/GrayMatter"
+      ;;
+    Linux)
+      printf '%s\n' "${XDG_DATA_HOME:-${HOME}/.local/share}/valkyrlabs/graymatter"
+      ;;
+    MINGW*|MSYS*|CYGWIN*)
+      printf '%s\n' "${LOCALAPPDATA:-${APP_HOME}/data}/ValkyrLabs/GrayMatter"
+      ;;
+    *)
+      printf '%s\n' "${APP_HOME}/data"
+      ;;
+  esac
+}
+
+export GRAYMATTER_DATA_DIR="${GRAYMATTER_DATA_DIR:-$(default_data_dir)}"
+mkdir -p "$GRAYMATTER_DATA_DIR"
+
+case "${1:-}" in
+  --print-data-dir)
+    printf '%s\n' "$GRAYMATTER_DATA_DIR"
+    exit 0
+    ;;
+  --reset-data)
+    rm -rf "${GRAYMATTER_DATA_DIR:?}/"*
+    printf 'Reset GrayMatter Light data directory: %s\n' "$GRAYMATTER_DATA_DIR"
+    exit 0
+    ;;
+  --export-data)
+    shift
+    target="${1:-${APP_HOME}/graymatter-light-data-export.tar.gz}"
+    mkdir -p "$(dirname "$target")"
+    tar -czf "$target" -C "$GRAYMATTER_DATA_DIR" .
+    printf 'Exported GrayMatter Light data to %s\n' "$target"
+    exit 0
+    ;;
+esac
+
+JAVA_BIN="${APP_HOME}/runtime/bin/java"
+if [[ ! -x "$JAVA_BIN" ]]; then
+  JAVA_BIN="$(command -v java || true)"
+fi
+
+if [[ -z "$JAVA_BIN" ]]; then
+  echo "No bundled Java runtime found and system java is unavailable. Use a packaged GrayMatter Local Server archive built with runtime bundling enabled." >&2
+  exit 1
+fi
+
+if [[ -f "$JAR" ]]; then
+  exec "$JAVA_BIN" -jar "$JAR" "$@"
+fi
+
+if [[ ! -d "$SOURCE_DIR" ]]; then
+  echo "GrayMatter Local Server source is missing: $SOURCE_DIR" >&2
+  exit 1
+fi
+
+cd "$SOURCE_DIR"
+if [[ -x ./mvnw ]]; then
+  ./mvnw -q -DskipTests package
+elif command -v mvn >/dev/null 2>&1; then
+  mvn -q -DskipTests package
+else
+  echo "Java package not bundled and Maven is unavailable. Install Maven or use a native/bundled GrayMatter package." >&2
+  exit 1
+fi
+
+BUILT_JAR="$(find target -maxdepth 1 -type f -name 'graymatter-local-server-*.jar' ! -name '*sources*' | sort | tail -n 1)"
+if [[ -z "$BUILT_JAR" ]]; then
+  echo "GrayMatter Local Server build did not produce a runnable jar." >&2
+  exit 1
+fi
+
+exec "$JAVA_BIN" -jar "$BUILT_JAR" "$@"

@@ -134,7 +134,7 @@ Supported fields:
 - `artifactPath`
 - `scopePath`
 
-When `sourceChannel` is not provided, the server derives it from the strongest available scope. A path like `$HOME/.codex/automations/mcp-and-skill-hunter/memory.md` becomes `codex:automation:mcp-and-skill-hunter`; a Codex workspace path under `Documents/Codex/<date>/<slug>` becomes `codex:workspace:<date>/<slug>`. `memory_write` preserves the hierarchy in a compact `[graymatter-scope]` header inside `MemoryEntry.text`, while `memory_query` sends the derived value as the api-0 `source` filter.
+When `sourceChannel` is not provided, the server derives it from the strongest available scope. A path like `$HOME/.codex/automations/mcp-and-skill-hunter/memory.md` becomes `codex:automation:mcp-and-skill-hunter`; a Codex workspace path under `Documents/Codex/<date>/<slug>` becomes `codex:workspace:<date>/<slug>`. `memory_write` preserves the hierarchy in structured `MemoryEntry.metadata` and `sourceChannel`, while `memory_query` sends the derived value as the api-0 `source` filter.
 
 ## Retrieval Receipts
 
@@ -144,6 +144,8 @@ Agents should inspect `answerPolicy` before generation:
 - `ALLOW_ANSWER` means the retrieved context is acceptable for answering.
 - `ALLOW_WITH_CAVEAT` means answer with uncertainty or provenance.
 - `DO_NOT_ANSWER_CONFIDENTLY`, `REQUIRE_RETRY`, `REQUIRE_CLARIFICATION`, and `DENY` mean the agent should not present a confident memory-grounded answer.
+
+The MCP server also adds a normalized `graymatterPolicy` object to receipt-backed responses when policy signals are present. It preserves raw api-0 receipt fields and adds `answerAllowed`, `caveatRequired`, `disposition`, and `requiredActions` so Codex, OpenClaw, Claude, and ValorIDE clients can fail closed without reimplementing enum mapping.
 
 Use `retrieval_receipt_get` and `retrieval_receipt_query` for audit trails, debugging, retry chains, and low-confidence retrieval inspection.
 

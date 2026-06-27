@@ -1,0 +1,38 @@
+{
+  "id": "graymatter-local-bootstrap",
+  "name": "GrayMatter Local Bootstrap",
+  "steps": [
+    {
+      "id": "resolve-template",
+      "type": "service-call",
+      "config": {
+        "service": "thorapi.app.template.resolve",
+        "inputMap": {
+          "templateKey": "graymatter-local"
+        }
+      }
+    },
+    {
+      "id": "compose-thorapi-febe",
+      "type": "service-call",
+      "config": {
+        "service": "thorapi.app.launch.contract",
+        "inputMap": {
+          "templateKey": "graymatter-local",
+          "deployProfile": "web-plus-api",
+          "generationMode": "thorapi-febe",
+          "openApiSchemaPath": "application-bundle/openapi.json",
+          "components": [
+            "components/graymatter-dashboard.yaml",
+            "components/memory-workbench.yaml",
+            "components/mothership-sync.yaml",
+            "components/swarm-protocol.yaml",
+            "components/live-telemetry.yaml",
+            "valkyr-components/rbac-core.yaml",
+            "valkyr-components/data-workbooks.yaml"
+          ]
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+id: swarm-protocol
+name: SwarmProtocolBridge
+kind: backend-component
+description: Local GrayMatter SWARM v0.1 adapter that exposes light-node identity, capabilities, and promotion endpoints.
+source: controller/SwarmProtocolController.java
+binds:
+  - GET /v1/swarm-ops/graph
+exports:
+  - SwarmOps
+  - graymatter-swarm-v0.1

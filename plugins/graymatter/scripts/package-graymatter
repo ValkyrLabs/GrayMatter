@@ -18,9 +18,14 @@ REQUIRED=(
   scripts/gm-doctor
   scripts/gm-install-check
   scripts/gm-mcp-contract
+  scripts/gm-agent-smoke-matrix
   scripts/gm-status
   scripts/gm-write
+  scripts/gm-light-smoke
   scripts/graymatter_api.sh
+  templates/graymatter-light-bootstrap/api.hbs.yaml
+  templates/graymatter-light-bootstrap/local-server/bin/graymatter-local-server
+  templates/graymatter-light-bootstrap/local-server/manifest.json
   references/contracts/mcp/graymatter_mcp_contract_v1.json
   references/contracts/mcp/graymatter_mcp_tools_v1.json
   references/mcp/memory-tool-contract.v1.json

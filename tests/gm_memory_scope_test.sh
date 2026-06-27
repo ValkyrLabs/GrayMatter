@@ -30,11 +30,12 @@ WRITE_OUTPUT="$(
 )"
 
 jq -e '(.sourceChannel // .source) == "codex:automation:mcp-and-skill-hunter"' <<<"$WRITE_OUTPUT" >/dev/null
-jq -e '.text | contains("[graymatter-scope]")' <<<"$WRITE_OUTPUT" >/dev/null
-jq -e '.text | contains("scope: automation")' <<<"$WRITE_OUTPUT" >/dev/null
-jq -e '.text | contains("automationId: mcp-and-skill-hunter")' <<<"$WRITE_OUTPUT" >/dev/null
-jq -e '.text | contains("artifactPath: /tmp/codex-home/.codex/automations/mcp-and-skill-hunter/memory.md")' <<<"$WRITE_OUTPUT" >/dev/null
-jq -e '.text | contains("Research complete; publish blocked")' <<<"$WRITE_OUTPUT" >/dev/null
+jq -e '.text == "Research complete; publish blocked"' <<<"$WRITE_OUTPUT" >/dev/null
+jq -e '.text | contains("[graymatter-scope]") | not' <<<"$WRITE_OUTPUT" >/dev/null
+jq -e '(.metadata | fromjson).scope == "automation"' <<<"$WRITE_OUTPUT" >/dev/null
+jq -e '(.metadata | fromjson).automationId == "mcp-and-skill-hunter"' <<<"$WRITE_OUTPUT" >/dev/null
+jq -e '(.metadata | fromjson).artifactPath == "/tmp/codex-home/.codex/automations/mcp-and-skill-hunter/memory.md"' <<<"$WRITE_OUTPUT" >/dev/null
+jq -e '(.metadata | fromjson).sourceChannel == "codex:automation:mcp-and-skill-hunter"' <<<"$WRITE_OUTPUT" >/dev/null
 
 QUERY_OUTPUT="$("$TMP_DIR/gm-query" "publish blocked" 5 context --scope-path "$AUTOMATION_MEMORY")"
 
@@ -50,6 +51,8 @@ CHAT_OUTPUT="$(
 )"
 
 jq -e '(.sourceChannel // .source) == "codex:chat:thread-42"' <<<"$CHAT_OUTPUT" >/dev/null
-jq -e '.text | contains("workspaceKey: 2026-05-12/scan-the-internet-for-lhe-best")' <<<"$CHAT_OUTPUT" >/dev/null
+jq -e '.text == "Use sourceChannel for scoped retrieval"' <<<"$CHAT_OUTPUT" >/dev/null
+jq -e '(.metadata | fromjson).chatKey == "thread-42"' <<<"$CHAT_OUTPUT" >/dev/null
+jq -e '(.metadata | fromjson).workspaceKey == "2026-05-12/scan-the-internet-for-lhe-best"' <<<"$CHAT_OUTPUT" >/dev/null
 
 echo "gm_memory_scope_test: PASS"

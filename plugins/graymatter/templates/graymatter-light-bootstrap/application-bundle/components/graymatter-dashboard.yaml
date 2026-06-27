@@ -1,0 +1,11 @@
+id: graymatter-dashboard
+name: GrayMatterDashboard
+kind: frontend-component
+description: Local GrayMatter dashboard surface for RBAC, memory, and workbook state.
+source: static/index.html
+binds:
+  - GET /v1/graymatter/stats
+  - GET /actuator/health
+  - GET /v1/graymatter/activation/bridge
+  - GET /v1/swarm-ops/graph
+  - GET /v1/memory/status

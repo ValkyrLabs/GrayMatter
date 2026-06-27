@@ -758,12 +758,18 @@ async function callTool(params, context) {
       return execute('memory_replay_deferred', () => replayDeferredMemory(context, args));
     case 'memory_retrieve_with_receipt':
       requireString(args.query, 'query');
-      return execute('memory_retrieve_with_receipt', () => apiRequest(context, 'POST', 'graymatter-retrieval-receipts', buildRetrievalReceiptPayload(args)));
+      return execute('memory_retrieve_with_receipt', async () => decorateRetrievalReceiptResult(
+        await apiRequest(context, 'POST', 'graymatter-retrieval-receipts', buildRetrievalReceiptPayload(args))
+      ));
     case 'retrieval_receipt_get':
       requireString(args.receiptId, 'receiptId');
-      return execute('retrieval_receipt_get', () => apiRequest(context, 'GET', `graymatter-retrieval-receipts/${encodeURIComponent(args.receiptId)}`));
+      return execute('retrieval_receipt_get', async () => decorateRetrievalReceiptResult(
+        await apiRequest(context, 'GET', `graymatter-retrieval-receipts/${encodeURIComponent(args.receiptId)}`)
+      ));
     case 'retrieval_receipt_query':
-      return execute('retrieval_receipt_query', () => apiRequest(context, 'GET', buildRetrievalReceiptQueryEndpoint(args)));
+      return execute('retrieval_receipt_query', async () => decorateRetrievalReceiptResult(
+        await apiRequest(context, 'GET', buildRetrievalReceiptQueryEndpoint(args))
+      ));
     case 'graph_get': {
       const graphPath = args.path ? `swarm-ops/graph/${trimSlashes(args.path)}` : 'swarm-ops/graph';
       return execute('graph_get', () => apiRequest(context, 'GET', graphPath));
@@ -1627,6 +1633,112 @@ function buildRetrievalReceiptQueryEndpoint(args) {
   }
   const suffix = query.toString() ? `?${query}` : '';
   return `graymatter-retrieval-receipts${suffix}`;
+}
+
+function decorateRetrievalReceiptResult(value) {
+  if (Array.isArray(value)) {
+    return value.map((item) => decorateRetrievalReceiptContainer(item));
+  }
+  return decorateRetrievalReceiptContainer(value);
+}
+
+function decorateRetrievalReceiptContainer(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return value;
+  }
+  const receipt = value.receipt && typeof value.receipt === 'object' && !Array.isArray(value.receipt)
+    ? value.receipt
+    : value;
+  const graymatterPolicy = retrievalReceiptPolicy(receipt);
+  if (!graymatterPolicy) {
+    return value;
+  }
+  if (receipt === value) {
+    return { ...value, graymatterPolicy };
+  }
+  return {
+    ...value,
+    receipt: { ...receipt, graymatterPolicy },
+    graymatterPolicy
+  };
+}
+
+function retrievalReceiptPolicy(receipt) {
+  const answerPolicy = firstDefined(receipt.answerPolicy, receipt.answer_policy);
+  const retrievalStatus = firstDefined(receipt.retrievalStatus, receipt.retrieval_status);
+  const recommendedAction = firstDefined(receipt.recommendedAction, receipt.recommended_action);
+  const receiptId = firstDefined(receipt.receiptId, receipt.receipt_id, receipt.id);
+  const traceId = firstDefined(receipt.traceId, receipt.trace_id);
+  if (!answerPolicy && !retrievalStatus && !recommendedAction) {
+    return null;
+  }
+
+  const blockedPolicy = new Set([
+    'DO_NOT_ANSWER_CONFIDENTLY',
+    'REQUIRE_RETRY',
+    'REQUIRE_CLARIFICATION',
+    'DENY'
+  ]);
+  const blockedStatus = new Set([
+    'NO_RESULTS',
+    'LOW_CONFIDENCE',
+    'STALE_CONTEXT',
+    'CONFLICTING_CONTEXT',
+    'ACCESS_DENIED',
+    'POLICY_REDACTED',
+    'EVALUATOR_REJECTED',
+    'RETRY_REQUIRED',
+    'ERROR'
+  ]);
+  const caveatStatus = new Set(['PARTIAL_COVERAGE']);
+  const requiredActions = [];
+
+  if (!answerPolicy) {
+    requiredActions.push('inspect_missing_answer_policy');
+  }
+  if (!retrievalStatus) {
+    requiredActions.push('inspect_missing_retrieval_status');
+  }
+  if (blockedPolicy.has(answerPolicy)) {
+    requiredActions.push(answerPolicy.toLowerCase());
+  }
+  if (blockedStatus.has(retrievalStatus)) {
+    requiredActions.push(`handle_${retrievalStatus.toLowerCase()}`);
+  }
+  if (answerPolicy === 'ALLOW_WITH_CAVEAT' || caveatStatus.has(retrievalStatus)) {
+    requiredActions.push('answer_with_caveat_and_provenance');
+  }
+  if (recommendedAction && recommendedAction !== 'ANSWER') {
+    requiredActions.push(`recommended_${recommendedAction.toLowerCase()}`);
+  }
+
+  const answerAllowed = answerPolicy === 'ALLOW_ANSWER' && (!retrievalStatus || retrievalStatus === 'OK');
+  const caveatRequired = answerPolicy === 'ALLOW_WITH_CAVEAT' || caveatStatus.has(retrievalStatus);
+  const blocked = !answerAllowed && !caveatRequired;
+  const disposition = answerAllowed
+    ? 'answer_from_memory_allowed'
+    : caveatRequired
+      ? 'answer_with_caveat'
+      : 'do_not_answer_from_memory';
+
+  if (blocked && requiredActions.length === 0) {
+    requiredActions.push('retry_or_clarify_before_answering');
+  }
+
+  return {
+    receiptId,
+    traceId,
+    retrievalStatus,
+    answerPolicy,
+    recommendedAction,
+    answerAllowed,
+    caveatRequired,
+    disposition,
+    requiredActions: Array.from(new Set(requiredActions)),
+    warning: answerAllowed
+      ? undefined
+      : 'GrayMatter retrieval receipt policy does not authorize a confident memory-grounded answer.'
+  };
 }
 
 function grayMatterStatusEndpoint(surface = 'memory_status') {

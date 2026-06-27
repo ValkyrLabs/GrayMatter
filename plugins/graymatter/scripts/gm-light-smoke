@@ -1,0 +1,110 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+PORT="${GRAYMATTER_LIGHT_PORT:-8787}"
+PUBLIC_BASE="http://localhost:${PORT}"
+API_BASE="${PUBLIC_BASE}/v1"
+LIGHT_USERNAME="${GRAYMATTER_LIGHT_USERNAME:-admin}"
+LIGHT_PASSWORD="${GRAYMATTER_LIGHT_PASSWORD:-graymatter-light}"
+TMP_DIR=""
+SERVER_PID=""
+
+cleanup() {
+  if [[ -n "$SERVER_PID" ]] && kill -0 "$SERVER_PID" >/dev/null 2>&1; then
+    kill "$SERVER_PID" >/dev/null 2>&1 || true
+    wait "$SERVER_PID" >/dev/null 2>&1 || true
+  fi
+  if [[ -n "$TMP_DIR" ]]; then
+    rm -rf "$TMP_DIR" >/dev/null 2>&1 || true
+  fi
+}
+trap cleanup EXIT
+
+health_ready() {
+  curl -fsS "${PUBLIC_BASE}/actuator/health" >/dev/null 2>&1
+}
+
+wait_for_health() {
+  local log_file="$1"
+  for _ in {1..90}; do
+    if health_ready; then
+      return 0
+    fi
+    sleep 1
+  done
+  echo "GrayMatter Light did not become healthy at ${PUBLIC_BASE}/actuator/health" >&2
+  [[ -f "$log_file" ]] && tail -n 120 "$log_file" >&2 || true
+  return 1
+}
+
+start_temp_server() {
+  TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/gm-light-smoke.XXXXXX")"
+  local dist_dir="${TMP_DIR}/dist"
+  local work_dir="${TMP_DIR}/work"
+  local log_file="${TMP_DIR}/graymatter-light.log"
+  mkdir -p "$dist_dir"
+
+  GRAYMATTER_SKIP_RUNTIME_BUNDLE="${GRAYMATTER_SMOKE_SKIP_RUNTIME_BUNDLE:-true}" \
+    "${SCRIPT_DIR}/package-local-server" \
+      --out-dir "$dist_dir" \
+      --work-dir "$work_dir" >/dev/null
+
+  tar -xzf "${dist_dir}/graymatter-local-server-latest.tar.gz" -C "$TMP_DIR"
+
+  (
+    cd "${TMP_DIR}/graymatter-local-server"
+    env \
+      SERVER_PORT="$PORT" \
+      GRAYMATTER_ADMIN_PASSWORD="$LIGHT_PASSWORD" \
+      GRAYMATTER_DATA_DIR="${TMP_DIR}/data" \
+      ./bin/graymatter-local-server
+  ) >"$log_file" 2>&1 &
+  SERVER_PID="$!"
+  wait_for_health "$log_file"
+}
+
+if ! health_ready; then
+  start_temp_server
+fi
+
+export VALKYR_API_BASE="$API_BASE"
+export GRAYMATTER_LIGHT_API_BASE="$API_BASE"
+export GRAYMATTER_LIGHT_PUBLIC_BASE="$PUBLIC_BASE"
+export GRAYMATTER_LIGHT_MODE=true
+export GRAYMATTER_LIGHT_USERNAME="$LIGHT_USERNAME"
+export GRAYMATTER_LIGHT_PASSWORD="$LIGHT_PASSWORD"
+export GRAYMATTER_SKIP_SELF_UPDATE=true
+
+decision_text="GrayMatter Light smoke decision $(date +%s)"
+
+echo "==> Writing decision through /v1/MemoryEntry/write"
+write_response="$("${SCRIPT_DIR}/gm-write" decision "$decision_text" local-light-smoke)"
+printf '%s\n' "$write_response" | jq -e '.id and .type == "decision"' >/dev/null
+
+echo "==> Querying decision through /v1/MemoryEntry/query"
+query_response="$("${SCRIPT_DIR}/gm-query" "$decision_text" 5 decision)"
+printf '%s\n' "$query_response" | grep -q "$decision_text"
+
+echo "==> Checking memory_health through /v1/memory/status"
+health_response="$("${SCRIPT_DIR}/graymatter_api.sh" GET /memory/status)"
+printf '%s\n' "$health_response" | jq -e '.metrics or .mode or .memoryEntryCount' >/dev/null
+
+cat <<EOF
+GrayMatter Light smoke: MCP-ready
+VALKYR_API_BASE=${API_BASE}
+GRAYMATTER_LIGHT_MODE=true
+
+Use this shell for Codex/OpenClaw/Claude Code:
+  export VALKYR_API_BASE='${API_BASE}'
+  export GRAYMATTER_LIGHT_MODE='true'
+  export GRAYMATTER_LIGHT_USERNAME='${LIGHT_USERNAME}'
+  export GRAYMATTER_LIGHT_PASSWORD='<local-light-password>'
+  node mcp-server/index.js --stdio
+
+For repo installs:
+  scripts/gm-activate
+  scripts/gm-light-up
+  eval "\$(scripts/gm-light-env)"
+EOF

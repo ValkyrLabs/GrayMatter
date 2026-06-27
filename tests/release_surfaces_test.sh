@@ -58,8 +58,24 @@ grep -q '/v1/api-docs' "$ROOT/plugins/graymatter/skills/graymatter-analytics/SKI
   echo "Codex marketplace plugin invariant preflight missing or not executable" >&2
   exit 1
 }
+[[ -x "$ROOT/plugins/graymatter/scripts/gm-agent-smoke-matrix" ]] || {
+  echo "Codex marketplace plugin agent smoke matrix missing or not executable" >&2
+  exit 1
+}
+[[ -x "$ROOT/plugins/graymatter/scripts/gm-light-smoke" ]] || {
+  echo "Codex marketplace plugin Light smoke script missing or not executable" >&2
+  exit 1
+}
 [[ -x "$ROOT/plugins/graymatter/scripts/gm-read" ]] || {
   echo "Codex marketplace plugin memory read script missing or not executable" >&2
+  exit 1
+}
+[[ -f "$ROOT/plugins/graymatter/templates/graymatter-light-bootstrap/api.hbs.yaml" ]] || {
+  echo "Codex marketplace plugin GrayMatter Light template missing" >&2
+  exit 1
+}
+[[ -x "$ROOT/plugins/graymatter/templates/graymatter-light-bootstrap/local-server/bin/graymatter-local-server" ]] || {
+  echo "Codex marketplace plugin GrayMatter Light server launcher missing or not executable" >&2
   exit 1
 }
 [[ -x "$ROOT/scripts/gm-activation-fastlane" ]] || {
@@ -76,6 +92,26 @@ grep -q '/v1/api-docs' "$ROOT/plugins/graymatter/skills/graymatter-analytics/SKI
 }
 [[ -f "$ROOT/plugins/graymatter/mcp-server/index.js" ]] || {
   echo "Codex marketplace plugin MCP server missing" >&2
+  exit 1
+}
+cmp -s "$ROOT/mcp-server/index.js" "$ROOT/plugins/graymatter/mcp-server/index.js" || {
+  echo "Codex marketplace plugin MCP server is stale; sync mcp-server/index.js" >&2
+  exit 1
+}
+cmp -s "$ROOT/mcp-server/test/recovery.test.js" "$ROOT/plugins/graymatter/mcp-server/test/recovery.test.js" || {
+  echo "Codex marketplace plugin MCP recovery tests are stale; sync mcp-server/test/recovery.test.js" >&2
+  exit 1
+}
+cmp -s "$ROOT/scripts/graymatter_api.sh" "$ROOT/plugins/graymatter/scripts/graymatter_api.sh" || {
+  echo "Codex marketplace plugin API transport is stale; sync scripts/graymatter_api.sh" >&2
+  exit 1
+}
+cmp -s "$ROOT/scripts/gm-agent-smoke-matrix" "$ROOT/plugins/graymatter/scripts/gm-agent-smoke-matrix" || {
+  echo "Codex marketplace plugin agent smoke matrix is stale; sync scripts/gm-agent-smoke-matrix" >&2
+  exit 1
+}
+cmp -s "$ROOT/scripts/gm-light-smoke" "$ROOT/plugins/graymatter/scripts/gm-light-smoke" || {
+  echo "Codex marketplace plugin Light smoke script is stale; sync scripts/gm-light-smoke" >&2
   exit 1
 }
 [[ -f "$ROOT/plugins/graymatter/references/contracts/mcp/graymatter_mcp_tools_v1.json" ]] || {
@@ -134,6 +170,18 @@ grep -q "gm-read" "$ROOT/plugins/graymatter/scripts/package-graymatter" || {
   echo "plugin package manifest missing memory read script" >&2
   exit 1
 }
+grep -q "gm-agent-smoke-matrix" "$ROOT/plugins/graymatter/scripts/package-graymatter" || {
+  echo "plugin package manifest missing agent smoke matrix" >&2
+  exit 1
+}
+grep -q "gm-light-smoke" "$ROOT/plugins/graymatter/scripts/package-graymatter" || {
+  echo "plugin package manifest missing Light smoke script" >&2
+  exit 1
+}
+grep -q "templates/graymatter-light-bootstrap" "$ROOT/plugins/graymatter/scripts/package-graymatter" || {
+  echo "plugin package manifest missing GrayMatter Light templates" >&2
+  exit 1
+}
 grep -q "graymatter_invariant_preflight" "$ROOT/mcp-server/README.md" || {
   echo "MCP README missing invariant preflight tool" >&2
   exit 1
@@ -161,6 +209,9 @@ grep -q '^graymatter/scripts/gm-register-agent$' "$ZIP_LIST"
 grep -q '^graymatter/scripts/gm-openapi-sync$' "$ZIP_LIST"
 grep -q '^graymatter/scripts/gm-openapi-summary$' "$ZIP_LIST"
 grep -q '^graymatter/scripts/gm-light-up$' "$ZIP_LIST"
+grep -q '^graymatter/scripts/gm-light-smoke$' "$ZIP_LIST"
+grep -q '^graymatter/templates/graymatter-light-bootstrap/api.hbs.yaml$' "$ZIP_LIST"
+grep -q '^graymatter/templates/graymatter-light-bootstrap/local-server/bin/graymatter-local-server$' "$ZIP_LIST"
 grep -q '^graymatter/mcp-server/index.js$' "$ZIP_LIST"
 grep -q '^graymatter/.mcp.json$' "$ZIP_LIST"
 grep -q '^graymatter/graymatter-bootstrap$' "$ZIP_LIST"

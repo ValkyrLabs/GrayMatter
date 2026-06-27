@@ -16,6 +16,10 @@ description="$(jq -r '.description' "$PLUGIN_JSON")"
 [[ "$repo" == "https://github.com/ValkyrLabs/GrayMatter" ]]
 
 expected_line="- [GrayMatter](https://github.com/ValkyrLabs/GrayMatter) — $description"
-grep -Fx -- "$expected_line" "$LISTING_DOC" >/dev/null
+if ! grep -Fx -- "$expected_line" "$LISTING_DOC" >/dev/null; then
+  echo "awesome Codex listing is stale; expected:" >&2
+  echo "$expected_line" >&2
+  exit 1
+fi
 
 echo "awesome_codex_listing_test: ok"

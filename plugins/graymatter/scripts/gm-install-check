@@ -148,6 +148,27 @@ token_health_state() {
   ' <<<"$claims"
 }
 
+token_live_state() {
+  local token="${1:-}"
+  local code=""
+
+  [[ -n "$token" ]] || {
+    printf 'missing\n'
+    return 0
+  }
+
+  code="$(curl -sS -o /dev/null -w '%{http_code}' --connect-timeout 5 --max-time 10 \
+    -H "Authorization: Bearer $token" \
+    -H 'accept: application/json' \
+    "${BASE%/}/auth/me" 2>/dev/null || true)"
+
+  case "$code" in
+    2*) printf 'valid\n' ;;
+    401|403) printf 'invalid\n' ;;
+    *) printf 'unknown\n' ;;
+  esac
+}
+
 run_login() {
   local login_cmd="${GRAYMATTER_LOGIN_COMMAND:-${SCRIPT_DIR}/gm-login}"
   if [[ ! -x "$login_cmd" ]]; then
@@ -214,6 +235,17 @@ case "$TOKEN_STATE" in
     ;;
 esac
 pass "GrayMatter auth token health: ${TOKEN_STATE}"
+
+TOKEN_LIVE_STATE="$(token_live_state "$TOKEN")"
+case "$TOKEN_LIVE_STATE" in
+  invalid)
+    if run_login && [[ -n "$TOKEN" ]]; then
+      TOKEN_LIVE_STATE="$(token_live_state "$TOKEN")"
+    fi
+    [[ "$TOKEN_LIVE_STATE" != "invalid" ]] || fail "GrayMatter auth token is stale or replaced according to ${BASE%/}/auth/me, and automatic re-login did not refresh it."
+    ;;
+esac
+pass "GrayMatter auth live state: ${TOKEN_LIVE_STATE}"
 
 if curl --silent --show-error --fail --max-time 10 "$BASE" >/dev/null 2>&1; then
   pass "API base reachable: $BASE"

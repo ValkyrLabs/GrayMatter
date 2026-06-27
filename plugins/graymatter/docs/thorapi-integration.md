@@ -51,12 +51,12 @@ Fields:
 - `modifiedDate`
 
 Required MCP-backed paths:
-- `POST /MemoryEntry`
-- `GET /MemoryEntry/{id}`
-- `POST /MemoryEntry/query`
-- `GET /SwarmOps/graph`
-- `GET /api-docs`
-- optional `PATCH /MemoryEntry/{id}`
+- `POST /v1/MemoryEntry/write`
+- `GET /v1/MemoryEntry/{id}`
+- `POST /v1/MemoryEntry/query`
+- `GET /v1/swarm-ops/graph`
+- `GET /v1/api-docs`
+- optional `PATCH /v1/MemoryEntry/{id}`
 
 ## Practical cross-links for this repo
 

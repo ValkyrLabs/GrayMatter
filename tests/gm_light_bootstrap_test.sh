@@ -157,4 +157,25 @@ if grep -q "{{server_url}}" "$PLUGIN_OUT/api.yaml"; then
   exit 1
 fi
 
+"$ROOT/scripts/gm-light-bootstrap" --help >"$OUT/bootstrap-help.txt" 2>&1
+assert_contains "Usage: gm-light-bootstrap" "$OUT/bootstrap-help.txt"
+"$ROOT/plugins/graymatter/scripts/gm-light-bootstrap" --help >"$PLUGIN_OUT/bootstrap-help.txt" 2>&1
+assert_contains "Usage: gm-light-bootstrap" "$PLUGIN_OUT/bootstrap-help.txt"
+
+GRAYMATTER_FALLBACK_SPOOL="$OUT/smoke-help-fallback.json" \
+  "$ROOT/scripts/gm-light-smoke" --help >"$OUT/smoke-help.txt" 2>&1
+assert_contains "Usage: gm-light-smoke" "$OUT/smoke-help.txt"
+if [[ -e "$OUT/smoke-help-fallback.json" ]]; then
+  echo "gm-light-smoke --help must not queue fallback writes" >&2
+  exit 1
+fi
+
+GRAYMATTER_FALLBACK_SPOOL="$PLUGIN_OUT/smoke-help-fallback.json" \
+  "$ROOT/plugins/graymatter/scripts/gm-light-smoke" --help >"$PLUGIN_OUT/smoke-help.txt" 2>&1
+assert_contains "Usage: gm-light-smoke" "$PLUGIN_OUT/smoke-help.txt"
+if [[ -e "$PLUGIN_OUT/smoke-help-fallback.json" ]]; then
+  echo "plugin gm-light-smoke --help must not queue fallback writes" >&2
+  exit 1
+fi
+
 echo "gm_light_bootstrap_test: ok"

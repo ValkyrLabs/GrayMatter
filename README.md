@@ -40,6 +40,8 @@ The required preflight is broader than a keyword search. It must look up invaria
 
 For ValkyrAI, ValorIDE, GrayMatter Light, and ThorAPI-generated application work, agents should prefer repo launchers over direct build shortcuts: `./vaix build`, `./vaix test`, `./vaix run`, and repo-documented `./vai` flows preserve ThorAPI generation, AspectJ weaving, heap defaults, local H2/runtime flags, and end-user operational behavior. Signup, ACL/RBAC, and generated API fixes should normally be proven with `./vaix run` on localhost:8080 plus the frontend on localhost:5174 before using production only as a comparison point.
 
+For Valkyr-native agent routing, treat GrayMatter as shared memory and schema context for ValkyrAI, ValorIDE, ThorAPI, TrustFabric, GridHeim, and SWARM coordination work. Load durable invariants first, then route implementation through the owning generated-code, security, workflow, or MCP surface.
+
 P0 RBAC/ACL security invariant: generated ThorAPI ACL behavior is the authorization source of truth. No custom controller, delegate, service, frontend filter, status check, type check, role shortcut, catalog rule, or "public-ish" heuristic may bypass, weaken, replace, or shadow generated ACL behavior. Users may see owned records and records shared by explicit ACL grants only; public access requires explicit `anonymousUser` READ. Solve ACL scale with indexed owner/ACL query selection plus final generated ACL guards, never by scanning private rows or adding object-specific bypasses.
 
 P0 Valkyr Way UX/auth invariant: product UX must be integrated into the shared application shell and centralized auth/session primitives. Do not create one-off screens, standalone admin affordances, self-managed auth checks, browser-cache shortcuts, or cobbled mini-apps that bypass LCARS navigation, route guards, shared access-control state, RTK Query cache invalidation, or generated RBAC/ACL contracts. Admin and finance tools belong inside the appropriate LCARS dashboard/sidebar surfaces; user management has one Users & Roles surface with card/list modes rather than separate `/userList` and dashboard implementations. If authentication behavior changes, update the centralized auth/access-control modules and tests instead of scattering per-component checks.
@@ -192,6 +194,7 @@ Rule:
 - `scripts/gm-agent-smoke-matrix` — install/read-search/write/MCP/schema/safe-response readiness matrix for OpenClaw and Codex-style agents
 - `scripts/gm-client` — generic REST wrapper for GET/POST/PUT/PATCH/DELETE against GrayMatter API paths
 - `scripts/gm-entity` — generic helper for listing, reading, and writing arbitrary schema entities
+- `scripts/gm-record` — convenience helper for strategic-priority and KPI records
 - `scripts/gm-register-agent` — register or refresh the OpenClaw server as an Agent in api-0
 - `scripts/gm-mcp-contract` — emit the portable MCP memory-tool contract schema used by agent/IDE adapters
 - `scripts/gm-light-bootstrap` — copy and render the local GrayMatter app bundle and server source scaffold from bash-friendly templates

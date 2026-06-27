@@ -11,6 +11,39 @@ LIGHT_PASSWORD="${GRAYMATTER_LIGHT_PASSWORD:-graymatter-light}"
 TMP_DIR=""
 SERVER_PID=""
 
+usage() {
+  cat >&2 <<'EOF'
+Usage: gm-light-smoke [--port PORT]
+
+Starts or reuses a local GrayMatter Light server, writes and queries a test
+MemoryEntry through /v1, checks memory health, and prints MCP-ready exports.
+EOF
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --port)
+      PORT="${2:-}"
+      [[ -n "$PORT" ]] || {
+        echo "gm-light-smoke --port requires a port" >&2
+        exit 2
+      }
+      PUBLIC_BASE="http://localhost:${PORT}"
+      API_BASE="${PUBLIC_BASE}/v1"
+      shift 2
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "Unknown gm-light-smoke option: $1" >&2
+      usage
+      exit 2
+      ;;
+  esac
+done
+
 cleanup() {
   if [[ -n "$SERVER_PID" ]] && kill -0 "$SERVER_PID" >/dev/null 2>&1; then
     kill "$SERVER_PID" >/dev/null 2>&1 || true

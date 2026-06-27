@@ -116,6 +116,32 @@ Only GrayMatter product surfaces such as memory, retrieval, receipts, status, an
 
 This means a properly authenticated OpenClaw instance can understand the business as a live object graph when the schema exposes those objects, not as disconnected chat logs.
 
+### 3) Normalized object writes
+
+GrayMatter depends on relational, graph-friendly records for retrieval quality. Do not collapse schema fields into blob text.
+
+Hard rules for all agents and clients:
+- Load `/v1/api-docs` before writing an unfamiliar object type.
+- Use the most specific live object type for the durable fact or artifact.
+- Use first-class fields, relationships, `category`, `tags`, `metadata`, and IDs exposed by the schema.
+- Use `ContentData` only for content artifacts or related/overflow detail that cannot live on the primary object.
+- Never use `ContentData.contentData` as a metadata junk drawer.
+- Never inline `conversation_summary`, `sourceSurface`, `memoryScope`, `llmDetailsId`, `preferenceType`, category, tags, status, or content type into `contentData` or `MemoryEntry.text`.
+- Never send `ownerId`, `ownerID`, `createdDate`, `lastModifiedDate`, `lastAccessedDate`, or other audit/ownership fields in write payloads. The API owns those fields.
+- If a value is useful for filtering, traversal, retrieval, or provenance, it belongs in a structured field, tag, metadata JSON, or explicit relationship.
+
+For `MemoryEntry`:
+- keep `text` to the durable human fact, decision, todo, preference, handoff, or artifact summary
+- put scope/provenance in `sourceChannel`, `metadata`, tags, and relationships
+- use retrieval receipts or semantic search before answering from memory
+
+For `ContentData`:
+- always set or preserve `contentType`, `category`, and `status`
+- put detailed provenance in `metadata` JSON
+- put searchable facets in normalized tags
+- keep `contentData` as the actual body only
+- if the content is associated with memory, task, workflow, file, customer, opportunity, or agent state, create or preserve the explicit relationship instead of making a shadow copy
+
 ### ThorAPI and RTK Query invariants
 
 When working inside ValkyrAI, ValorIDE, GrayMatter Light, or any ThorAPI-generated app:
@@ -132,7 +158,7 @@ When working inside ValkyrAI, ValorIDE, GrayMatter Light, or any ThorAPI-generat
 - UI REST manipulation should use RTK Query hooks, mutations, cache invalidation, and lazy queries whenever practical so Redux remains the canonical client-side state owner.
 - Raw `fetch`/`axios` paths are only for bootstrapping, auth/session primitives, external non-ThorAPI targets, or one-off runtime probes that cannot reasonably be modeled as RTK Query.
 
-### 3) Shared graph coordination
+### 4) Shared graph coordination
 
 Use SwarmOps and related graph endpoints for the agentic coordination portion of the object graph:
 - registering Codex/OpenClaw or other agents
@@ -164,11 +190,13 @@ Readiness and auth:
 Memory and graph helpers:
 - `scripts/gm-invariant-preflight`
 - `scripts/gm-write`
+- `scripts/gm-client`
 - `scripts/gm-query`
 - `scripts/gm-read`
 - `scripts/gm-retrieval-receipt`
 - `scripts/gm-graph`
 - `scripts/gm-entity`
+- `scripts/gm-record`
 - `scripts/gm-fallback-append`
 - `scripts/gm-replay-deferred`
 
@@ -177,6 +205,7 @@ Local/server packaging:
 - `scripts/gm-light-up`
 - `scripts/gm-light-env`
 - `scripts/gm-light-json-smoke`
+- `scripts/package-graymatter`
 - `scripts/package-local-server`
 
 MCP server:
@@ -414,7 +443,8 @@ Conditional examples, only when `/v1/api-docs` exposes the relevant object famil
 3. Do not dump giant blobs into `MemoryEntry.text`
 4. Use the right object for the job, not only `MemoryEntry`
 5. Respect permission failures and surface them clearly
-6. If a known backend bug blocks a write path, fall back cleanly
+6. Store retrievable metadata in schema fields, `metadata`, tags, and relationships, never in body text
+7. If a known backend bug blocks a write path, fall back cleanly
 
 ## Tag guidance
 
@@ -440,7 +470,7 @@ Recommended scope keys:
 - `codex:chat:<chat-id>`
 - `codex:session:<session-id>`
 
-When memory is backed by a file path, preserve the folder hierarchy as structured metadata in the `MemoryEntry.text` header and mirror the strongest scope into `sourceChannel`. For example, `$HOME/.codex/automations/mcp-and-skill-hunter/memory.md` should become `sourceChannel=codex:automation:mcp-and-skill-hunter` with an audit header containing `scope`, `runtime`, `automationId`, `artifactPath`, and `sourceChannel`.
+When memory is backed by a file path, preserve the folder hierarchy as structured JSON metadata and mirror the strongest scope into `sourceChannel`. For example, `$HOME/.codex/automations/mcp-and-skill-hunter/memory.md` should become `sourceChannel=codex:automation:mcp-and-skill-hunter` with `metadata` containing `scope`, `runtime`, `automationId`, `artifactPath`, and `sourceChannel`.
 
 The helpers support this convention directly:
 

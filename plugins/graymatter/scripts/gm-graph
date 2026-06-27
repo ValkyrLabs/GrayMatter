@@ -6,7 +6,7 @@ PATH_SUFFIX="${2:-}"
 BODY="${3:-}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ENDPOINT="/SwarmOps/graph"
+ENDPOINT="/swarm-ops/graph"
 if [[ -n "$PATH_SUFFIX" ]]; then
   ENDPOINT="${ENDPOINT%/}/${PATH_SUFFIX#/}"
 fi

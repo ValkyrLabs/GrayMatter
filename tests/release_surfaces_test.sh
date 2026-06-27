@@ -14,8 +14,13 @@ require jq -e '.name == "graymatter"' "$ROOT/.codex-plugin/plugin.json" >/dev/nu
 require jq -e '.skills == "./skills/"' "$ROOT/.codex-plugin/plugin.json" >/dev/null
 require jq -e '.mcpServers == "./.mcp.json"' "$ROOT/.codex-plugin/plugin.json" >/dev/null
 require jq -e '.keywords | index("mcp")' "$ROOT/.codex-plugin/plugin.json" >/dev/null
+require jq -e '.keywords | index("retrieval-receipts")' "$ROOT/.codex-plugin/plugin.json" >/dev/null
+require jq -e '.keywords | index("graymatter-light")' "$ROOT/.codex-plugin/plugin.json" >/dev/null
+require jq -e '.keywords | index("valoride")' "$ROOT/.codex-plugin/plugin.json" >/dev/null
 require jq -e '.interface.capabilities | index("Interactive")' "$ROOT/.codex-plugin/plugin.json" >/dev/null
 require jq -e '.interface.longDescription | contains("mcp-server")' "$ROOT/.codex-plugin/plugin.json" >/dev/null
+require jq -e '.interface.longDescription | contains("retrieval receipts")' "$ROOT/.codex-plugin/plugin.json" >/dev/null
+require jq -e '.interface.defaultPrompt | index("Retrieve memory with receipts and obey graymatterPolicy")' "$ROOT/.codex-plugin/plugin.json" >/dev/null
 require jq -e '.plugins[] | select(.name == "graymatter") | .source.path == "./plugins/graymatter"' "$ROOT/.agents/plugins/marketplace.json" >/dev/null
 require jq -e '.slug == "graymatter"' "$ROOT/clawhub.json" >/dev/null
 require jq -e '.tags | index("openclaw-skill")' "$ROOT/clawhub.json" >/dev/null
@@ -33,6 +38,10 @@ require jq -e '.mcpServers.graymatter.args == ["mcp-server/index.js", "--stdio"]
 require jq -e '.name == "graymatter"' "$ROOT/plugins/graymatter/.codex-plugin/plugin.json" >/dev/null
 require jq -e '.skills == "./skills/"' "$ROOT/plugins/graymatter/.codex-plugin/plugin.json" >/dev/null
 require jq -e '.mcpServers == "./.mcp.json"' "$ROOT/plugins/graymatter/.codex-plugin/plugin.json" >/dev/null
+require jq -e '.keywords | index("retrieval-receipts")' "$ROOT/plugins/graymatter/.codex-plugin/plugin.json" >/dev/null
+require jq -e '.keywords | index("graymatter-light")' "$ROOT/plugins/graymatter/.codex-plugin/plugin.json" >/dev/null
+require jq -e '.keywords | index("valoride")' "$ROOT/plugins/graymatter/.codex-plugin/plugin.json" >/dev/null
+require jq -e '.interface.longDescription | contains("GrayMatter Light")' "$ROOT/plugins/graymatter/.codex-plugin/plugin.json" >/dev/null
 require jq -e '.mcpServers.graymatter.args == ["mcp-server/index.js", "--stdio"]' "$ROOT/plugins/graymatter/.mcp.json" >/dev/null
 [[ -f "$ROOT/plugins/graymatter/skills/graymatter/SKILL.md" ]] || {
   echo "Codex marketplace plugin skill missing" >&2
@@ -42,8 +51,92 @@ require jq -e '.mcpServers.graymatter.args == ["mcp-server/index.js", "--stdio"]
   echo "Codex marketplace plugin analytics skill missing" >&2
   exit 1
 }
+[[ -f "$ROOT/plugins/graymatter/skills/graymatter-analytics/references/semantic-layer-template.md" ]] || {
+  echo "Codex marketplace plugin analytics semantic layer template missing" >&2
+  exit 1
+}
+[[ -f "$ROOT/plugins/graymatter/docs/agent-discovery.md" ]] || {
+  echo "Codex marketplace plugin agent discovery docs missing" >&2
+  exit 1
+}
+[[ -f "$ROOT/plugins/graymatter/docs/awesome-codex-plugins.md" ]] || {
+  echo "Codex marketplace plugin awesome-codex listing docs missing" >&2
+  exit 1
+}
+[[ -f "$ROOT/plugins/graymatter/docs/graymatter-light.md" ]] || {
+  echo "Codex marketplace plugin GrayMatter Light docs missing" >&2
+  exit 1
+}
+[[ -f "$ROOT/plugins/graymatter/docs/openai-app-directory-submission.md" ]] || {
+  echo "Codex marketplace plugin OpenAI app submission docs missing" >&2
+  exit 1
+}
+[[ -f "$ROOT/plugins/graymatter/docs/privacy-policy.md" ]] || {
+  echo "Codex marketplace plugin privacy policy docs missing" >&2
+  exit 1
+}
+[[ -f "$ROOT/plugins/graymatter/docs/reviewer-test-credentials.md" ]] || {
+  echo "Codex marketplace plugin reviewer credential runbook missing" >&2
+  exit 1
+}
+[[ -f "$ROOT/plugins/graymatter/docs/thorapi-integration.md" ]] || {
+  echo "Codex marketplace plugin ThorAPI integration docs missing" >&2
+  exit 1
+}
+[[ -f "$ROOT/plugins/graymatter/openai-app/submission-manifest.json" ]] || {
+  echo "Codex marketplace plugin OpenAI app submission manifest missing" >&2
+  exit 1
+}
+[[ -f "$ROOT/plugins/graymatter/clawhub.json" ]] || {
+  echo "Codex marketplace plugin clawhub metadata missing" >&2
+  exit 1
+}
+cmp -s "$ROOT/openai-app/submission-manifest.json" "$ROOT/plugins/graymatter/openai-app/submission-manifest.json" || {
+  echo "Codex marketplace plugin OpenAI app submission manifest is stale; sync openai-app/submission-manifest.json" >&2
+  exit 1
+}
+cmp -s "$ROOT/clawhub.json" "$ROOT/plugins/graymatter/clawhub.json" || {
+  echo "Codex marketplace plugin clawhub metadata is stale; sync clawhub.json" >&2
+  exit 1
+}
+grep -q '/v1/swarm-ops/graph' "$ROOT/plugins/graymatter/docs/graymatter-light.md" || {
+  echo "Codex marketplace plugin GrayMatter Light docs must use production-shaped /v1 swarm graph path" >&2
+  exit 1
+}
 grep -q '/v1/api-docs' "$ROOT/plugins/graymatter/skills/graymatter-analytics/SKILL.md" || {
   echo "Codex marketplace plugin analytics skill must cite api-docs as schema source of truth" >&2
+  exit 1
+}
+grep -q 'scripts/gm-activation-fastlane' "$ROOT/skills/graymatter/SKILL.md" || {
+  echo "Standalone packaged skill missing activation fastlane guidance" >&2
+  exit 1
+}
+grep -q 'scripts/gm-read' "$ROOT/skills/graymatter/SKILL.md" || {
+  echo "Standalone packaged skill missing memory read guidance" >&2
+  exit 1
+}
+grep -q 'scripts/gm-activation-fastlane' "$ROOT/plugins/graymatter/skills/graymatter/SKILL.md" || {
+  echo "Codex marketplace plugin skill missing activation fastlane guidance" >&2
+  exit 1
+}
+grep -q 'scripts/gm-read' "$ROOT/plugins/graymatter/skills/graymatter/SKILL.md" || {
+  echo "Codex marketplace plugin skill missing memory read guidance" >&2
+  exit 1
+}
+grep -q 'valkyrlabs.com/graymatter/activate' "$ROOT/plugins/graymatter/skills/graymatter/SKILL.md" || {
+  echo "Codex marketplace plugin skill missing routed signup guidance" >&2
+  exit 1
+}
+grep -q 'Normalized object writes' "$ROOT/SKILL.md" || {
+  echo "Standalone skill missing normalized object write guidance" >&2
+  exit 1
+}
+grep -q 'Normalized object writes' "$ROOT/skills/graymatter/SKILL.md" || {
+  echo "Standalone packaged skill missing normalized object write guidance" >&2
+  exit 1
+}
+grep -q 'Normalized object writes' "$ROOT/plugins/graymatter/skills/graymatter/SKILL.md" || {
+  echo "Codex marketplace plugin skill missing normalized object write guidance" >&2
   exit 1
 }
 [[ -x "$ROOT/plugins/graymatter/scripts/gm-activate" ]] || {
@@ -70,6 +163,22 @@ grep -q '/v1/api-docs' "$ROOT/plugins/graymatter/skills/graymatter-analytics/SKI
   echo "Codex marketplace plugin memory read script missing or not executable" >&2
   exit 1
 }
+[[ -x "$ROOT/plugins/graymatter/scripts/gm-client" ]] || {
+  echo "Codex marketplace plugin generic REST client missing or not executable" >&2
+  exit 1
+}
+[[ -x "$ROOT/plugins/graymatter/scripts/gm-record" ]] || {
+  echo "Codex marketplace plugin record helper missing or not executable" >&2
+  exit 1
+}
+[[ -x "$ROOT/plugins/graymatter/scripts/package-graymatter" ]] || {
+  echo "Codex marketplace plugin standalone packager missing or not executable" >&2
+  exit 1
+}
+[[ -x "$ROOT/plugins/graymatter/scripts/package_graymatter.sh" ]] || {
+  echo "Codex marketplace plugin package compatibility wrapper missing or not executable" >&2
+  exit 1
+}
 [[ -f "$ROOT/plugins/graymatter/templates/graymatter-light-bootstrap/api.hbs.yaml" ]] || {
   echo "Codex marketplace plugin GrayMatter Light template missing" >&2
   exit 1
@@ -90,6 +199,22 @@ grep -q '/v1/api-docs' "$ROOT/plugins/graymatter/skills/graymatter-analytics/SKI
   echo "memory read script missing or not executable" >&2
   exit 1
 }
+[[ -x "$ROOT/scripts/gm-client" ]] || {
+  echo "generic REST client missing or not executable" >&2
+  exit 1
+}
+[[ -x "$ROOT/scripts/gm-record" ]] || {
+  echo "record helper missing or not executable" >&2
+  exit 1
+}
+[[ -x "$ROOT/scripts/package-graymatter" ]] || {
+  echo "standalone packager missing or not executable" >&2
+  exit 1
+}
+[[ -x "$ROOT/scripts/package_graymatter.sh" ]] || {
+  echo "package compatibility wrapper missing or not executable" >&2
+  exit 1
+}
 [[ -f "$ROOT/plugins/graymatter/mcp-server/index.js" ]] || {
   echo "Codex marketplace plugin MCP server missing" >&2
   exit 1
@@ -106,16 +231,68 @@ cmp -s "$ROOT/scripts/graymatter_api.sh" "$ROOT/plugins/graymatter/scripts/graym
   echo "Codex marketplace plugin API transport is stale; sync scripts/graymatter_api.sh" >&2
   exit 1
 }
+cmp -s "$ROOT/scripts/gm-graph" "$ROOT/plugins/graymatter/scripts/gm-graph" || {
+  echo "Codex marketplace plugin graph helper is stale; sync scripts/gm-graph" >&2
+  exit 1
+}
+cmp -s "$ROOT/scripts/gm-install-check" "$ROOT/plugins/graymatter/scripts/gm-install-check" || {
+  echo "Codex marketplace plugin install check is stale; sync scripts/gm-install-check" >&2
+  exit 1
+}
+cmp -s "$ROOT/scripts/gm-login" "$ROOT/plugins/graymatter/scripts/gm-login" || {
+  echo "Codex marketplace plugin login helper is stale; sync scripts/gm-login" >&2
+  exit 1
+}
+cmp -s "$ROOT/scripts/gm-write" "$ROOT/plugins/graymatter/scripts/gm-write" || {
+  echo "Codex marketplace plugin memory write helper is stale; sync scripts/gm-write" >&2
+  exit 1
+}
+cmp -s "$ROOT/scripts/gm-client" "$ROOT/plugins/graymatter/scripts/gm-client" || {
+  echo "Codex marketplace plugin generic REST client is stale; sync scripts/gm-client" >&2
+  exit 1
+}
+cmp -s "$ROOT/scripts/gm-record" "$ROOT/plugins/graymatter/scripts/gm-record" || {
+  echo "Codex marketplace plugin record helper is stale; sync scripts/gm-record" >&2
+  exit 1
+}
+cmp -s "$ROOT/scripts/package_graymatter.sh" "$ROOT/plugins/graymatter/scripts/package_graymatter.sh" || {
+  echo "Codex marketplace plugin package compatibility wrapper is stale; sync scripts/package_graymatter.sh" >&2
+  exit 1
+}
 cmp -s "$ROOT/scripts/gm-agent-smoke-matrix" "$ROOT/plugins/graymatter/scripts/gm-agent-smoke-matrix" || {
   echo "Codex marketplace plugin agent smoke matrix is stale; sync scripts/gm-agent-smoke-matrix" >&2
+  exit 1
+}
+cmp -s "$ROOT/scripts/gm-light-bootstrap" "$ROOT/plugins/graymatter/scripts/gm-light-bootstrap" || {
+  echo "Codex marketplace plugin Light bootstrap script is stale; sync scripts/gm-light-bootstrap" >&2
+  exit 1
+}
+cmp -s "$ROOT/scripts/gm-light-up" "$ROOT/plugins/graymatter/scripts/gm-light-up" || {
+  echo "Codex marketplace plugin Light startup script is stale; sync scripts/gm-light-up" >&2
+  exit 1
+}
+cmp -s "$ROOT/scripts/gm-light-env" "$ROOT/plugins/graymatter/scripts/gm-light-env" || {
+  echo "Codex marketplace plugin Light env script is stale; sync scripts/gm-light-env" >&2
   exit 1
 }
 cmp -s "$ROOT/scripts/gm-light-smoke" "$ROOT/plugins/graymatter/scripts/gm-light-smoke" || {
   echo "Codex marketplace plugin Light smoke script is stale; sync scripts/gm-light-smoke" >&2
   exit 1
 }
+cmp -s "$ROOT/scripts/package-local-server" "$ROOT/plugins/graymatter/scripts/package-local-server" || {
+  echo "Codex marketplace plugin local-server packager is stale; sync scripts/package-local-server" >&2
+  exit 1
+}
 [[ -f "$ROOT/plugins/graymatter/references/contracts/mcp/graymatter_mcp_tools_v1.json" ]] || {
   echo "Codex marketplace plugin portable MCP contract missing" >&2
+  exit 1
+}
+jq -e '
+  .tools[]
+  | select(.name == "memory_retrieve_with_receipt")
+  | .outputSchema.required | index("graymatterPolicy")
+' "$ROOT/plugins/graymatter/references/contracts/mcp/graymatter_mcp_tools_v1.json" >/dev/null || {
+  echo "Codex marketplace plugin portable MCP contract missing graymatterPolicy receipt output" >&2
   exit 1
 }
 [[ -f "$ROOT/plugins/graymatter/references/mcp/memory-tool-contract.v1.json" ]] || {
@@ -162,6 +339,22 @@ grep -q "gm-read" "$ROOT/scripts/package-graymatter" || {
   echo "package manifest missing memory read script" >&2
   exit 1
 }
+grep -q "gm-client" "$ROOT/scripts/package-graymatter" || {
+  echo "package manifest missing generic REST client" >&2
+  exit 1
+}
+grep -q "gm-record" "$ROOT/scripts/package-graymatter" || {
+  echo "package manifest missing record helper" >&2
+  exit 1
+}
+grep -q "scripts/package-graymatter" "$ROOT/scripts/package-graymatter" || {
+  echo "package manifest missing standalone packager" >&2
+  exit 1
+}
+grep -q "scripts/package_graymatter.sh" "$ROOT/scripts/package-graymatter" || {
+  echo "package manifest missing package compatibility wrapper" >&2
+  exit 1
+}
 grep -q "gm-invariant-preflight" "$ROOT/plugins/graymatter/scripts/package-graymatter" || {
   echo "plugin package manifest missing invariant preflight" >&2
   exit 1
@@ -170,8 +363,64 @@ grep -q "gm-read" "$ROOT/plugins/graymatter/scripts/package-graymatter" || {
   echo "plugin package manifest missing memory read script" >&2
   exit 1
 }
+grep -q "gm-client" "$ROOT/plugins/graymatter/scripts/package-graymatter" || {
+  echo "plugin package manifest missing generic REST client" >&2
+  exit 1
+}
+grep -q "gm-record" "$ROOT/plugins/graymatter/scripts/package-graymatter" || {
+  echo "plugin package manifest missing record helper" >&2
+  exit 1
+}
+grep -q "skills/graymatter-analytics/references/semantic-layer-template.md" "$ROOT/plugins/graymatter/scripts/package-graymatter" || {
+  echo "plugin package manifest missing analytics semantic layer template" >&2
+  exit 1
+}
+grep -q "scripts/package-graymatter" "$ROOT/plugins/graymatter/scripts/package-graymatter" || {
+  echo "plugin package manifest missing standalone packager" >&2
+  exit 1
+}
+grep -q "scripts/package_graymatter.sh" "$ROOT/plugins/graymatter/scripts/package-graymatter" || {
+  echo "plugin package manifest missing package compatibility wrapper" >&2
+  exit 1
+}
 grep -q "gm-agent-smoke-matrix" "$ROOT/plugins/graymatter/scripts/package-graymatter" || {
   echo "plugin package manifest missing agent smoke matrix" >&2
+  exit 1
+}
+grep -q "docs/agent-discovery.md" "$ROOT/plugins/graymatter/scripts/package-graymatter" || {
+  echo "plugin package manifest missing agent discovery docs" >&2
+  exit 1
+}
+grep -q "docs/awesome-codex-plugins.md" "$ROOT/plugins/graymatter/scripts/package-graymatter" || {
+  echo "plugin package manifest missing awesome-codex listing docs" >&2
+  exit 1
+}
+grep -q "docs/graymatter-light.md" "$ROOT/plugins/graymatter/scripts/package-graymatter" || {
+  echo "plugin package manifest missing GrayMatter Light docs" >&2
+  exit 1
+}
+grep -q "docs/openai-app-directory-submission.md" "$ROOT/plugins/graymatter/scripts/package-graymatter" || {
+  echo "plugin package manifest missing OpenAI app submission docs" >&2
+  exit 1
+}
+grep -q "docs/privacy-policy.md" "$ROOT/plugins/graymatter/scripts/package-graymatter" || {
+  echo "plugin package manifest missing privacy policy docs" >&2
+  exit 1
+}
+grep -q "docs/reviewer-test-credentials.md" "$ROOT/plugins/graymatter/scripts/package-graymatter" || {
+  echo "plugin package manifest missing reviewer credential runbook" >&2
+  exit 1
+}
+grep -q "docs/thorapi-integration.md" "$ROOT/plugins/graymatter/scripts/package-graymatter" || {
+  echo "plugin package manifest missing ThorAPI integration docs" >&2
+  exit 1
+}
+grep -q "openai-app/submission-manifest.json" "$ROOT/plugins/graymatter/scripts/package-graymatter" || {
+  echo "plugin package manifest missing OpenAI app submission manifest" >&2
+  exit 1
+}
+grep -q "clawhub.json" "$ROOT/plugins/graymatter/scripts/package-graymatter" || {
+  echo "plugin package manifest missing clawhub metadata" >&2
   exit 1
 }
 grep -q "gm-light-smoke" "$ROOT/plugins/graymatter/scripts/package-graymatter" || {
@@ -191,16 +440,37 @@ grep -q "graymatter_invariant_preflight" "$ROOT/plugins/graymatter/mcp-server/RE
   exit 1
 }
 
-ZIP_LIST="$(mktemp "${TMPDIR:-/tmp}/graymatter-skill-list.XXXXXX")"
-trap 'rm -f "$ZIP_LIST"' EXIT
+RELEASE_TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/graymatter-release-surfaces.XXXXXX")"
+trap 'rm -rf "$RELEASE_TMP_DIR"' EXIT
+ZIP_LIST="$RELEASE_TMP_DIR/graymatter-skill-list.txt"
 unzip -Z1 "$ROOT/graymatter.skill" >"$ZIP_LIST"
 grep -q '^graymatter/SKILL.md$' "$ZIP_LIST"
 grep -q '^graymatter/skills/graymatter-analytics/SKILL.md$' "$ZIP_LIST"
 grep -q '^graymatter/skills/graymatter-analytics/references/semantic-layer-template.md$' "$ZIP_LIST"
+grep -q '^graymatter/docs/agent-discovery.md$' "$ZIP_LIST"
+grep -q '^graymatter/docs/awesome-codex-plugins.md$' "$ZIP_LIST"
+grep -q '^graymatter/docs/graymatter-light.md$' "$ZIP_LIST"
+grep -q '^graymatter/docs/openai-app-directory-submission.md$' "$ZIP_LIST"
+grep -q '^graymatter/docs/privacy-policy.md$' "$ZIP_LIST"
+grep -q '^graymatter/docs/reviewer-test-credentials.md$' "$ZIP_LIST"
+grep -q '^graymatter/docs/server-capabilities.md$' "$ZIP_LIST"
+grep -q '^graymatter/docs/thorapi-integration.md$' "$ZIP_LIST"
+grep -q '^graymatter/openai-app/submission-manifest.json$' "$ZIP_LIST"
+grep -q '^graymatter/clawhub.json$' "$ZIP_LIST"
+grep -q '^graymatter/examples/graymatter-light-thorapi-bundle.yaml$' "$ZIP_LIST"
+grep -q '^graymatter/examples/memoryentry-basic.json$' "$ZIP_LIST"
+grep -q '^graymatter/examples/memoryentry-decision.json$' "$ZIP_LIST"
+grep -q '^graymatter/examples/memoryentry-todo.json$' "$ZIP_LIST"
+grep -q '^graymatter/examples/memoryentry-artifact.json$' "$ZIP_LIST"
+grep -q '^graymatter/examples/graymatter-light-memoryentry.yaml$' "$ZIP_LIST"
 grep -q '^graymatter/scripts/gm-activate$' "$ZIP_LIST"
 grep -q '^graymatter/scripts/gm-activation-fastlane$' "$ZIP_LIST"
 grep -q '^graymatter/scripts/gm-invariant-preflight$' "$ZIP_LIST"
+grep -q '^graymatter/scripts/gm-client$' "$ZIP_LIST"
 grep -q '^graymatter/scripts/gm-read$' "$ZIP_LIST"
+grep -q '^graymatter/scripts/gm-record$' "$ZIP_LIST"
+grep -q '^graymatter/scripts/package-graymatter$' "$ZIP_LIST"
+grep -q '^graymatter/scripts/package_graymatter.sh$' "$ZIP_LIST"
 grep -q '^graymatter/scripts/gm-login$' "$ZIP_LIST"
 grep -q '^graymatter/scripts/gm-install-check$' "$ZIP_LIST"
 grep -q '^graymatter/scripts/gm-doctor$' "$ZIP_LIST"
@@ -218,5 +488,27 @@ grep -q '^graymatter/graymatter-bootstrap$' "$ZIP_LIST"
 grep -q '^graymatter/references/contracts/mcp/graymatter_mcp_tools_v1.json$' "$ZIP_LIST"
 grep -q '^graymatter/references/contracts/mcp/graymatter_mcp_contract_v1.json$' "$ZIP_LIST"
 grep -q '^graymatter/references/mcp/memory-tool-contract.v1.json$' "$ZIP_LIST"
+
+PLUGIN_PACKAGE="$RELEASE_TMP_DIR/graymatter-plugin.skill"
+PLUGIN_ZIP_LIST="$RELEASE_TMP_DIR/graymatter-plugin-list.txt"
+GRAYMATTER_PLUGIN_PACKAGE_OUT="$PLUGIN_PACKAGE" "$ROOT/plugins/graymatter/scripts/package-graymatter" >/dev/null
+unzip -Z1 "$PLUGIN_PACKAGE" >"$PLUGIN_ZIP_LIST"
+grep -q '^graymatter/.codex-plugin/plugin.json$' "$PLUGIN_ZIP_LIST"
+grep -q '^graymatter/skills/graymatter/SKILL.md$' "$PLUGIN_ZIP_LIST"
+grep -q '^graymatter/skills/graymatter-analytics/SKILL.md$' "$PLUGIN_ZIP_LIST"
+grep -q '^graymatter/skills/graymatter-analytics/references/semantic-layer-template.md$' "$PLUGIN_ZIP_LIST"
+grep -q '^graymatter/docs/agent-discovery.md$' "$PLUGIN_ZIP_LIST"
+grep -q '^graymatter/docs/awesome-codex-plugins.md$' "$PLUGIN_ZIP_LIST"
+grep -q '^graymatter/docs/graymatter-light.md$' "$PLUGIN_ZIP_LIST"
+grep -q '^graymatter/docs/openai-app-directory-submission.md$' "$PLUGIN_ZIP_LIST"
+grep -q '^graymatter/docs/privacy-policy.md$' "$PLUGIN_ZIP_LIST"
+grep -q '^graymatter/docs/reviewer-test-credentials.md$' "$PLUGIN_ZIP_LIST"
+grep -q '^graymatter/docs/thorapi-integration.md$' "$PLUGIN_ZIP_LIST"
+grep -q '^graymatter/openai-app/submission-manifest.json$' "$PLUGIN_ZIP_LIST"
+grep -q '^graymatter/clawhub.json$' "$PLUGIN_ZIP_LIST"
+grep -q '^graymatter/scripts/package-graymatter$' "$PLUGIN_ZIP_LIST"
+grep -q '^graymatter/scripts/package_graymatter.sh$' "$PLUGIN_ZIP_LIST"
+grep -q '^graymatter/mcp-server/index.js$' "$PLUGIN_ZIP_LIST"
+grep -q '^graymatter/.mcp.json$' "$PLUGIN_ZIP_LIST"
 
 echo "release_surfaces_test: ok"

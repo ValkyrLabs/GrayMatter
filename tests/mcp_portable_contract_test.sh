@@ -8,5 +8,22 @@ jq -e '.tools | length >= 10' "$contract" >/dev/null
 jq -e '.tools | map(.name) | sort == ["memory_get","memory_health","memory_link","memory_put","memory_put_batch","memory_query","memory_replay_deferred","memory_retrieve_with_receipt","retrieval_receipt_get","retrieval_receipt_query"]' "$contract" >/dev/null
 jq -e '.tools[] | .errors | length >= 1' "$contract" >/dev/null
 jq -e '.tools[] | .errors[] | has("code") and has("retryable")' "$contract" >/dev/null
+jq -e '
+  .tools[]
+  | select(.name == "memory_retrieve_with_receipt" or .name == "retrieval_receipt_get")
+  | .outputSchema.required | index("graymatterPolicy")
+' "$contract" >/dev/null
+jq -e '
+  .tools[]
+  | select(.name == "memory_retrieve_with_receipt" or .name == "retrieval_receipt_get")
+  | .outputSchema.properties.graymatterPolicy.required
+  | index("answerAllowed") and index("caveatRequired") and index("disposition") and index("requiredActions")
+' "$contract" >/dev/null
+jq -e '
+  .tools[]
+  | select(.name == "retrieval_receipt_query")
+  | .outputSchema.properties.receipts.items.properties.graymatterPolicy.required
+  | index("answerAllowed") and index("caveatRequired") and index("disposition") and index("requiredActions")
+' "$contract" >/dev/null
 
 echo "portable MCP contract surface checks passed"

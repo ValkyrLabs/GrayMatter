@@ -69,7 +69,7 @@ Available now:
 - a local JSON-store smoke-test script for write/query validation
 
 Runtime path:
-- keep the ThorAPI-backed local service runnable with `scripts/gm-light-up`
+- keep the api-0-shaped local service runnable with `scripts/gm-light-up`
 - keep sample data and smoke-test commands aligned with the generated spec
 
 Upgrade path:
@@ -92,15 +92,16 @@ This repo now includes:
 - `scripts/gm-light-bootstrap` to generate the app-factory bundle and local server source
 - `scripts/gm-light-up` to start the actual ThorAPI-backed Light instance with Docker Compose
 - `scripts/gm-light-env` to point normal GrayMatter skill scripts at the running Light instance
+- `scripts/gm-light-smoke` to prove local write/query/health and print MCP-ready setup
 - `scripts/package-local-server` to produce `dist/graymatter-local-server-latest.tar.gz`
 
-`gm-light-up` creates the api.hbs.yaml template at `.graymatter-light/api.hbs.yaml`, rendered `.graymatter-light/api.yaml`, `docker-compose.yaml`, and `dashboard/index.html`, then runs the ThorAPI image with `THORAPI_TEMPLATE=/app/api.hbs.yaml` and `THORAPI_SPEC=/app/api.yaml`. The default image is `ghcr.io/valkyrlabs/thorapi:latest`; use `--image` or `THORAPI_IMAGE` when running a private, pinned, or locally built ThorAPI image. The generated ThorAPI contract includes `Principal`, `UserPreferences`, `MemoryEntry`, `Workbook`, `/MemoryEntry/{id}`, `/MemoryEntry/query`, `/SwarmOps/graph`, `/api-docs`, and an explicit `x-graymatter-mcp-contract` section that maps the MCP tools to their backing REST paths. The `.graymatter-light/.graymatter-light-env` file sets `VALKYR_API_BASE` and `GRAYMATTER_LIGHT_MODE=true`, so `gm-write`, `gm-query`, lower-level `graymatter_api.sh`, and the standalone MCP server connect to the running local instance instead of hosted api-0.
+`gm-light-up` creates the api.hbs.yaml template at `.graymatter-light/api.hbs.yaml`, rendered `.graymatter-light/api.yaml`, `docker-compose.yaml`, and `dashboard/index.html`, then runs the ThorAPI image with `THORAPI_TEMPLATE=/app/api.hbs.yaml` and `THORAPI_SPEC=/app/api.yaml`. The default image is `ghcr.io/valkyrlabs/thorapi:latest`; use `--image` or `THORAPI_IMAGE` when running a private, pinned, or locally built ThorAPI image. The generated contract is a subset of the real ValkyrAI api-0 contract: `/v1/MemoryEntry/write`, `/v1/MemoryEntry/query`, `/v1/MemoryEntry/read`, `/v1/MemoryEntry/{id}`, `/v1/memory/status`, `/v1/graymatter/stats`, `/v1/graymatter/activation/bridge`, `/v1/swarm-ops/graph`, and `/v1/api-docs`. The `.graymatter-light/.graymatter-light-env` file sets `VALKYR_API_BASE=http://localhost:8080/v1` and `GRAYMATTER_LIGHT_MODE=true`, so `gm-write`, `gm-query`, lower-level `graymatter_api.sh`, and the standalone MCP server connect to the running local instance instead of hosted api-0.
 
-The generated local server archive remains the downloadable Spring Boot path. It includes RBAC-backed login, `Principal`, `UserPreferences`, `MemoryEntry`, a minimal Data Workbooks `/Workbook` API, a Valkyr Labs-branded dashboard, a mothership promotion bridge, and a local GrayMatter SWARM v0.1 adapter. The generated `application-bundle/` records the ValkyrAI app-factory template, ThorAPI FEBE OpenAPI contract, custom components, and built-in `rbac-core` / `data-workbooks` references.
+The generated local server archive remains the downloadable Spring Boot path. It includes local Basic auth, `Principal`, `UserPreferences`, `MemoryEntry`, a minimal `/v1/Workbook` API, a Valkyr Labs-branded dashboard, an activation bridge, and local `/v1/swarm-ops/graph` state. The generated `application-bundle/` records the api-0-compatible Light contract and built-in local assets.
 
 ## Local-to-full bridge
 
-The light dashboard includes a `Promote / Synchronize` control. It calls `POST /api/graymatter/sync/mothership` and returns a prepared handoff payload with:
+The light dashboard includes a `Promote / Synchronize` control. It calls `POST /v1/graymatter/activation/bridge/event` and returns a prepared handoff payload with:
 - local bundle identity
 - ThorAPI FEBE generation mode
 - MemoryEntry and Workbook counts
@@ -112,7 +113,7 @@ This button prepares synchronization; it does not pretend hosted sync completed 
 
 ## Swarm Protocol status
 
-Light mode now exposes the local node through `GET /api/graymatter/swarm/protocol`. The response advertises `graymatter-swarm-v0.1`, the local light-node id, SwarmOps-compatible graph shape, and the endpoints that connect the bundle to memory, workbooks, promotion, and dashboard state.
+Light mode now exposes the local node through `GET /v1/swarm-ops/graph`. The response advertises `graymatter-swarm-v0.1`, the local light-node id, SwarmOps-compatible graph shape, and the endpoints that connect the bundle to memory, workbooks, activation, and dashboard state.
 
 ## Recommendation
 

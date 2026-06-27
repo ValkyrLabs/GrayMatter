@@ -9,11 +9,22 @@ REQUIRED=(
   .mcp.json
   skills/graymatter/SKILL.md
   skills/graymatter-analytics/SKILL.md
+  skills/graymatter-analytics/references/semantic-layer-template.md
+  docs/agent-discovery.md
+  docs/awesome-codex-plugins.md
+  docs/graymatter-light.md
+  docs/openai-app-directory-submission.md
+  docs/privacy-policy.md
+  docs/reviewer-test-credentials.md
+  docs/thorapi-integration.md
+  openai-app/submission-manifest.json
+  clawhub.json
   mcp-server/index.js
   mcp-server/package.json
   scripts/gm-activate
   scripts/gm-activation-fastlane
   scripts/gm-invariant-preflight
+  scripts/gm-client
   scripts/gm-read
   scripts/gm-doctor
   scripts/gm-install-check
@@ -21,7 +32,10 @@ REQUIRED=(
   scripts/gm-agent-smoke-matrix
   scripts/gm-status
   scripts/gm-write
+  scripts/gm-record
   scripts/gm-light-smoke
+  scripts/package-graymatter
+  scripts/package_graymatter.sh
   scripts/graymatter_api.sh
   templates/graymatter-light-bootstrap/api.hbs.yaml
   templates/graymatter-light-bootstrap/local-server/bin/graymatter-local-server

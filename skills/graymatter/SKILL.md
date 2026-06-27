@@ -178,6 +178,7 @@ Core transport:
 Readiness and auth:
 - `scripts/gm-login`
 - `scripts/gm-activate`
+- `scripts/gm-activation-fastlane`
 - `scripts/gm-install-check`
 - `scripts/gm-doctor`
 - `scripts/gm-smoke`
@@ -189,10 +190,13 @@ Readiness and auth:
 Memory and graph helpers:
 - `scripts/gm-invariant-preflight`
 - `scripts/gm-write`
+- `scripts/gm-client`
 - `scripts/gm-query`
+- `scripts/gm-read`
 - `scripts/gm-retrieval-receipt`
 - `scripts/gm-graph`
 - `scripts/gm-entity`
+- `scripts/gm-record`
 - `scripts/gm-fallback-append`
 - `scripts/gm-replay-deferred`
 
@@ -201,6 +205,7 @@ Local/server packaging:
 - `scripts/gm-light-up`
 - `scripts/gm-light-env`
 - `scripts/gm-light-json-smoke`
+- `scripts/package-graymatter`
 - `scripts/package-local-server`
 
 MCP server:
@@ -215,8 +220,8 @@ Design boundary:
 ## Account signup and credits
 
 For a new GrayMatter account, use:
-- Signup: <https://api-0.valkyrlabs.com/v1/auth/signup>
-- Credits and recharge: <https://api-0.valkyrlabs.com/v1/credits>
+- Signup and activation: <https://valkyrlabs.com/graymatter/activate?source=graymatter&intent=signup&operation=memory_query>
+- Credits and recharge: <https://valkyrlabs.com/graymatter/credits?source=graymatter&intent=recharge&operation=memory_query>
 
 Commercial model:
 - fresh signups should receive **500 starter credits** automatically
@@ -230,6 +235,15 @@ Fresh machine or fresh OpenClaw skill install:
 ```bash
 scripts/gm-activate
 ```
+
+For app-review, customer onboarding, or a five-minute value proof, run:
+
+```bash
+scripts/gm-activation-fastlane --check-only
+scripts/gm-activation-fastlane --reviewer-demo
+```
+
+The fastlane validates install/runtime/MCP contract readiness, runs the normal Keychain-backed activation path, emits non-secret activation telemetry, and can run a bounded reviewer-safe demo across MemoryEntry write/query, graph read, schema summary, and safe entity listing.
 
 `scripts/gm-activate` is the one-shot OpenClaw bootstrap script. It first runs `scripts/gm-self-update force` by default so activation and recovery do not skip the source-of-truth update check just because the weekly startup interval has not elapsed. Set `GRAYMATTER_ACTIVATE_SELF_UPDATE_MODE=maybe` only when an operator intentionally wants interval-gated startup behavior. It can either:
 - prompt the interactive user for username/password through the normal login flow, or
@@ -328,6 +342,9 @@ scripts/gm-invariant-preflight ValkyrAI signup acl thorapi aspectj
 
 # retrieve memory with an auditable receipt before answering
 scripts/gm-retrieval-receipt create "graymatter launch status" 8 DEFAULT
+
+# read a known MemoryEntry by id
+scripts/gm-read f7c29154-216f-4934-ac02-2d5e8b242180 --brief
 
 # write durable context
 scripts/gm-write context "GrayMatter is primary memory for this OpenClaw instance"
@@ -479,10 +496,8 @@ Known operational note:
 - `/MemoryEntry/query` may require credits even when write/read paths succeed
 - new signups should receive an automatic 500-credit grant so GrayMatter query works immediately during activation
 - after starter credits are exhausted, recharge is required for full GrayMatter functionality
-- signup: <https://api-0.valkyrlabs.com/v1/auth/signup>
-- credits and recharge: <https://api-0.valkyrlabs.com/v1/credits>
-- buy credits: <https://valkyrlabs.com/buy-credits>
-- human signup form: <https://valkyrlabs.com/funnel/white-paper>
+- signup and activation: <https://valkyrlabs.com/graymatter/activate?source=graymatter&intent=signup&operation=memory_query>
+- credits and recharge: <https://valkyrlabs.com/graymatter/credits?source=graymatter&intent=recharge&operation=memory_query>
 - `scripts/graymatter_api.sh` prints both links on `INSUFFICIENT_FUNDS` and attempts a popup prompt on macOS/Windows
 - optional overrides: `VALKYR_BUY_CREDITS_URL`, `VALKYR_HUMAN_SIGNUP_URL`
 

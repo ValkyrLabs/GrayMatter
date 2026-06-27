@@ -29,9 +29,13 @@ if [[ -f "$ENV_FILE" ]]; then
 fi
 
 PORT="${GRAYMATTER_LIGHT_PORT:-8080}"
-API_BASE="http://localhost:${PORT}"
+PUBLIC_BASE="http://localhost:${PORT}"
+API_BASE="${PUBLIC_BASE}/v1"
 
 printf "export VALKYR_API_BASE='%s'\n" "$API_BASE"
 printf "export GRAYMATTER_LIGHT_API_BASE='%s'\n" "$API_BASE"
+printf "export GRAYMATTER_LIGHT_PUBLIC_BASE='%s'\n" "$PUBLIC_BASE"
 printf "export GRAYMATTER_LIGHT_MODE='true'\n"
+printf "export GRAYMATTER_LIGHT_USERNAME='%s'\n" "${GRAYMATTER_LIGHT_USERNAME:-admin}"
+printf "export GRAYMATTER_LIGHT_PASSWORD='%s'\n" "${GRAYMATTER_LIGHT_PASSWORD:-graymatter-light}"
 printf "export GRAYMATTER_LIGHT_BUNDLE_DIR='%s'\n" "$BUNDLE_DIR"

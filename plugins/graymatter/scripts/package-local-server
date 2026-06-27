@@ -71,6 +71,36 @@ run_maven_build() {
   cp "$jar" "$package_dir/lib/graymatter-local-server.jar"
 }
 
+bundle_runtime() {
+  local package_dir="$1"
+
+  case "${GRAYMATTER_SKIP_RUNTIME_BUNDLE:-}" in
+    1|true|TRUE|yes|YES) return 0 ;;
+  esac
+
+  if ! command -v jlink >/dev/null 2>&1; then
+    echo "jlink unavailable; packaging without bundled Java runtime." >&2
+    return 0
+  fi
+
+  local compress_option="--compress=2"
+  if jlink --help 2>&1 | grep -q 'zip-\[0-9\]'; then
+    compress_option="--compress=zip-6"
+  fi
+
+  rm -rf "$package_dir/runtime"
+  if ! jlink \
+    --add-modules java.base,java.compiler,java.desktop,java.instrument,java.logging,java.management,java.naming,java.net.http,java.security.jgss,java.sql,jdk.crypto.ec,jdk.unsupported \
+    --strip-debug \
+    --no-header-files \
+    --no-man-pages \
+    "$compress_option" \
+    --output "$package_dir/runtime"; then
+    echo "jlink runtime bundling failed; packaging without bundled Java runtime." >&2
+    rm -rf "$package_dir/runtime"
+  fi
+}
+
 mkdir -p "$OUT_DIR"
 rm -rf "$WORK_DIR"
 mkdir -p "$WORK_DIR"
@@ -88,6 +118,7 @@ copytree "$BUNDLE_DIR/application-bundle" "$PACKAGE_DIR/application-bundle"
 copytree "$PACKAGE_DIR/source/bin" "$PACKAGE_DIR/bin"
 
 run_maven_build "$PACKAGE_DIR/source" "$PACKAGE_DIR"
+bundle_runtime "$PACKAGE_DIR"
 rm -rf "$PACKAGE_DIR/source/target"
 
 ARCHIVE_PATH="$OUT_DIR/$ARCHIVE_NAME"

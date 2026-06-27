@@ -15,14 +15,25 @@ REQUIRED=(
   mcp-server/README.md
   mcp-server/index.js
   mcp-server/package.json
+  docs/agent-discovery.md
+  docs/awesome-codex-plugins.md
+  docs/graymatter-light.md
+  docs/openai-app-directory-submission.md
+  docs/privacy-policy.md
+  docs/reviewer-test-credentials.md
   docs/server-capabilities.md
+  docs/thorapi-integration.md
+  openai-app/submission-manifest.json
+  clawhub.json
   scripts/gm-activation-fastlane
   scripts/gm-invariant-preflight
+  scripts/gm-client
   scripts/gm-query
   scripts/gm-read
   scripts/gm-retrieval-receipt
   scripts/gm-graph
   scripts/gm-write
+  scripts/gm-record
   scripts/gm-login
   scripts/gm-activate
   scripts/gm-install-check
@@ -44,9 +55,16 @@ REQUIRED=(
   scripts/gm-light-env
   scripts/gm-light-smoke
   scripts/gm-light-json-smoke
+  scripts/package-graymatter
   scripts/package-local-server
+  scripts/package_graymatter.sh
   scripts/graymatter_api.sh
   examples/graymatter-light-thorapi-bundle.yaml
+  examples/memoryentry-basic.json
+  examples/memoryentry-decision.json
+  examples/memoryentry-todo.json
+  examples/memoryentry-artifact.json
+  examples/graymatter-light-memoryentry.yaml
   references/contracts/mcp/graymatter_mcp_contract_v1.json
   references/contracts/mcp/graymatter_mcp_tools_v1.json
   references/mcp/memory-tool-contract.v1.json
@@ -60,16 +78,6 @@ while IFS= read -r rel; do
 done < <(cd "$ROOT" && find templates/graymatter-light-bootstrap -type f \
   ! -path 'templates/graymatter-light-bootstrap/local-server/target/*' \
   | sort)
-
-OPTIONAL_REPO_ONLY=(
-  scripts/gm-light-smoke
-  scripts/gm-light-json-smoke
-  examples/memoryentry-basic.json
-  examples/memoryentry-decision.json
-  examples/memoryentry-todo.json
-  examples/memoryentry-artifact.json
-  examples/graymatter-light-memoryentry.yaml
-)
 
 command -v zip >/dev/null 2>&1 || {
   echo "scripts/package-graymatter requires zip" >&2
@@ -142,15 +150,3 @@ fi
 printf 'Packaged %s\n' "$OUT"
 printf 'Archive contents verified:\n'
 printf '  - %s\n' "${packaged[@]}"
-
-missing_optional=()
-for rel in "${OPTIONAL_REPO_ONLY[@]}"; do
-  [[ -e "$ROOT/$rel" ]] || missing_optional+=("$rel")
-done
-if [[ ${#missing_optional[@]} -gt 0 ]]; then
-  echo "Optional repo assets missing:" >&2
-  printf '  - %s\n' "${missing_optional[@]}" >&2
-else
-  printf 'Optional repo assets present:\n'
-  printf '  - %s\n' "${OPTIONAL_REPO_ONLY[@]}"
-fi

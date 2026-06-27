@@ -6,7 +6,8 @@ TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
 
 cp "$ROOT_DIR/scripts/gm-write" "$TMP_DIR/gm-write"
-chmod +x "$TMP_DIR/gm-write"
+cp "$ROOT_DIR/plugins/graymatter/scripts/gm-write" "$TMP_DIR/plugin-gm-write"
+chmod +x "$TMP_DIR/gm-write" "$TMP_DIR/plugin-gm-write"
 
 cat > "$TMP_DIR/gm-fallback-append" <<'EOF'
 #!/usr/bin/env bash
@@ -182,5 +183,29 @@ fi
 grep -q "gm-write failed (type=decision, sourceChannel=signal-harvester" <<<"$TAG_RETRY_OUTPUT"
 grep -q "Write failed, queued fallback payload" <<<"$TAG_RETRY_OUTPUT"
 grep -q "gm-write API failure" "$TMP_DIR/gm-fallback-calls"
+
+cat > "$TMP_DIR/gm-status" <<'EOF'
+#!/usr/bin/env bash
+cat <<STATUS
+graymatter_auth=keychain:write_capable
+graymatter_token_state=ok
+tenant_schema_context=unknown
+memory_layer=degraded
+STATUS
+EOF
+
+cat > "$TMP_DIR/graymatter_api.sh" <<'EOF'
+#!/usr/bin/env bash
+echo '{"id":"light-memory-entry","type":"decision"}'
+EOF
+chmod +x "$TMP_DIR/graymatter_api.sh"
+
+rm -f "$TMP_DIR/gm-fallback-calls"
+LIGHT_OUTPUT="$(GRAYMATTER_LIGHT_MODE=true "$TMP_DIR/plugin-gm-write" decision "light mode write" local-light-test)"
+grep -q "light-memory-entry" <<<"$LIGHT_OUTPUT"
+if [[ -e "$TMP_DIR/gm-fallback-calls" ]]; then
+  echo "plugin gm-write must skip hosted gm-status preflight in GrayMatter Light mode" >&2
+  exit 1
+fi
 
 echo "gm_write_test: PASS"

@@ -194,6 +194,7 @@ Rule:
 - `scripts/gm-agent-smoke-matrix` — install/read-search/write/MCP/schema/safe-response readiness matrix for OpenClaw and Codex-style agents
 - `scripts/gm-client` — generic REST wrapper for GET/POST/PUT/PATCH/DELETE against GrayMatter API paths
 - `scripts/gm-entity` — generic helper for listing, reading, and writing arbitrary schema entities
+- `scripts/gm-record` — convenience helper for strategic-priority and KPI records
 - `scripts/gm-register-agent` — register or refresh the OpenClaw server as an Agent in api-0
 - `scripts/gm-mcp-contract` — emit the portable MCP memory-tool contract schema used by agent/IDE adapters
 - `scripts/gm-light-bootstrap` — copy and render the local GrayMatter app bundle and server source scaffold from bash-friendly templates

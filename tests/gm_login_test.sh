@@ -280,6 +280,9 @@ test_login_rejects_read_only_token_by_default() {
 
   [[ "${status}" != "0" ]] || fail "gm-login should reject a read-only token by default"
   assert_contains "${output}" "read-only" "gm-login should explain that the issued token is read-only"
+  assert_contains "${output}" "GrayMatter recovery (read_only_token)" "gm-login should show branded recovery guidance for read-only tokens"
+  assert_contains "${output}" "Activation/signup:" "gm-login should provide the activation URL"
+  assert_contains "${output}" "Credits/recharge:" "gm-login should provide the recharge URL"
 }
 
 test_login_stores_token_and_reusable_credentials

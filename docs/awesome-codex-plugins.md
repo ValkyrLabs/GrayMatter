@@ -1,1 +1,3 @@
+# awesome-codex-plugins Listing
+
 - [GrayMatter](https://github.com/ValkyrLabs/GrayMatter) — Exclusive primary durable memory, shared graph state, and live api-docs schema awareness for Codex and OpenClaw agents.

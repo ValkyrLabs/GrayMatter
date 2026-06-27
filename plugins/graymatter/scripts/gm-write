@@ -100,6 +100,7 @@ queue_fallback() {
 
 preflight_write_state() {
   [[ "${GRAYMATTER_GM_WRITE_PREFLIGHT:-true}" == "false" ]] && return 0
+  [[ "${GRAYMATTER_LIGHT_MODE:-false}" == "true" ]] && return 0
   [[ -x "${SCRIPT_DIR}/gm-status" ]] || return 0
 
   local status_output=""

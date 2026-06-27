@@ -35,7 +35,13 @@ mkdir -p "$DIST_DIR"
 
 "$ROOT/scripts/package-local-server" \
   --out-dir "$DIST_DIR" \
-  --work-dir "$TMP_DIR/work" >/dev/null
+  --work-dir "$TMP_DIR/work" > /dev/null 2>"$TMP_DIR/package.stderr"
+
+if grep -q "argument for --compress is deprecated" "$TMP_DIR/package.stderr"; then
+  echo "package-local-server should not use deprecated jlink compression syntax" >&2
+  cat "$TMP_DIR/package.stderr" >&2
+  exit 1
+fi
 
 tar -xzf "$TARBALL" -C "$TMP_DIR"
 tar -tzf "$TARBALL" > "$TMP_DIR/contents.txt"

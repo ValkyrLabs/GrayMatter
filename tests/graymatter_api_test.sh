@@ -517,6 +517,38 @@ test_insufficient_funds_falls_back_to_windows_prompt() {
 with_fixture test_success_passthrough
 with_fixture test_insufficient_funds_shows_links_and_uses_macos_prompt
 with_fixture test_insufficient_funds_falls_back_to_windows_prompt
+test_insufficient_funds_query_preserves_query_operation() {
+  local temp_root="$1"
+  local fake_bin="$2"
+  local script_copy="$3"
+
+  export TEST_CURL_SCENARIO="insufficient-funds"
+  export TEST_OSASCRIPT_STATUS="0"
+
+  local result
+  local status=0
+  local output
+
+  set +e
+  result="$(
+    PATH="${fake_bin}:/usr/local/bin:/usr/bin:/bin" \
+    TMPDIR="${temp_root}" \
+    VALKYR_AUTH_TOKEN=test-token \
+    "${script_copy}" POST /MemoryEntry/query '{"q":"trustlove","maxResults":5}' 2>&1
+  )"
+  status=$?
+  set -e
+  output="$(printf '%s\n' "${result}")"
+
+  [[ "${status}" == "22" ]] || fail "graymatter_api should return 22 for credit-gated queries"
+  assert_contains "${output}" "Blocked operation: memory_query" "MemoryEntry/query should be classified as a query, not a write"
+  assert_contains "${output}" "operation=memory_query" "Credit recovery URL should preserve the query operation"
+  if [[ -d "${temp_root}/deferred" ]]; then
+    fail "credit-gated memory queries should not create deferred write replay records"
+  fi
+}
+
+with_fixture test_insufficient_funds_query_preserves_query_operation
 test_insufficient_funds_write_creates_deferred_replay_record() {
   local temp_root="$1"
   local fake_bin="$2"

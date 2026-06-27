@@ -519,7 +519,9 @@ function createGrayMatterMcpServer(options = {}) {
   const fetchImpl = options.fetch || globalThis.fetch;
   const loginProvider = options.loginProvider || runLoginCommand;
   const loginCommand = options.loginCommand || process.env.GRAYMATTER_LOGIN_COMMAND || path.join(__dirname, '..', 'scripts', 'gm-login');
-  const apiShellProvider = options.apiShellProvider || runShellApiCommand;
+  const apiShellProvider = Object.prototype.hasOwnProperty.call(options, 'apiShellProvider')
+    ? options.apiShellProvider
+    : runShellApiCommand;
   const apiCommand = options.apiCommand || process.env.GRAYMATTER_API_COMMAND || path.join(__dirname, '..', 'scripts', 'graymatter_api.sh');
   const replayCommand = options.replayCommand || process.env.GRAYMATTER_REPLAY_COMMAND || path.join(__dirname, '..', 'scripts', 'gm-replay-deferred');
   const keychainReader = options.keychainReader || readTokenFromKeychain;
@@ -605,7 +607,9 @@ function createRpcContext(options = {}) {
   const fetchImpl = options.fetch || globalThis.fetch;
   const loginProvider = options.loginProvider || runLoginCommand;
   const loginCommand = options.loginCommand || process.env.GRAYMATTER_LOGIN_COMMAND || path.join(__dirname, '..', 'scripts', 'gm-login');
-  const apiShellProvider = options.apiShellProvider || runShellApiCommand;
+  const apiShellProvider = Object.prototype.hasOwnProperty.call(options, 'apiShellProvider')
+    ? options.apiShellProvider
+    : runShellApiCommand;
   const apiCommand = options.apiCommand || process.env.GRAYMATTER_API_COMMAND || path.join(__dirname, '..', 'scripts', 'graymatter_api.sh');
   const replayCommand = options.replayCommand || process.env.GRAYMATTER_REPLAY_COMMAND || path.join(__dirname, '..', 'scripts', 'gm-replay-deferred');
 

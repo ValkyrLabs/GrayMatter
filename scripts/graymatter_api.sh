@@ -575,11 +575,11 @@ show_access_denied_guidance() {
 
 determine_operation_kind() {
   local normalized_path="${PATH_PART#/}"
+  if [[ "$normalized_path" == "MemoryEntry/query"* ]]; then
+    printf 'memory_query\n'
+    return 0
+  fi
   if [[ "$METHOD_UPPER" == "GET" ]]; then
-    if [[ "$normalized_path" == "MemoryEntry/query"* ]]; then
-      printf 'memory_query\n'
-      return 0
-    fi
     printf 'memory_read\n'
     return 0
   fi

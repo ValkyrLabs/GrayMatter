@@ -10,6 +10,22 @@ async function listen(server) {
   return `http://127.0.0.1:${address.port}`;
 }
 
+async function closeServer(server) {
+  await new Promise((resolve, reject) => {
+    server.close((error) => {
+      if (error && error.code !== 'ERR_SERVER_NOT_RUNNING') {
+        reject(error);
+        return;
+      }
+      resolve();
+    });
+  });
+}
+
+async function closeServers(...servers) {
+  await Promise.all(servers.map(closeServer));
+}
+
 async function readBody(req) {
   const chunks = [];
   for await (const chunk of req) chunks.push(chunk);
@@ -108,8 +124,7 @@ test('memory_query returns structured recovery for insufficient credits', async 
       assert.match(body.result.content[0].text, /Buy GrayMatter credits: https:\/\//);
       assert.match(body.result.content[0].text, /Current balance: 0\.00/);
     } finally {
-      server.close();
-      fakeApi.close();
+      await closeServers(server, fakeApi);
     }
   });
 });
@@ -142,8 +157,7 @@ test('memory_query distinguishes missing starter credits from paid credit deplet
     assert.match(out.signupUrl, /intent=repair-starter-credits/);
     assert.match(body.result.content[0].text, /Repair starter credits:/);
   } finally {
-    server.close();
-    fakeApi.close();
+    await closeServers(server, fakeApi);
   }
 });
 
@@ -152,7 +166,8 @@ test('memory_query returns auth recovery for 401', async () => {
   const apiBase = await listen(fakeApi);
   const server = createGrayMatterMcpServer({
     apiBase: `${apiBase}/v1`,
-    loginProvider: async () => ''
+    loginProvider: async () => '',
+    apiShellProvider: null
   });
   const baseUrl = await listen(server);
 
@@ -171,15 +186,18 @@ test('memory_query returns auth recovery for 401', async () => {
     assert.deepEqual(out.recoveryActions.map((action) => action.id), ['sign_in', 'create_account']);
     assert.equal(out.recoveryActions[0].primary, true);
   } finally {
-    server.close();
-    fakeApi.close();
+    await closeServers(server, fakeApi);
   }
 });
 
 test('memory_write returns read-only recovery for 403 write forbidden', async () => {
   const fakeApi = createFakeApi(403, { message: 'write forbidden for read-only token' });
   const apiBase = await listen(fakeApi);
-  const server = createGrayMatterMcpServer({ apiBase: `${apiBase}/v1` });
+  const server = createGrayMatterMcpServer({
+    apiBase: `${apiBase}/v1`,
+    loginProvider: async () => '',
+    apiShellProvider: null
+  });
   const baseUrl = await listen(server);
 
   try {
@@ -195,8 +213,7 @@ test('memory_write returns read-only recovery for 403 write forbidden', async ()
     assert.equal(out.retryable, false);
     assert.deepEqual(out.recoveryActions.map((action) => action.id), ['sign_in', 'buy_credits']);
   } finally {
-    server.close();
-    fakeApi.close();
+    await closeServers(server, fakeApi);
   }
 });
 
@@ -217,7 +234,6 @@ test('success path remains plain toolResult content shape', async () => {
     assert.equal(body.result.structuredContent, undefined);
     assert.deepEqual(JSON.parse(body.result.content[0].text), { results: [{ id: 'mem-1' }] });
   } finally {
-    server.close();
-    fakeApi.close();
+    await closeServers(server, fakeApi);
   }
 });

@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-INSTANCE_ID="${1:-${HOSTNAME:-openclaw-instance}}"
-AGENT_NAME="${2:-${OPENCLAW_AGENT_NAME:-Valor}}"
-ROLE_LABEL="${3:-openclaw-server}"
+INSTANCE_ID="${1:-${GRAYMATTER_SWARM_ID:-${HOSTNAME:-openclaw-instance}}}"
+AGENT_NAME="${2:-${GRAYMATTER_AGENT_NAME:-${OPENCLAW_AGENT_NAME:-Valor}}}"
+ROLE_LABEL="${3:-${GRAYMATTER_AGENT_ROLE:-openclaw-server}}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 METADATA="$(jq -nc \

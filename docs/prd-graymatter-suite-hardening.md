@@ -1,9 +1,9 @@
 # PRD: GrayMatter Suite Hardening and Consumer Integration
 
-Status: Draft
+Status: Latest P0/P1 hardening verified; release automation follow-ups remain
 Owner: Valkyr Labs product engineering
 Source repos analyzed: GrayMatter `main`, ValkyrAI `rc-6`, ValorIDE `rc-6`
-Last updated: 2026-06-27
+Last updated: 2026-06-28
 
 ## Summary
 
@@ -43,6 +43,14 @@ ValkyrAI is the production api-0 backend and schema authority. Its README establ
 
 The live api-0 OpenAPI currently exposes MemoryEntry, GrayMatter, retrieval receipts, semantic memory operations, context-page operations, trust/proof endpoints, SkillOpt route receipts, SwarmOps, Workflow, ExecModule, Project, ContentData, KeyMetric, StrategicPriority, and broad business graph objects. GrayMatter install status after OpenAPI sync reports memory, graph, strategic, and KPI layers ready.
 
+Observed gaps fixed in this pass:
+
+- MemoryEntry writes with normalized tags could attach a transient `Tag` entity and fail during Hibernate flush. The custom memory service now persists newly created and stale-replacement tags before attaching them to MemoryEntry relationships, with duplicate-name recovery for concurrent tag creation.
+- SageChat/Valor durable profile memory previously depended on MemoryEntry alone. The explicit memory path now also writes typed `UserPreference` graph entries with `preferenceType=chatmemory`, so user identity, preferred name, assistant style, and explicit remembered facts are available through the graph. Persona-mode remains typed as `preferenceType=persona-mode` in the UserPreferences flow.
+- SageChat/Valor context assembly now uses retrieval receipts through `RetrievalReceiptRuntimeService` and `RetrievalContextAssembler`, including receipt IDs, policy-gated context, retrieval status, answer policy, warnings, and required actions in system context.
+- Workflow MCP execution now rejects high-risk command/script/system-operation inputs unless the request carries a GrayMatter policy, invariant, retrieval receipt, ContextPage, or SkillOpt receipt reference.
+- EventLog persistence now feeds receipt-backed workflow/build/execution outcomes into SkillOptics as a best-effort learning loop, without letting SkillOptics failures break EventLog saves.
+
 ### ValorIDE
 
 ValorIDE already contains a meaningful GrayMatter consumer implementation:
@@ -52,7 +60,10 @@ ValorIDE already contains a meaningful GrayMatter consumer implementation:
 - `GrayMatterContextProvider` for read-before-prompt context with invariant-biased query, timeout, token budget, scope ordering, redaction, and formatting
 - `GrayMatterMemoryService` and queue storage for retryable pending writes
 
-Observed remaining product gap: ValorIDE context injection uses raw `MemoryEntry/query`; it should prefer retrieval receipts when available so prompt context obeys `answerPolicy`, freshness, coverage, conflict, and recommended-action signals. The MCP/server side already exposes this better path.
+Observed gaps fixed/verified in this pass:
+
+- ValorIDE context injection now prefers GrayMatter policy/retrieval receipt signals when available so prompt context can obey answer policy, freshness, coverage, conflict, and recommended-action state. Raw `MemoryEntry/query` remains a fallback/list path.
+- Insufficient-credit and account-balance prompts were verified across the webview UI path that should route users to buy/recharge credits before retrying hosted operations.
 
 ## Problem
 
@@ -232,21 +243,100 @@ Fixed:
 - Stale memory-scope test updated to enforce structured metadata instead of inline text headers.
 - Non-executable shell tests marked executable.
 - Awesome Codex plugin listing updated to match the plugin manifest and now reports useful mismatch output.
+- MemoryEntry Tag persistence hardened against stale/transient Tag identities and concurrent Tag creation.
+- SageChat/Valor explicit profile memory writes now also upsert `UserPreference` graph memory records with `preferenceType=chatmemory`.
+- Persona-mode preference writes remain covered as typed `UserPreference` graph records with `preferenceType=persona-mode`.
+- ValorIDE GrayMatter context/session/client behavior and insufficient-credit account prompt paths verified with targeted tests.
+- SageChat/Valor backend receipt-aware context assembly is verified by `LLMControllerJsonTest`, including policy-gated low-confidence retrieval context.
+- Workflow MCP high-risk execution inputs now require a GrayMatter policy/context reference before execution.
+- EventLog rows containing SkillOpt route receipt refs now record sanitized SkillOptics outcomes on successful EventLog saves.
+- GrayMatter API transport credit/recovery test passed.
+- GrayMatter MCP server recovery/auth/tool suite passed, including insufficient credits, missing starter credits, auth recovery, 403 read-only recovery, Apps SDK endpoints, hosted auth isolation, and schema/entity tools.
+- GitHub Actions now runs the direct `tests/*.sh` shell sweep with `set -euo pipefail`, verifies shell tests are executable, and runs MCP server tests on Node 20.
+- Release-surface tests now compare every plugin-shipped mirrored helper script, while preserving the intentionally plugin-relative `plugins/graymatter/scripts/package-graymatter` packager.
+- Stale marketplace plugin copies of `gm-entity` and `gm-register-agent` were synchronized from the root source scripts.
+
+Verified in latest wrap-up:
+
+- GrayMatter focused shell tests: `gm_register_agent_test.sh`, `gm_entity_test.sh`, `gm_status_test.sh`, `gm_write_test.sh`.
+- GrayMatter API transport shell test: `graymatter_api_test.sh`.
+- GrayMatter MCP server: `npm test --prefix mcp-server`, 37 tests.
+- GrayMatter direct shell sweep: `set -euo pipefail; for test_script in tests/*.sh; do "$test_script"; done` passed.
+- ValkyrAI backend clean targeted run: `LLMControllerChatPersistenceTest`, `LLMControllerJsonTest`, `MemoryEntryServiceTest`, `UserPreferenceGraphMemoryServiceTest` passed, 79 tests total.
+- ValkyrAI SkillOptics/EventLog/workflow policy run: `WorkflowMcpExecutionControllerSecurityTest`, `EventLogSkillOpticsMonitorServiceTest`, `EventLogSafetyAspectTest`, `SkillOptRuntimeServiceTest`, `LLMControllerJsonTest` passed, 44 tests total.
+- ValkyrAI AspectJ lifecycle run: `EventLogSkillOpticsMonitorServiceTest`, `EventLogSafetyAspectTest`, `SkillOptRuntimeServiceTest`, `MavenLifecycleContractTest` passed, 26 tests total.
+- ValkyrAI SageChat Jest: `SageChat.test.tsx` passed, 32 tests.
+- ValkyrAI UserPreferences Jest: `UserPreferences.test.tsx`, `profilePersistence.test.ts` passed, 10 tests.
+- ValorIDE extension Jest: `GrayMatterClient`, `GrayMatterSessionService`, `GrayMatterMemoryService`, `AgentContextAssembler` tests passed, 31 tests.
+- ValorIDE webview Vitest: account-balance prompt, API error listener, system alerts, credits API, API error slice tests passed, 45 tests.
 
 Still to do:
 
-- Implement receipt-aware ValorIDE prompt context.
-- Add SageChat receipt-aware context assembly and tests.
-- Add workflow/ExecModule GrayMatter policy hooks for safety invariants.
-- Add CI step that runs tests with `set -e` direct script execution.
-- Add automated plugin mirror sync or a stronger release check for all shipped plugin runtime files.
+- Broaden the MCP workflow policy precondition into module-specific local/system operation gates if future ExecModules add direct shell, process, filesystem, deployment, or external runner execution.
+
+## Cross-Repo Status Report
+
+### Fixed in GrayMatter
+
+- Plugin release mirror drift checks were tightened for shipped MCP/API runtime files.
+- Plugin release mirror drift checks now cover every mirrored script shipped in `plugins/graymatter/scripts`, except the intentionally plugin-relative plugin packager.
+- GitHub Actions CI now exercises direct shell-script execution and MCP server tests.
+- Shell/API credit recovery was verified, including structured insufficient-credit recovery and safe deferred write behavior.
+- MCP server recovery handling was verified for insufficient credits, missing starter credits, auth, and RBAC write denial.
+
+Current dirty files in the GrayMatter repo belong to the plugin/install/release-test slice:
+
+- `.gitignore`
+- `.github/workflows/graymatter-ci.yml`
+- `docs/prd-graymatter-suite-hardening.md`
+- `scripts/gm-entity`
+- `scripts/gm-register-agent`
+- `plugins/graymatter/scripts/gm-entity`
+- `plugins/graymatter/scripts/gm-register-agent`
+- `tests/release_surfaces_test.sh`
+- `tests/gm_register_agent_test.sh`
+- `tests/gm_entity_test.sh`
+- `artifacts/`
+
+### Fixed in ValkyrAI
+
+- `ValkyrAIMemoryEntryService` hardens MemoryEntry Tag persistence against stale/transient Tag flush failures.
+- `UserPreferenceGraphMemoryService` adds typed `UserPreference` graph memory for `chatmemory` and `persona-mode`.
+- `LLMController` writes explicit profile memory into both MemoryEntry and UserPreference graph memory, and uses receipt-aware GrayMatter context for SageChat/Valor LLM context.
+- `EventLogSkillOpticsMonitorService` observes receipt-backed EventLog saves and records sanitized SkillOptics outcomes.
+- `EventLogSafetyAspect` invokes the SkillOptics monitor after successful saves while preserving non-blocking EventLog behavior.
+- `WorkflowMcpExecutionController` requires GrayMatter policy/retrieval/context references for high-risk MCP command/script/system-operation workflow inputs.
+
+Current dirty files from this GrayMatter hardening slice in ValkyrAI:
+
+- `valkyrai/src/main/java/com/valkyrlabs/valkyrai/controller/LLMController.java`
+- `valkyrai/src/main/java/com/valkyrlabs/valkyrai/memory/ValkyrAIMemoryEntryService.java`
+- `valkyrai/src/main/java/com/valkyrlabs/valkyrai/memory/UserPreferenceGraphMemoryService.java`
+- `valkyrai/src/main/java/com/valkyrlabs/valkyrai/aspect/EventLogSafetyAspect.java`
+- `valkyrai/src/main/java/com/valkyrlabs/valkyrai/skillopt/EventLogSkillOpticsMonitorService.java`
+- `valkyrai/src/main/java/com/valkyrlabs/valkyrai/mcp/WorkflowMcpExecutionController.java`
+- `valkyrai/src/test/java/com/valkyrlabs/valkyrai/controller/LLMControllerChatPersistenceTest.java`
+- `valkyrai/src/test/java/com/valkyrlabs/valkyrai/controller/LLMControllerJsonTest.java`
+- `valkyrai/src/test/java/com/valkyrlabs/valkyrai/memory/MemoryEntryServiceTest.java`
+- `valkyrai/src/test/java/com/valkyrlabs/valkyrai/memory/UserPreferenceGraphMemoryServiceTest.java`
+- `valkyrai/src/test/java/com/valkyrlabs/valkyrai/aspect/EventLogSafetyAspectTest.java`
+- `valkyrai/src/test/java/com/valkyrlabs/valkyrai/skillopt/EventLogSkillOpticsMonitorServiceTest.java`
+- `valkyrai/src/test/java/com/valkyrlabs/valkyrai/mcp/WorkflowMcpExecutionControllerSecurityTest.java`
+
+The ValkyrAI worktree contains many unrelated dirty files from other slices; they were not reverted or folded into this report.
+
+### Verified in ValorIDE
+
+- GrayMatter client/session/memory/context tests passed.
+- Receipt-aware prompt context, policy gating, quota/unavailable/forbidden states, and account-balance UI recovery paths passed focused tests.
+
+No new ValorIDE source edits were made in this final hardening slice. Existing dirty files in ValorIDE belong to prior local work and are intentionally left untouched.
 
 ## Rollout Plan
 
 Phase 1: Install integrity and release gates
 
-- Land the fixed plugin mirror, package archive, executable tests, listing sync, and release-surface guards.
-- Add CI strict shell sweep and MCP tests.
+- Land the fixed plugin mirror, package archive, executable tests, listing sync, release-surface guards, CI strict shell sweep, and MCP tests.
 
 Phase 2: Receipt-aware consumer context
 

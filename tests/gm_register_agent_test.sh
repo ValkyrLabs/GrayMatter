@@ -56,4 +56,16 @@ assert_jq "${metadata}" '.name == "Codex"' "gm-register-agent should identify th
 assert_jq "${metadata}" '.role == "coding-agent"' "gm-register-agent should include the agent role"
 assert_jq "${metadata}" '.primaryMemory == "GrayMatter"' "gm-register-agent should advertise GrayMatter as the memory layer"
 
+export GRAYMATTER_SWARM_ID="codex-env-instance"
+export GRAYMATTER_AGENT_NAME="Env Codex"
+export GRAYMATTER_AGENT_ROLE="env-agent"
+
+"${script_dir}/gm-register-agent"
+
+body="$(sed -n 's/^body=//p' "${TEST_API_LOG}")"
+metadata="$(jq -r '.metadata' <<<"$body")"
+assert_contains "${body}" '"instanceId":"codex-env-instance"' "gm-register-agent should accept GRAYMATTER_SWARM_ID"
+assert_jq "${metadata}" '.name == "Env Codex"' "gm-register-agent should accept GRAYMATTER_AGENT_NAME"
+assert_jq "${metadata}" '.role == "env-agent"' "gm-register-agent should accept GRAYMATTER_AGENT_ROLE"
+
 printf 'PASS: gm_register_agent_test.sh\n'

@@ -99,6 +99,15 @@ cmp -s "$ROOT/clawhub.json" "$ROOT/plugins/graymatter/clawhub.json" || {
   echo "Codex marketplace plugin clawhub metadata is stale; sync clawhub.json" >&2
   exit 1
 }
+
+while IFS= read -r doc_path; do
+  doc_name="$(basename "$doc_path")"
+  cmp -s "$ROOT/docs/$doc_name" "$doc_path" || {
+    echo "Codex marketplace plugin doc is stale; sync docs/$doc_name" >&2
+    exit 1
+  }
+done < <(find "$ROOT/plugins/graymatter/docs" -maxdepth 1 -type f | sort)
+
 grep -q '/v1/swarm-ops/graph' "$ROOT/plugins/graymatter/docs/graymatter-light.md" || {
   echo "Codex marketplace plugin GrayMatter Light docs must use production-shaped /v1 swarm graph path" >&2
   exit 1
@@ -219,6 +228,18 @@ grep -q 'Normalized object writes' "$ROOT/plugins/graymatter/skills/graymatter/S
   echo "Codex marketplace plugin MCP server missing" >&2
   exit 1
 }
+
+while IFS= read -r script_path; do
+  script_name="$(basename "$script_path")"
+  if [[ "$script_name" == "package-graymatter" ]]; then
+    continue
+  fi
+  cmp -s "$ROOT/scripts/$script_name" "$script_path" || {
+    echo "Codex marketplace plugin script is stale; sync scripts/$script_name" >&2
+    exit 1
+  }
+done < <(find "$ROOT/plugins/graymatter/scripts" -maxdepth 1 -type f | sort)
+
 cmp -s "$ROOT/mcp-server/index.js" "$ROOT/plugins/graymatter/mcp-server/index.js" || {
   echo "Codex marketplace plugin MCP server is stale; sync mcp-server/index.js" >&2
   exit 1

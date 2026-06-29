@@ -5,13 +5,17 @@ ENTITY="${1:-}"
 ARG2="${2:-}"
 ARG3="${3:-}"
 
-if [[ -z "$ENTITY" ]]; then
+usage() {
   echo "Usage:" >&2
   echo "  gm-entity <Entity>                # list via GET /<Entity>" >&2
   echo "  gm-entity <Entity> <id>           # get via GET /<Entity>/<id>" >&2
   echo "  gm-entity <Entity> POST '<json>'  # create via POST /<Entity>" >&2
   echo "  gm-entity <Entity> PUT  '<json>'  # replace via PUT /<Entity>" >&2
   echo "  gm-entity <Entity> PATCH '<json>' # patch via PATCH /<Entity>" >&2
+}
+
+if [[ -z "$ENTITY" || "$ENTITY" == "-h" || "$ENTITY" == "--help" ]]; then
+  usage
   exit 1
 fi
 

@@ -727,7 +727,7 @@ async function callTool(params, context) {
       return execute('memory_read', () => apiRequest(context, 'GET', `MemoryEntry/${encodeURIComponent(args.id)}`));
     case 'memory_query':
       requireString(args.query, 'query');
-      return execute('memory_query', () => apiRequest(context, 'POST', 'MemoryEntry/query', buildMemoryQueryPayload(args)));
+      return execute('memory_query', () => queryMemoryWithFallback(context, args));
     case 'memory_put_batch':
       return execute('memory_put_batch', async () => {
         if (!Array.isArray(args.items)) {
@@ -1385,6 +1385,106 @@ function buildRecoveryResult(error, operation, context) {
       }
     }
   };
+}
+
+async function queryMemoryWithFallback(context, args) {
+  const payload = buildMemoryQueryPayload(args);
+  try {
+    return await apiRequest(context, 'POST', 'MemoryEntry/query', payload);
+  } catch (error) {
+    if (!isEmbeddingQuotaFailure(error)) {
+      throw error;
+    }
+
+    const entries = await apiRequest(context, 'GET', 'MemoryEntry');
+    const results = lexicalMemoryFallback(entries, {
+      query: args.query,
+      limit: args.limit,
+      type: args.type,
+      source: payload.source
+    });
+
+    return {
+      degraded: true,
+      reason: 'embedding_quota_exhausted',
+      retrievalMode: 'lexical_fallback',
+      query: args.query,
+      count: results.length,
+      warning: 'Semantic memory search is unavailable because the embedding provider quota is exhausted. Results are lexical fallback matches from MemoryEntry list.',
+      action: 'Top up or switch the embedding provider, then retry semantic memory_query.',
+      results
+    };
+  }
+}
+
+function isEmbeddingQuotaFailure(error) {
+  if (!error || error.name !== 'ApiRequestError') {
+    return false;
+  }
+
+  const text = JSON.stringify(error.payload || error.message || '').toLowerCase();
+  return /insufficient_quota|quota exhausted|embedding provider quota|embeddings? failed|openai embeddings failed/.test(text);
+}
+
+function lexicalMemoryFallback(payload, options) {
+  const entries = normalizeMemoryEntries(payload);
+  const query = String(options.query || '').toLowerCase();
+  const terms = Array.from(new Set(query.split(/[^a-z0-9_-]+/u).filter((term) => term.length > 2)));
+  const limit = clampInteger(options.limit, 10, 1, 100);
+  const type = options.type || '';
+  const source = options.source || '';
+
+  return entries
+    .map((entry) => ({ entry, score: lexicalMemoryScore(entry, query, terms) }))
+    .filter(({ entry, score }) => {
+      if (type && entry.type !== type) {
+        return false;
+      }
+      if (source && entry.source !== source && entry.sourceChannel !== source) {
+        return false;
+      }
+      return score > 0;
+    })
+    .sort((left, right) => right.score - left.score)
+    .slice(0, limit)
+    .map(({ entry }) => entry);
+}
+
+function normalizeMemoryEntries(payload) {
+  if (Array.isArray(payload)) {
+    return payload;
+  }
+  if (!payload || typeof payload !== 'object') {
+    return [];
+  }
+  for (const key of ['content', 'items', 'data', 'results', 'records']) {
+    if (Array.isArray(payload[key])) {
+      return payload[key];
+    }
+  }
+  return [];
+}
+
+function lexicalMemoryScore(entry, query, terms) {
+  const haystack = [
+    entry && entry.text,
+    entry && entry.title,
+    entry && entry.summary,
+    entry && entry.description,
+    entry && entry.content,
+    entry && entry.type,
+    Array.isArray(entry && entry.tags)
+      ? entry.tags.map((tag) => typeof tag === 'object' ? (tag.name || tag.id || '') : String(tag)).join(' ')
+      : ''
+  ].filter(Boolean).join(' ').toLowerCase();
+
+  if (!haystack) {
+    return 0;
+  }
+  if (terms.length === 0) {
+    return query && haystack.includes(query) ? 1 : 0;
+  }
+  return terms.reduce((score, term) => score + (haystack.includes(term) ? 1 : 0), 0);
 }
 
 function activationContextUrl(baseUrl, intent, operation, context = {}) {

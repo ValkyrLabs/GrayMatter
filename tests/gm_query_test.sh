@@ -61,6 +61,64 @@ SH
   grep -q "falling back to MemoryEntry list filtering" "$err"
 }
 
+run_quota_fallback_filters_memory_entries_by_tokens() {
+  local fake_api="$TMP_DIR/fake-graymatter-api-quota"
+  local out="$TMP_DIR/query-quota.out"
+  local err="$TMP_DIR/query-quota.err"
+
+  cat >"$fake_api" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+
+METHOD="${1:-}"
+PATH_PART="${2:-}"
+
+if [[ "$METHOD" == "POST" && "$PATH_PART" == "/MemoryEntry/query" ]]; then
+  cat <<'JSON'
+{
+  "disabled": true,
+  "unavailable": true,
+  "error": "openai embeddings failed: 429 insufficient_quota",
+  "warning": "Memory search is unavailable because the embedding provider quota is exhausted.",
+  "action": "Top up or switch embedding provider, then retry memory_search."
+}
+JSON
+  exit 22
+fi
+
+if [[ "$METHOD" == "GET" && "$PATH_PART" == "/MemoryEntry" ]]; then
+  cat <<'JSON'
+[
+  {
+    "id": "crm-routing",
+    "type": "context",
+    "text": "Stainless sprint CRM warm leads need Jamarr response routing and do-not-contact risk notes.",
+    "sourceChannel": "codex:automation:growth-swarm-crm-steward-daily"
+  },
+  {
+    "id": "generic-memory",
+    "type": "context",
+    "text": "Unrelated operational status.",
+    "sourceChannel": "codex:automation:growth-swarm-crm-steward-daily"
+  }
+]
+JSON
+  exit 0
+fi
+
+echo "unexpected fake API call: $*" >&2
+exit 64
+SH
+  chmod +x "$fake_api"
+
+  GRAYMATTER_API_COMMAND="$fake_api" \
+    "$ROOT_DIR/scripts/gm-query" "Stainless sprint CRM warm leads founder-led outreach Jamarr response routing follow-up tasks opportunity stages do-not-contact risk notes" 10 context codex:automation:growth-swarm-crm-steward-daily \
+    >"$out" 2>"$err"
+
+  jq -e 'length == 1 and .[0].id == "crm-routing"' "$out" >/dev/null
+  grep -q "MemoryEntry/query degraded; falling back to MemoryEntry list filtering" "$err"
+}
+
 run_success_brief_formats_human_output() {
   local fake_api="$TMP_DIR/fake-graymatter-api-brief"
   local out="$TMP_DIR/query-brief.out"
@@ -333,6 +391,7 @@ SH
 }
 
 run_timeout_fallback_filters_memory_entries
+run_quota_fallback_filters_memory_entries_by_tokens
 run_success_brief_formats_human_output
 run_non_timeout_errors_do_not_fallback
 run_timeout_fallback_can_be_disabled

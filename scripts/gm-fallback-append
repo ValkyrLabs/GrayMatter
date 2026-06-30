@@ -43,7 +43,23 @@ if [[ -f "$SPOOL" ]]; then
       | .timestamp = $now
       | .source = (.source // "chat")
       | .status = "pending_replay"
-      | .items += [{type:$type, text:$text, owner:$owner, reason:$reason}]
+      | .items =
+        ((.items // []) as $items
+        | if any($items[]?; .type == $type and .text == $text and .owner == $owner) then
+            $items
+            | map(
+                if .type == $type and .text == $text and .owner == $owner then
+                  .reason = $reason
+                  | .lastSeenAt = $now
+                  | .firstSeenAt = (.firstSeenAt // .timestamp // $now)
+                  | .duplicateCount = ((.duplicateCount // 0) + 1)
+                else
+                  .
+                end
+              )
+          else
+            $items + [{type:$type, text:$text, owner:$owner, reason:$reason, firstSeenAt:$now, lastSeenAt:$now, duplicateCount:0}]
+          end)
     ' >"$TMP"
 else
   jq -n \
@@ -52,7 +68,7 @@ else
     --arg text "$TEXT" \
     --arg owner "$OWNER" \
     --arg reason "$REASON" \
-    '{timestamp:$now, source:"chat", status:"pending_replay", items:[{type:$type, text:$text, owner:$owner, reason:$reason}]}' >"$TMP"
+    '{timestamp:$now, source:"chat", status:"pending_replay", items:[{type:$type, text:$text, owner:$owner, reason:$reason, firstSeenAt:$now, lastSeenAt:$now, duplicateCount:0}]}' >"$TMP"
 fi
 
 mv "$TMP" "$SPOOL"

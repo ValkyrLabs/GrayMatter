@@ -116,6 +116,18 @@ else
   record_stage "read_search_readiness" "fail" "Memory query or retrieval receipt contract is missing."
 fi
 
+scope_text="$tmp_dir/memory-scope.txt"
+cat $(existing_files SKILL.md skills/graymatter/SKILL.md README.md scripts/gm-write) >"$scope_text"
+if all_executable scripts/gm-write scripts/gm-query \
+  && grep -q 'codex:automation:<automation-id>' "$scope_text" \
+  && grep -q -- '--scope-path' "$scope_text" \
+  && grep -q 'sourceChannel' "$scope_text" \
+  && grep -q 'metadata' "$scope_text"; then
+  record_stage "agent_memory_scope_readiness" "pass" "Scoped MemoryEntry write/query guidance and gm-write scope metadata support are present."
+else
+  record_stage "agent_memory_scope_readiness" "fail" "Scoped MemoryEntry sourceChannel or metadata behavior is missing."
+fi
+
 if [[ "$MODE" == "live" && -n "${VALKYR_AUTH_TOKEN:-}${VALKYR_AUTH:-}" ]]; then
   record_stage "write_readiness" "manual_required" "Authenticated write tooling is present, but live writes require operator approval while safe response projection is under review."
 else

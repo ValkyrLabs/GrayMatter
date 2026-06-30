@@ -41,6 +41,18 @@ function createFakeApi(status, payload) {
   });
 }
 
+function createSlowApi(delayMs, payload = { ok: true }) {
+  return http.createServer(async (req, res) => {
+    await readBody(req);
+    setTimeout(() => {
+      if (!res.destroyed) {
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify(payload));
+      }
+    }, delayMs);
+  });
+}
+
 async function postRpc(baseUrl, payload) {
   const response = await fetch(`${baseUrl}/mcp`, {
     method: 'POST',
@@ -280,6 +292,40 @@ test('memory_write returns read-only recovery for 403 write forbidden', async ()
   } finally {
     await closeServers(server, fakeApi);
   }
+});
+
+test('receipt-backed retrieval times out with retryable recovery instead of hanging', async () => {
+  await withActivationEnv({
+    GRAYMATTER_RETRIEVAL_RECEIPT_TIMEOUT_MS: '25',
+    GRAYMATTER_MCP_REQUEST_TIMEOUT_MS: undefined
+  }, async () => {
+    const fakeApi = createSlowApi(500);
+    const apiBase = await listen(fakeApi);
+    const server = createGrayMatterMcpServer({
+      apiBase: `${apiBase}/v1`,
+      loginProvider: async () => '',
+      apiShellProvider: null
+    });
+    const baseUrl = await listen(server);
+
+    try {
+      const body = await postRpc(baseUrl, {
+        jsonrpc: '2.0',
+        id: 'receipt-timeout',
+        method: 'tools/call',
+        params: { name: 'memory_retrieve_with_receipt', arguments: { query: 'post-install recall' } }
+      });
+
+      const out = body.result.structuredContent;
+      assert.equal(out.reason, 'request_timeout');
+      assert.equal(out.blockedOperation, 'memory_retrieve_with_receipt');
+      assert.equal(out.retryable, true);
+      assert.deepEqual(out.recoveryActions.map((action) => action.id), ['retry', 'sign_in', 'buy_credits']);
+      assert.match(body.result.content[0].text, /did not finish this operation before the client timeout/);
+    } finally {
+      await closeServers(server, fakeApi);
+    }
+  });
 });
 
 test('success path remains plain toolResult content shape', async () => {

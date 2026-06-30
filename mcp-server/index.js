@@ -1115,11 +1115,29 @@ async function apiRequestOnce(context, method, endpoint, body) {
     headers['X-Tenant-Id'] = tenantId;
   }
 
-  const response = await context.fetchImpl(apiUrl(context.apiBase, endpoint), {
-    method,
-    headers,
-    body: body === undefined ? undefined : JSON.stringify(body)
-  });
+  const timeoutMs = apiRequestTimeoutMs(endpoint);
+  const controller = typeof AbortController === 'function' ? new AbortController() : null;
+  const timeout = controller && timeoutMs > 0
+    ? setTimeout(() => controller.abort(), timeoutMs)
+    : null;
+  let response;
+  try {
+    response = await context.fetchImpl(apiUrl(context.apiBase, endpoint), {
+      method,
+      headers,
+      body: body === undefined ? undefined : JSON.stringify(body),
+      signal: controller ? controller.signal : undefined
+    });
+  } catch (error) {
+    if (isAbortError(error)) {
+      throw apiTimeoutError(method, endpoint, timeoutMs);
+    }
+    throw error;
+  } finally {
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+  }
   const raw = await response.text();
   const payload = raw ? parseJson(raw) : null;
 
@@ -1137,6 +1155,43 @@ async function apiRequestOnce(context, method, endpoint, body) {
   }
 
   return payload;
+}
+
+function apiRequestTimeoutMs(endpoint) {
+  const specific = isRetrievalReceiptEndpoint(endpoint)
+    ? parsePositiveInteger(process.env.GRAYMATTER_RETRIEVAL_RECEIPT_TIMEOUT_MS)
+    : null;
+  return specific
+    || parsePositiveInteger(process.env.GRAYMATTER_MCP_REQUEST_TIMEOUT_MS)
+    || 30000;
+}
+
+function isRetrievalReceiptEndpoint(endpoint) {
+  return String(endpoint || '').replace(/^\/+/, '').startsWith('graymatter-retrieval-receipts');
+}
+
+function parsePositiveInteger(value) {
+  const parsed = Number.parseInt(String(value || ''), 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+function isAbortError(error) {
+  return error && (error.name === 'AbortError' || error.code === 'ABORT_ERR');
+}
+
+function apiTimeoutError(method, endpoint, timeoutMs) {
+  const error = new Error(`api-0 request timed out after ${timeoutMs}ms`);
+  error.name = 'ApiRequestError';
+  error.status = 504;
+  error.payload = {
+    code: 'GRAYMATTER_REQUEST_TIMEOUT',
+    message: error.message,
+    endpoint,
+    timeoutMs
+  };
+  error.method = method;
+  error.endpoint = endpoint;
+  return error;
 }
 
 function hydrateLocalAuth(context) {
@@ -1338,7 +1393,10 @@ function buildRecoveryResult(error, operation, context) {
     intent: signal.reason === 'starter_credits_missing' ? 'repair-starter-credits' : 'signup'
   });
   const loginUrl = apiUrl(context.apiBase, process.env.GRAYMATTER_LOGIN_PATH || DEFAULT_LOGIN_PATH);
-  const retryable = signal.reason === 'insufficient_credits' || signal.reason === 'starter_credits_missing' || signal.reason === 'missing_auth';
+  const retryable = signal.reason === 'insufficient_credits'
+    || signal.reason === 'starter_credits_missing'
+    || signal.reason === 'missing_auth'
+    || signal.reason === 'request_timeout';
 
   const recoveryActions = recoveryActionsFor(signal.reason, { buyCreditsUrl, signupUrl, loginUrl });
   const structuredContent = {
@@ -1435,6 +1493,12 @@ function recoveryActionsFor(reason, urls) {
         { id: 'sign_in', label: 'Switch to a write-capable account', url: urls.loginUrl, primary: true },
         { id: 'buy_credits', label: 'Buy credits for the target workspace', url: urls.buyCreditsUrl, primary: false }
       ];
+    case 'request_timeout':
+      return [
+        { id: 'retry', label: 'Retry the same GrayMatter operation', url: '', primary: true },
+        { id: 'sign_in', label: 'Refresh GrayMatter sign-in', url: urls.loginUrl, primary: false },
+        { id: 'buy_credits', label: 'Check credits', url: urls.buyCreditsUrl, primary: false }
+      ];
     default:
       return [{ id: 'sign_in', label: 'Sign in to GrayMatter', url: urls.loginUrl, primary: true }];
   }
@@ -1442,7 +1506,7 @@ function recoveryActionsFor(reason, urls) {
 
 function renderRecoveryText(structuredContent) {
   const actions = (structuredContent.recoveryActions || [])
-    .map((action) => `${action.label}: ${action.url}`)
+    .map((action) => action.url ? `${action.label}: ${action.url}` : action.label)
     .join('\n');
   const facts = [
     structuredContent.currentBalance ? `Current balance: ${structuredContent.currentBalance}` : '',
@@ -1451,7 +1515,8 @@ function renderRecoveryText(structuredContent) {
     structuredContent.traceId ? `Trace: ${structuredContent.traceId}` : ''
   ].filter(Boolean).join('\n');
   const factBlock = facts ? `\n\n${facts}` : '';
-  return `${structuredContent.message}${factBlock}\n\nRecovery actions:\n${actions}\n\n${structuredContent.retryGuidance}`;
+  const actionBlock = actions ? `\n\nRecovery actions:\n${actions}` : '';
+  return `${structuredContent.message}${factBlock}${actionBlock}\n\n${structuredContent.retryGuidance}`;
 }
 
 function classifyRecoveryReason(error) {
@@ -1478,6 +1543,13 @@ function classifyRecoveryReason(error) {
     return {
       reason: 'missing_auth',
       message: 'Authentication is missing or expired. Sign in, then retry.'
+    };
+  }
+
+  if (error.status === 504 || upperText.includes('GRAYMATTER_REQUEST_TIMEOUT') || lowerText.includes('timed out')) {
+    return {
+      reason: 'request_timeout',
+      message: 'GrayMatter did not finish this operation before the client timeout. Retry once; if it repeats, use memory_query or a narrower receipt request while api-0 recovers.'
     };
   }
 

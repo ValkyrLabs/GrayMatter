@@ -19,4 +19,12 @@ if "$ROOT_DIR/scripts/gm-client" foo /memory-entries >/tmp/gm-client-invalid.out
 fi
 grep -q "unsupported method 'foo'" /tmp/gm-client-invalid.out
 
+long_note="$(printf 'n%.0s' {1..256})"
+if "$ROOT_DIR/scripts/gm-client" post /Note "{\"content\":\"$long_note\"}" >/tmp/gm-client-long-note.out 2>&1; then
+  echo "expected long Note validation failure" >&2
+  exit 1
+fi
+grep -q "Note.content is 256 characters" /tmp/gm-client-long-note.out
+grep -q "SQL truncation 500" /tmp/gm-client-long-note.out
+
 echo "gm_client_test: ok"

@@ -24,12 +24,48 @@ if [[ $# -lt 2 ]]; then
   exit 1
 fi
 
+validate_entity_payload() {
+  local method="$1"
+  local path="$2"
+  local body="$3"
+  local limit field entity length
+
+  case "$method" in
+    POST|PUT|PATCH) ;;
+    *) return 0 ;;
+  esac
+
+  case "$path" in
+    /StrategicPriority|/v1/StrategicPriority) entity="StrategicPriority"; field="description"; limit=255 ;;
+    /Note|/v1/Note) entity="Note"; field="content"; limit=255 ;;
+    *) return 0 ;;
+  esac
+
+  if [[ -z "$body" ]] || ! command -v jq >/dev/null 2>&1; then
+    return 0
+  fi
+
+  length="$(printf '%s' "$body" | jq -r --arg field "$field" '
+    if type == "object" and has($field) and (.[$field] | type == "string")
+    then (.[$field] | length)
+    else 0
+    end
+  ' 2>/dev/null || printf '0')"
+
+  if [[ "$length" =~ ^[0-9]+$ && "$length" -gt "$limit" ]]; then
+    echo "error: ${entity}.${field} is ${length} characters; current api-0 runtime rejects values over ${limit} with a SQL truncation 500" >&2
+    echo "hint: shorten ${entity}.${field} or store long-form operating context in MemoryEntry/ContentData until the api-0 storage column is expanded" >&2
+    exit 64
+  fi
+}
+
 method="$(printf '%s' "$1" | tr '[:lower:]' '[:upper:]')"
 path="$2"
 body="${3:-}"
 
 case "$method" in
   GET|POST|PATCH|DELETE|PUT)
+    validate_entity_payload "$method" "$path" "$body"
     "$API_SCRIPT" "$method" "$path" "$body"
     ;;
   *)

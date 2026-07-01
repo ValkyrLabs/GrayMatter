@@ -17,4 +17,12 @@ if "$ROOT_DIR/scripts/gm-record" strategic create >/tmp/gm-record-missing-body.o
 fi
 grep -q "create requires JSON body" /tmp/gm-record-missing-body.out
 
+long_description="$(printf 's%.0s' {1..256})"
+if "$ROOT_DIR/scripts/gm-record" strategic create "{\"description\":\"$long_description\"}" >/tmp/gm-record-long-strategy.out 2>&1; then
+  echo "expected long StrategicPriority validation failure" >&2
+  exit 1
+fi
+grep -q "StrategicPriority.description is 256 characters" /tmp/gm-record-long-strategy.out
+grep -q "SQL truncation 500" /tmp/gm-record-long-strategy.out
+
 echo "gm_record_test: ok"

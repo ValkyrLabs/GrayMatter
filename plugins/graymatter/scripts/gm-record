@@ -39,6 +39,34 @@ case "$kind" in
     ;;
 esac
 
+validate_record_payload() {
+  local entity="$1"
+  local body="$2"
+  local limit field length
+
+  case "$entity" in
+    /StrategicPriority) field="description"; limit=255 ;;
+    *) return 0 ;;
+  esac
+
+  if [[ -z "$body" ]] || ! command -v jq >/dev/null 2>&1; then
+    return 0
+  fi
+
+  length="$(printf '%s' "$body" | jq -r --arg field "$field" '
+    if type == "object" and has($field) and (.[$field] | type == "string")
+    then (.[$field] | length)
+    else 0
+    end
+  ' 2>/dev/null || printf '0')"
+
+  if [[ "$length" =~ ^[0-9]+$ && "$length" -gt "$limit" ]]; then
+    echo "error: StrategicPriority.${field} is ${length} characters; current api-0 runtime rejects values over ${limit} with a SQL truncation 500" >&2
+    echo "hint: shorten StrategicPriority.${field} or store long-form strategy in MemoryEntry/ContentData until the api-0 storage column is expanded" >&2
+    exit 64
+  fi
+}
+
 case "$action" in
   list)
     exec "$API_SCRIPT" GET "$endpoint"
@@ -48,6 +76,7 @@ case "$action" in
       echo "error: create requires JSON body" >&2
       exit 1
     fi
+    validate_record_payload "$endpoint" "$value"
     exec "$API_SCRIPT" POST "$endpoint" "$value"
     ;;
   get)

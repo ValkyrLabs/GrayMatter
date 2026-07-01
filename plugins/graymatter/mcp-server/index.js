@@ -2050,10 +2050,31 @@ function pickDefined(values) {
 
 function normalizeEntityCreatePayload(entityType, body) {
   const sanitized = stripClientManagedFields(body || {});
+  assertEntityRuntimeFieldLimits(entityType, sanitized);
   if (String(entityType || '').toLowerCase() === 'contentdata') {
     return normalizeContentDataPayload(sanitized);
   }
   return sanitized;
+}
+
+function assertEntityRuntimeFieldLimits(entityType, body) {
+  const normalizedType = String(entityType || '').toLowerCase();
+  const limits = {
+    strategicpriority: { displayName: 'StrategicPriority', field: 'description', max: 255 },
+    note: { displayName: 'Note', field: 'content', max: 255 }
+  };
+  const limit = limits[normalizedType];
+  if (!limit || typeof body?.[limit.field] !== 'string') {
+    return;
+  }
+
+  const length = Array.from(body[limit.field]).length;
+  if (length > limit.max) {
+    throw new Error(
+      `${limit.displayName}.${limit.field} is ${length} characters; current api-0 runtime rejects values over ${limit.max} with a SQL truncation 500. ` +
+      `Shorten ${limit.displayName}.${limit.field} or store long-form operating context in MemoryEntry/ContentData until the api-0 storage column is expanded.`
+    );
+  }
 }
 
 function normalizeContentDataPayload(body) {

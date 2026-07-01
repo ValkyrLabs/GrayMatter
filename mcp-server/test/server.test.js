@@ -1564,6 +1564,49 @@ test('schema_summary fetches and summarizes live OpenAPI metadata', async () => 
   }
 });
 
+test('entity_create rejects known api-0 truncated long strategy and note fields before posting', async () => {
+  const fakeApi = createFakeApi(async () => {
+    throw new Error('entity_create validation should not call api-0');
+  });
+
+  const apiBase = await listen(fakeApi.server);
+  const server = createGrayMatterMcpServer({ apiBase: `${apiBase}/v1` });
+  const baseUrl = await listen(server);
+
+  try {
+    const strategyResult = await postRpc(baseUrl, {
+      jsonrpc: '2.0',
+      id: 'long-strategy',
+      method: 'tools/call',
+      params: {
+        name: 'entity_create',
+        arguments: { entityType: 'StrategicPriority', body: { description: 's'.repeat(256) } }
+      }
+    });
+    const noteResult = await postRpc(baseUrl, {
+      jsonrpc: '2.0',
+      id: 'long-note',
+      method: 'tools/call',
+      params: {
+        name: 'entity_create',
+        arguments: { entityType: 'Note', body: { content: 'n'.repeat(256) } }
+      }
+    });
+
+    assert.equal(strategyResult.status, 200);
+    assert.equal(strategyResult.body.error.code, -32000);
+    assert.match(strategyResult.body.error.message, /StrategicPriority\.description is 256 characters/);
+    assert.match(strategyResult.body.error.message, /SQL truncation 500/);
+    assert.equal(noteResult.status, 200);
+    assert.equal(noteResult.body.error.code, -32000);
+    assert.match(noteResult.body.error.message, /Note\.content is 256 characters/);
+    assert.equal(fakeApi.requests.length, 0);
+  } finally {
+    server.close();
+    fakeApi.server.close();
+  }
+});
+
 test('tool errors return JSON-RPC errors instead of HTTP failures', async () => {
   const server = createGrayMatterMcpServer({ apiBase: 'https://api-0.example.test/v1' });
   const baseUrl = await listen(server);

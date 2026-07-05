@@ -910,6 +910,39 @@ test_memory_write_access_denied_names_missing_permission() {
   assert_contains "${result}" "scripts/gm-replay-deferred" "graymatter_api should provide replay recovery guidance"
 }
 
+test_api_docs_access_denied_names_schema_permission() {
+  local temp_root="$1"
+  local fake_bin="$2"
+  local script_copy="$3"
+
+  export TEST_CURL_SCENARIO="access-denied"
+  unset VALKYR_AUTH_TOKEN
+  unset GRAYMATTER_USERNAME
+  unset GRAYMATTER_PASSWORD
+  unset VALKYR_USERNAME
+  unset VALKYR_PASSWORD
+
+  local result
+  local status=0
+
+  set +e
+  result="$(
+    PATH="${fake_bin}:/usr/local/bin:/usr/bin:/bin" \
+    TMPDIR="${temp_root}" \
+    "${script_copy}" GET /api-docs 2>&1
+  )"
+  status=$?
+  set -e
+
+  [[ "${status}" == "22" ]] || fail "graymatter_api should preserve the HTTP failure exit for schema RBAC denial"
+  assert_contains "${result}" "GrayMatter access denied for GET /api-docs" "graymatter_api should name the denied api-docs operation"
+  assert_contains "${result}" "Missing permission: api-docs/schema read authority or schema:read scope" "graymatter_api should identify schema read permission for api-docs"
+  assert_contains "${result}" "Recovery: grant the account api-docs/schema read access" "graymatter_api should provide schema-specific recovery guidance"
+  if [[ "${result}" == *"scripts/gm-replay-deferred"* ]]; then
+    fail "schema read denials should not suggest replaying deferred writes"
+  fi
+}
+
 test_valkyr_agent_token_sends_main_tenant_header() {
   local temp_root="$1"
   local fake_bin="$2"
@@ -974,6 +1007,7 @@ with_fixture test_curl_requests_use_default_timeouts
 with_fixture test_success_uses_fallback_tempdir_when_default_tmp_fails
 with_fixture test_write_uses_stateful_cookie_and_xsrf_after_login
 with_fixture test_memory_write_access_denied_names_missing_permission
+with_fixture test_api_docs_access_denied_names_schema_permission
 with_fixture test_valkyr_agent_token_sends_main_tenant_header
 with_fixture test_explicit_tenant_header_overrides_valkyr_agent_fallback
 with_fixture test_token_tenant_claim_sends_tenant_header

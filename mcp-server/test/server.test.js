@@ -537,9 +537,20 @@ test('GrayMatter capability tools expose the server-side memory and graph power 
       res.end(JSON.stringify({ matches: [] }));
       return;
     }
+    if (record.path === '/v1/memory/reindex') {
+      assert.equal(record.method, 'POST');
+      assert.equal(record.body.dryRun, true);
+      assert.deepEqual(record.body.entryTypes, ['context']);
+      res.end(JSON.stringify({ action: 'reindex', entriesAffected: 2 }));
+      return;
+    }
     if (record.path === '/v1/memory/semantic-index/reindex') {
       assert.equal(record.method, 'POST');
-      assert.equal(record.body.force, true);
+      assert.equal(record.body.estimateOnly, true);
+      assert.equal(record.body.tenantScope, 'tenant-alpha');
+      assert.equal(record.body.sources[0].targetType, 'MemoryEntry');
+      assert.equal(record.body.sources[0].targetId, 'mem-1');
+      assert.equal(record.body.sources[0].sourceText, 'source evidence');
       res.end(JSON.stringify({ accepted: true }));
       return;
     }
@@ -578,7 +589,21 @@ test('GrayMatter capability tools expose the server-side memory and graph power 
     const calls = [
       { name: 'graymatter_status', arguments: { surface: 'memory_status' } },
       { name: 'graymatter_semantic_search', arguments: { query: 'customer memory', limit: 3 } },
-      { name: 'graymatter_semantic_reindex', arguments: { force: true } },
+      { name: 'graymatter_semantic_reindex', arguments: { dryRun: true, entryTypes: ['context'] } },
+      {
+        name: 'graymatter_semantic_reindex',
+        arguments: {
+          estimateOnly: true,
+          tenantScope: 'tenant-alpha',
+          sources: [
+            {
+              targetType: 'MemoryEntry',
+              targetId: 'mem-1',
+              sourceText: 'source evidence'
+            }
+          ]
+        }
+      },
       { name: 'graymatter_object_graph_shape', arguments: {} },
       { name: 'graymatter_retrieval_tools', arguments: {} },
       { name: 'graymatter_retrieval_context', arguments: { query: 'invoice context' } },

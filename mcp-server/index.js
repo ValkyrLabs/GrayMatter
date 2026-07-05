@@ -325,12 +325,44 @@ const tools = [
   defineTool({
     name: 'graymatter_semantic_reindex',
     title: 'Reindex semantic memory',
-    description: 'Request a GrayMatter semantic-index reindex when RBAC permits it.',
+    description: 'Request GrayMatter semantic reindexing when RBAC permits it. Pass sources[] for source-specific target indexing; omit sources[] to bulk-rebuild MemoryEntry semantic rows for the current principal.',
     inputSchema: {
       type: 'object',
       properties: {
-        scope: { type: 'string' },
-        force: { type: 'boolean' }
+        sources: {
+          type: 'array',
+          description: 'Source-specific target evidence to index via /memory/semantic-index/reindex.',
+          items: {
+            type: 'object',
+            properties: {
+              targetType: { type: 'string' },
+              targetId: { type: 'string' },
+              sourceText: { type: 'string' },
+              sourceContentBase64: { type: 'string' },
+              sourceTitle: { type: 'string' },
+              sourceMimeType: { type: 'string' },
+              sourceUri: { type: 'string' },
+              sourceLocator: { type: 'string' },
+              sourceAnchors: { type: 'array', items: { type: 'string' } },
+              organizationId: { type: 'string' },
+              tenantScope: { type: 'string' }
+            },
+            required: ['targetType', 'targetId']
+          }
+        },
+        organizationId: { type: 'string' },
+        tenantScope: { type: 'string' },
+        estimateOnly: { type: 'boolean' },
+        maxEstimatedCredits: { type: 'number' },
+        workflowId: { type: 'string' },
+        entryTypes: {
+          type: 'array',
+          description: 'MemoryEntry types for bulk /memory/reindex.',
+          items: { type: 'string', enum: ['preference', 'decision', 'todo', 'context', 'artifact'] }
+        },
+        dryRun: { type: 'boolean' },
+        scope: { type: 'string', description: 'Deprecated compatibility hint; ignored by the backend unless represented by tenantScope, workflowId, or sources[].' },
+        force: { type: 'boolean', description: 'Deprecated compatibility hint retained for older clients.' }
       }
     },
     annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true, idempotentHint: false },
@@ -784,10 +816,22 @@ async function callTool(params, context) {
         filters: args.filters
       })));
     case 'graymatter_semantic_reindex':
-      return execute('graymatter_semantic_reindex', () => apiRequest(context, 'POST', 'memory/semantic-index/reindex', pickDefined({
-        scope: args.scope,
-        force: args.force
-      })));
+      return execute('graymatter_semantic_reindex', () => {
+        if (Array.isArray(args.sources) && args.sources.length > 0) {
+          return apiRequest(context, 'POST', 'memory/semantic-index/reindex', pickDefined({
+            sources: args.sources,
+            organizationId: args.organizationId,
+            tenantScope: args.tenantScope,
+            estimateOnly: args.estimateOnly,
+            maxEstimatedCredits: args.maxEstimatedCredits
+          }));
+        }
+        return apiRequest(context, 'POST', 'memory/reindex', pickDefined({
+          workflowId: args.workflowId,
+          entryTypes: args.entryTypes,
+          dryRun: args.dryRun
+        }));
+      });
     case 'graymatter_object_graph_shape':
       return execute('graymatter_object_graph_shape', () => apiRequest(context, 'GET', 'graymatter/object-graph/shape'));
     case 'graymatter_retrieval_tools':

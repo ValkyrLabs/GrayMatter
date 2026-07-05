@@ -539,8 +539,17 @@ required_permission_hint() {
     graph_write)
       printf 'graph write authority for the requested object graph endpoint'
       ;;
+    schema_read)
+      printf 'api-docs/schema read authority or schema:read scope'
+      ;;
+    entity_read)
+      printf 'entity read authority for the requested schema object'
+      ;;
     entity_write)
       printf 'entity write authority for the requested schema object'
+      ;;
+    api_read)
+      printf 'read authority for %s %s' "$METHOD_UPPER" "$PATH_PART"
       ;;
     *)
       printf 'write authority for %s %s' "$METHOD_UPPER" "$PATH_PART"
@@ -570,7 +579,26 @@ show_access_denied_guidance() {
   if [[ -n "$trace_id" ]]; then
     echo "Trace id: ${trace_id}." >&2
   fi
-  echo "Recovery: grant the account MemoryEntry write access, switch to a write-capable VALKYR_AUTH token, then retry or run scripts/gm-replay-deferred." >&2
+  case "$(determine_operation_kind)" in
+    memory_write)
+      echo "Recovery: grant the account MemoryEntry write access, switch to a write-capable VALKYR_AUTH token, then retry or run scripts/gm-replay-deferred." >&2
+      ;;
+    memory_query|memory_read)
+      echo "Recovery: grant the account MemoryEntry read/query access, switch to a memory-read capable VALKYR_AUTH token, then retry." >&2
+      ;;
+    schema_read)
+      echo "Recovery: grant the account api-docs/schema read access, switch to a schema-read capable VALKYR_AUTH token, then retry." >&2
+      ;;
+    entity_write)
+      echo "Recovery: grant the account write access for the requested entity, switch to a write-capable VALKYR_AUTH token, then retry or run scripts/gm-replay-deferred." >&2
+      ;;
+    graph_write)
+      echo "Recovery: grant the account graph write access, switch to a graph-write capable VALKYR_AUTH token, then retry or run scripts/gm-replay-deferred." >&2
+      ;;
+    *)
+      echo "Recovery: grant the account the required authority, switch to a capable VALKYR_AUTH token, then retry." >&2
+      ;;
+  esac
 }
 
 determine_operation_kind() {
@@ -579,7 +607,11 @@ determine_operation_kind() {
     printf 'memory_query\n'
     return 0
   fi
-  if [[ "$METHOD_UPPER" == "GET" ]]; then
+  if [[ "$normalized_path" == "api-docs"* || "$normalized_path" == "v1/api-docs"* ]]; then
+    printf 'schema_read\n'
+    return 0
+  fi
+  if [[ "$normalized_path" == "MemoryEntry"* && "$METHOD_UPPER" == "GET" ]]; then
     printf 'memory_read\n'
     return 0
   fi
@@ -593,6 +625,10 @@ determine_operation_kind() {
   fi
   if [[ "$normalized_path" == "Graph"* ]]; then
     printf 'graph_write\n'
+    return 0
+  fi
+  if [[ "$METHOD_UPPER" == "GET" ]]; then
+    printf 'entity_read\n'
     return 0
   fi
   printf 'api_write\n'

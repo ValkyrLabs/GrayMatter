@@ -35,6 +35,20 @@ fi
 require jq -e '.mcpServers.graymatter.command == "node"' "$ROOT/.mcp.json" >/dev/null
 require jq -e '.mcpServers.graymatter.args == ["mcp-server/index.js", "--stdio"]' "$ROOT/.mcp.json" >/dev/null
 
+if find "$ROOT/scripts" "$ROOT/plugins/graymatter/scripts" -maxdepth 1 -type f -name '*.py' | grep -q .; then
+  echo "GrayMatter product scripts must stay portable bash; Python scripts are not allowed in shipped script surfaces" >&2
+  exit 1
+fi
+if grep -RIl '^#!.*python' "$ROOT/scripts" "$ROOT/plugins/graymatter/scripts" "$ROOT/plugins/graymatter/.codex-plugin" | grep -q .; then
+  echo "GrayMatter product scripts must stay portable bash; Python shebangs are not allowed" >&2
+  exit 1
+fi
+if grep -RInE '\bpython3?\b|PyYAML|requirements\.txt|pyproject\.toml' \
+  "$ROOT/scripts" "$ROOT/plugins/graymatter/scripts" "$ROOT/plugins/graymatter/.codex-plugin" "$ROOT/plugins/graymatter/.mcp.json" | grep -q .; then
+  echo "GrayMatter install/runtime surfaces must not require Python; keep product automation in bash/curl/jq and MCP in Node" >&2
+  exit 1
+fi
+
 require jq -e '.name == "graymatter"' "$ROOT/plugins/graymatter/.codex-plugin/plugin.json" >/dev/null
 require jq -e '.skills == "./skills/"' "$ROOT/plugins/graymatter/.codex-plugin/plugin.json" >/dev/null
 require jq -e '.mcpServers == "./.mcp.json"' "$ROOT/plugins/graymatter/.codex-plugin/plugin.json" >/dev/null
@@ -152,6 +166,10 @@ grep -q 'Normalized object writes' "$ROOT/plugins/graymatter/skills/graymatter/S
   echo "Codex marketplace plugin activation script missing or not executable" >&2
   exit 1
 }
+[[ -x "$ROOT/plugins/graymatter/scripts/gm-claude-install" ]] || {
+  echo "Codex marketplace plugin Claude Code installer missing or not executable" >&2
+  exit 1
+}
 [[ -x "$ROOT/plugins/graymatter/scripts/gm-activation-fastlane" ]] || {
   echo "Codex marketplace plugin activation fastlane missing or not executable" >&2
   exit 1
@@ -198,6 +216,10 @@ grep -q 'Normalized object writes' "$ROOT/plugins/graymatter/skills/graymatter/S
 }
 [[ -x "$ROOT/scripts/gm-activation-fastlane" ]] || {
   echo "first-run activation fastlane missing or not executable" >&2
+  exit 1
+}
+[[ -x "$ROOT/scripts/gm-claude-install" ]] || {
+  echo "Claude Code MCP installer missing or not executable" >&2
   exit 1
 }
 [[ -x "$ROOT/scripts/gm-invariant-preflight" ]] || {
@@ -509,6 +531,10 @@ grep -q '^graymatter/graymatter-bootstrap$' "$ZIP_LIST"
 grep -q '^graymatter/references/contracts/mcp/graymatter_mcp_tools_v1.json$' "$ZIP_LIST"
 grep -q '^graymatter/references/contracts/mcp/graymatter_mcp_contract_v1.json$' "$ZIP_LIST"
 grep -q '^graymatter/references/mcp/memory-tool-contract.v1.json$' "$ZIP_LIST"
+if grep -Eq '(^|/)[^/]+\.py$|(^|/)requirements[^/]*\.txt$|(^|/)pyproject\.toml$' "$ZIP_LIST"; then
+  echo "Standalone GrayMatter package must not ship Python runtime/install files" >&2
+  exit 1
+fi
 
 PLUGIN_PACKAGE="$RELEASE_TMP_DIR/graymatter-plugin.skill"
 PLUGIN_ZIP_LIST="$RELEASE_TMP_DIR/graymatter-plugin-list.txt"
@@ -531,5 +557,9 @@ grep -q '^graymatter/scripts/package-graymatter$' "$PLUGIN_ZIP_LIST"
 grep -q '^graymatter/scripts/package_graymatter.sh$' "$PLUGIN_ZIP_LIST"
 grep -q '^graymatter/mcp-server/index.js$' "$PLUGIN_ZIP_LIST"
 grep -q '^graymatter/.mcp.json$' "$PLUGIN_ZIP_LIST"
+if grep -Eq '(^|/)[^/]+\.py$|(^|/)requirements[^/]*\.txt$|(^|/)pyproject\.toml$' "$PLUGIN_ZIP_LIST"; then
+  echo "Codex marketplace GrayMatter plugin package must not ship Python runtime/install files" >&2
+  exit 1
+fi
 
 echo "release_surfaces_test: ok"

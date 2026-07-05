@@ -1,0 +1,189 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SERVER_NAME="graymatter"
+SCOPE="user"
+API_BASE="${VALKYR_API_BASE:-https://api-0.valkyrlabs.com/v1}"
+DRY_RUN="false"
+SKIP_CHECK="false"
+REPLACE="false"
+
+usage() {
+  cat <<'USAGE'
+Usage: scripts/gm-claude-install [--scope user|local|project] [--name graymatter] [--api-base URL] [--skip-check] [--replace] [--dry-run]
+
+Registers the local GrayMatter MCP server with Claude Code using stdio transport.
+Requires bash, Claude Code, and Node >=20 <25. Does not require Python.
+USAGE
+}
+
+fail() {
+  printf 'FAIL: %s\n' "$1" >&2
+  exit 1
+}
+
+quote_cmd() {
+  local arg
+  for arg in "$@"; do
+    printf '%q ' "$arg"
+  done
+  printf '\n'
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --scope)
+      SCOPE="${2:-}"
+      shift 2
+      ;;
+    --name)
+      SERVER_NAME="${2:-}"
+      shift 2
+      ;;
+    --api-base)
+      API_BASE="${2:-}"
+      shift 2
+      ;;
+    --skip-check)
+      SKIP_CHECK="true"
+      shift
+      ;;
+    --dry-run)
+      DRY_RUN="true"
+      shift
+      ;;
+    --replace)
+      REPLACE="true"
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      fail "Unknown argument: $1"
+      ;;
+  esac
+done
+
+case "$SCOPE" in
+  user|local|project) ;;
+  *) fail "Claude Code MCP scope must be user, local, or project" ;;
+esac
+
+[[ -n "$SERVER_NAME" ]] || fail "Server name is required"
+[[ -n "$API_BASE" ]] || fail "API base is required"
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+ROOT="$(cd "${SCRIPT_DIR}/.." && pwd -P)"
+SERVER_JS="${ROOT}/mcp-server/index.js"
+
+[[ -f "$SERVER_JS" ]] || fail "GrayMatter MCP server not found at ${SERVER_JS}"
+
+node_major() {
+  "$1" -p 'Number(process.versions.node.split(".")[0])' 2>/dev/null || true
+}
+
+node_version() {
+  "$1" -v 2>/dev/null || true
+}
+
+node_is_supported() {
+  local major
+  major="$(node_major "$1")"
+  [[ "$major" =~ ^[0-9]+$ ]] && [[ "$major" -ge 20 ]] && [[ "$major" -lt 25 ]]
+}
+
+select_node() {
+  local candidate
+  if [[ -n "${GRAYMATTER_NODE:-}" ]]; then
+    [[ -x "$GRAYMATTER_NODE" ]] || fail "GRAYMATTER_NODE is set but not executable: ${GRAYMATTER_NODE}"
+    node_is_supported "$GRAYMATTER_NODE" || fail "GRAYMATTER_NODE must be Node >=20 <25, found $(node_version "$GRAYMATTER_NODE")"
+    printf '%s\n' "$GRAYMATTER_NODE"
+    return 0
+  fi
+
+  local candidates=()
+  if command -v node >/dev/null 2>&1; then
+    candidates+=("$(command -v node)")
+  fi
+  candidates+=(
+    /usr/local/bin/node
+    /opt/homebrew/bin/node
+    /usr/bin/node
+  )
+  while IFS= read -r candidate; do
+    candidates+=("$candidate")
+  done < <(find /usr/local/n/versions/node /opt/homebrew/Cellar/node "${HOME:-}/.nvm/versions/node" \
+    -path '*/bin/node' -type f -perm -111 2>/dev/null | sort -Vr || true)
+
+  local seen=":"
+  for candidate in "${candidates[@]}"; do
+    [[ -x "$candidate" ]] || continue
+    case "$seen" in
+      *:"$candidate":*) continue ;;
+    esac
+    seen="${seen}${candidate}:"
+    if node_is_supported "$candidate"; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done
+
+  fail "Node >=20 <25 is required for Claude Code MCP registration. Set GRAYMATTER_NODE to a compatible node binary."
+}
+
+NODE_BIN="$(select_node)"
+NODE_DIR="$(cd "$(dirname "$NODE_BIN")" && pwd -P)"
+CLAUDE_CMD="${CLAUDE_CODE_BIN:-$(PATH="${NODE_DIR}:${PATH}" command -v claude 2>/dev/null || true)}"
+
+[[ -n "$CLAUDE_CMD" && -x "$CLAUDE_CMD" ]] || fail "Claude Code CLI not found. Install Claude Code first, then rerun this script."
+
+if [[ "$DRY_RUN" != "true" ]]; then
+  PATH="${NODE_DIR}:${PATH}" "$CLAUDE_CMD" mcp --help >/dev/null 2>&1 \
+    || fail "Claude Code CLI did not run under $(node_version "$NODE_BIN"). Set GRAYMATTER_NODE to a compatible Node 20-24 binary and retry."
+fi
+
+if [[ "$DRY_RUN" != "true" && "$SKIP_CHECK" != "true" && -x "${SCRIPT_DIR}/gm-install-check" ]]; then
+  VALKYR_API_BASE="$API_BASE" "${SCRIPT_DIR}/gm-install-check"
+fi
+
+if [[ "$DRY_RUN" != "true" && "$REPLACE" != "true" ]]; then
+  EXISTING_OUTPUT="$(PATH="${NODE_DIR}:${PATH}" "$CLAUDE_CMD" mcp get "$SERVER_NAME" 2>/dev/null || true)"
+  if [[ -n "$EXISTING_OUTPUT" ]]; then
+    printf '%s\n' "$EXISTING_OUTPUT"
+    printf 'GrayMatter MCP server is already registered with Claude Code as %s\n' "$SERVER_NAME"
+    exit 0
+  fi
+fi
+
+ADD_CMD=(
+  "$CLAUDE_CMD"
+  mcp
+  add
+  --env "VALKYR_API_BASE=${API_BASE}" "GRAYMATTER_MCP_MODE=private-stdio"
+  --transport stdio
+  --scope "$SCOPE"
+  "$SERVER_NAME"
+  --
+  "$NODE_BIN"
+  "$SERVER_JS"
+  --stdio
+)
+
+if [[ "$DRY_RUN" == "true" ]]; then
+  quote_cmd "${ADD_CMD[@]}"
+  exit 0
+fi
+
+if [[ "$REPLACE" == "true" ]]; then
+  for remove_scope in local user project; do
+    PATH="${NODE_DIR}:${PATH}" "$CLAUDE_CMD" mcp remove "$SERVER_NAME" --scope "$remove_scope" >/dev/null 2>&1 || true
+  done
+else
+  PATH="${NODE_DIR}:${PATH}" "$CLAUDE_CMD" mcp remove "$SERVER_NAME" --scope "$SCOPE" >/dev/null 2>&1 || true
+fi
+PATH="${NODE_DIR}:${PATH}" "${ADD_CMD[@]}"
+PATH="${NODE_DIR}:${PATH}" "$CLAUDE_CMD" mcp get "$SERVER_NAME" >/dev/null 2>&1 || PATH="${NODE_DIR}:${PATH}" "$CLAUDE_CMD" mcp list >/dev/null
+
+printf 'GrayMatter MCP server registered with Claude Code as %s (%s scope)\n' "$SERVER_NAME" "$SCOPE"

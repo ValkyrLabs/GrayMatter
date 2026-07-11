@@ -20,7 +20,10 @@ require jq -e '.keywords | index("valoride")' "$ROOT/.codex-plugin/plugin.json" 
 require jq -e '.interface.capabilities | index("Interactive")' "$ROOT/.codex-plugin/plugin.json" >/dev/null
 require jq -e '.interface.longDescription | contains("mcp-server")' "$ROOT/.codex-plugin/plugin.json" >/dev/null
 require jq -e '.interface.longDescription | contains("retrieval receipts")' "$ROOT/.codex-plugin/plugin.json" >/dev/null
-require jq -e '.interface.defaultPrompt | index("Retrieve memory with receipts and obey graymatterPolicy")' "$ROOT/.codex-plugin/plugin.json" >/dev/null
+require jq -e '.description == "Persistent, secure memory and shared context for AI agents."' "$ROOT/.codex-plugin/plugin.json" >/dev/null
+require jq -e '.apps == "./.app.json"' "$ROOT/.codex-plugin/plugin.json" >/dev/null
+require jq -e '.interface.defaultPrompt | length == 3' "$ROOT/.codex-plugin/plugin.json" >/dev/null
+require jq -e '.interface.defaultPrompt | index("Compile task-specific context from GrayMatter.")' "$ROOT/.codex-plugin/plugin.json" >/dev/null
 require jq -e '.plugins[] | select(.name == "graymatter") | .source.path == "./plugins/graymatter"' "$ROOT/.agents/plugins/marketplace.json" >/dev/null
 require jq -e '.slug == "graymatter"' "$ROOT/clawhub.json" >/dev/null
 require jq -e '.tags | index("openclaw-skill")' "$ROOT/clawhub.json" >/dev/null
@@ -34,6 +37,7 @@ fi
 
 require jq -e '.mcpServers.graymatter.command == "node"' "$ROOT/.mcp.json" >/dev/null
 require jq -e '.mcpServers.graymatter.args == ["mcp-server/index.js", "--stdio"]' "$ROOT/.mcp.json" >/dev/null
+require jq -e '.apps == {}' "$ROOT/.app.json" >/dev/null
 
 if find "$ROOT/scripts" "$ROOT/plugins/graymatter/scripts" -maxdepth 1 -type f -name '*.py' | grep -q .; then
   echo "GrayMatter product scripts must stay portable bash; Python scripts are not allowed in shipped script surfaces" >&2
@@ -52,10 +56,12 @@ fi
 require jq -e '.name == "graymatter"' "$ROOT/plugins/graymatter/.codex-plugin/plugin.json" >/dev/null
 require jq -e '.skills == "./skills/"' "$ROOT/plugins/graymatter/.codex-plugin/plugin.json" >/dev/null
 require jq -e '.mcpServers == "./.mcp.json"' "$ROOT/plugins/graymatter/.codex-plugin/plugin.json" >/dev/null
+require jq -e '.apps == "./.app.json"' "$ROOT/plugins/graymatter/.codex-plugin/plugin.json" >/dev/null
 require jq -e '.keywords | index("retrieval-receipts")' "$ROOT/plugins/graymatter/.codex-plugin/plugin.json" >/dev/null
 require jq -e '.keywords | index("graymatter-light")' "$ROOT/plugins/graymatter/.codex-plugin/plugin.json" >/dev/null
 require jq -e '.keywords | index("valoride")' "$ROOT/plugins/graymatter/.codex-plugin/plugin.json" >/dev/null
 require jq -e '.interface.longDescription | contains("GrayMatter Light")' "$ROOT/plugins/graymatter/.codex-plugin/plugin.json" >/dev/null
+require jq -e '.apps == {}' "$ROOT/plugins/graymatter/.app.json" >/dev/null
 require jq -e '.mcpServers.graymatter.args == ["mcp-server/index.js", "--stdio"]' "$ROOT/plugins/graymatter/.mcp.json" >/dev/null
 [[ -f "$ROOT/plugins/graymatter/skills/graymatter/SKILL.md" ]] || {
   echo "Codex marketplace plugin skill missing" >&2

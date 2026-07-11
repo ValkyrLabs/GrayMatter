@@ -7,6 +7,57 @@ GrayMatter is an installable OpenClaw skill and MCP service for:
 
 It lets an agent move beyond local files and isolated chat context. Once authenticated, GrayMatter is the agent's exclusive primary durable memory: it persists durable memory, inspects the live business schema, and operates inside the organization's RBAC-scoped data environment.
 
+## ChatGPT developer-mode app
+
+The submission surface is the existing Node MCP adapter in `mcp-server/`, running in hardened public-app mode. It keeps api-0 as the memory, ContextPage, procedure, receipt, RBAC, ACL, and tenant source of truth.
+
+Public deployment contract:
+
+- Production MCP URL: `https://api-0.valkyrlabs.com/graymatter/mcp`
+- Compatibility URL: `https://api-0.valkyrlabs.com/mcp`
+- Protected-resource metadata: `https://api-0.valkyrlabs.com/.well-known/oauth-protected-resource`
+- Authorization-server metadata target: `https://api-0.valkyrlabs.com/.well-known/oauth-authorization-server`
+- Development MCP URL: `http://localhost:3333/graymatter/mcp`
+
+The production MCP and OAuth URLs above are deployment targets, not a claim that the reverse proxy and OAuth authorization server are already live. Verify them before creating or submitting the ChatGPT app.
+
+Required public-app environment:
+
+```bash
+export PORT=3333
+export GRAYMATTER_MCP_MODE=hosted-multi-tenant
+export GRAYMATTER_PUBLIC_APP=true
+export GRAYMATTER_PUBLIC_RESOURCE=https://api-0.valkyrlabs.com
+export GRAYMATTER_PUBLIC_MCP_PATH=/graymatter/mcp
+export GRAYMATTER_OAUTH_ISSUER=https://api-0.valkyrlabs.com
+export GRAYMATTER_OAUTH_JWKS_URI=https://api-0.valkyrlabs.com/oauth2/jwks
+export GRAYMATTER_ALLOWED_ORIGINS=https://chatgpt.com
+export VALKYR_API_BASE=https://api-0.valkyrlabs.com/v1
+node mcp-server/index.js
+```
+
+Do not configure `VALKYR_AUTH_TOKEN`, `VALKYR_JWT_SESSION`, `GRAYMATTER_TENANT_ID`, or `X-Valkyr-Token` on the public multi-tenant service. Each request must carry the current user's OAuth bearer token. Public mode validates issuer, audience, lifetime, RS256 signature, required identity claims, and tool scopes; it then forwards only the bearer token to api-0 and never forwards caller tenant or owner identifiers.
+
+To connect a developer version in ChatGPT:
+
+1. Deploy the endpoint over HTTPS, or expose the local server with Secure MCP Tunnel or another HTTPS tunnel.
+2. In ChatGPT, open Settings → Security and login and enable Developer mode.
+3. Open Settings → Plugins and select the plus button.
+4. Enter `GrayMatter`, the description `Persistent, secure memory and shared context for AI agents.`, and the HTTPS `/graymatter/mcp` URL.
+5. Complete OAuth linking and verify that exactly eight tools are discovered.
+6. Start a new chat, add GrayMatter from the composer, and run the representative prompts in `SUBMISSION_CHECKLIST.md`.
+7. After tool metadata changes, redeploy and use Refresh on the developer-mode app.
+
+Run the automated public-app contract with two isolated reviewer accounts:
+
+```bash
+GRAYMATTER_MCP_URL=https://api-0.valkyrlabs.com/graymatter/mcp \
+GRAYMATTER_TENANT_A_TOKEN='redacted' \
+GRAYMATTER_TENANT_B_TOKEN='redacted' \
+GRAYMATTER_TEST_RECEIPT_ID='authorized-receipt-id' \
+scripts/smoke-test-public-mcp.sh
+```
+
 ## Release surfaces
 
 GrayMatter ships as three related but independently usable surfaces:

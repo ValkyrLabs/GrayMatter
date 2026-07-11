@@ -1,28 +1,34 @@
 {
-  "appName": "GrayMatter",
-  "tagline": "Durable memory and live schema context for business-native agents.",
-  "description": "GrayMatter gives agents durable memory, shared graph context, and authenticated awareness of the live ValkyrAI api-0 schema.",
+  "pluginName": "GrayMatter",
+  "normalizedName": "graymatter",
+  "description": "Persistent, secure memory and shared context for AI agents.",
+  "companyName": "Valkyr Labs Inc.",
   "companyUrl": "https://valkyrlabs.com/",
-  "privacyPolicyUrl": "https://github.com/ValkyrLabs/GrayMatter/blob/main/docs/privacy-policy.md",
-  "repositoryUrl": "https://github.com/ValkyrLabs/GrayMatter",
-  "mcpEndpointPath": "/mcp",
+  "supportUrl": "https://valkyrlabs.com/support",
+  "supportEmail": "support@valkyrlabs.com",
+  "privacyPolicyUrl": "https://valkyrlabs.com/privacy-policy",
+  "termsUrl": "https://valkyrlabs.com/terms",
+  "productionMcpUrl": "https://api-0.valkyrlabs.com/graymatter/mcp",
+  "compatibilityMcpUrl": "https://api-0.valkyrlabs.com/mcp",
+  "protectedResourceMetadataUrl": "https://api-0.valkyrlabs.com/.well-known/oauth-protected-resource",
+  "authorizationServerMetadataUrl": "https://api-0.valkyrlabs.com/.well-known/oauth-authorization-server",
   "assets": {
-    "logo": "assets/logo.svg",
-    "composerIcon": "assets/composer-icon.svg",
-    "screenshot": "assets/screenshot.svg"
+    "logo": "assets/graymatter-logo.png"
   },
-  "dashboardPrerequisites": [
-    "Complete individual or business identity verification for the publishing name.",
-    "Use a global data residency OpenAI project.",
-    "Grant api.apps.write and api.apps.read to the submitter.",
-    "Deploy the MCP server to a public HTTPS domain.",
-    "Provide reviewer test credentials through the OpenAI Platform Dashboard only."
+  "skills": [
+    "skills/graymatter-memory/SKILL.md",
+    "skills/graymatter-context/SKILL.md"
   ],
-  "reviewPromptSet": [
-    "Use GrayMatter to show what tools are available.",
-    "Write a MemoryEntry noting that the review demo account is working.",
-    "Search GrayMatter for the review demo memory.",
-    "Summarize the ValkyrAI schema with GrayMatter.",
-    "List safe sample Task entities from GrayMatter."
-  ]
+  "tools": [
+    "memory_search",
+    "memory_get",
+    "memory_save",
+    "memory_update",
+    "memory_forget",
+    "context_compile",
+    "procedure_search",
+    "retrieval_receipt_get"
+  ],
+  "submissionChecklist": "SUBMISSION_CHECKLIST.md",
+  "status": "blocked_pending_production_mcp_oauth_and_reviewer_accounts"
 }

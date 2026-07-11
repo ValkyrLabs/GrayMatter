@@ -39,7 +39,7 @@ assert_contains "docs/privacy-policy.md" "Retention"
 assert_contains "docs/privacy-policy.md" "Deletion"
 assert_contains "docs/reviewer-test-credentials.md" "Do not commit"
 assert_contains "docs/reviewer-test-credentials.md" "MFA"
-assert_contains "openai-app/submission-manifest.json" "\"mcpEndpointPath\": \"/mcp\""
+assert_contains "openai-app/submission-manifest.json" "\"productionMcpUrl\": \"https://api-0.valkyrlabs.com/graymatter/mcp\""
 assert_contains "openai-app/submission-manifest.json" "\"privacyPolicyUrl\""
 
 if grep -R "REPLACE_WITH_PASSWORD\\|actual_password\\|VALKYR_AUTH_TOKEN=" "$ROOT_DIR/docs/reviewer-test-credentials.md" "$ROOT_DIR/openai-app/submission-manifest.json"; then

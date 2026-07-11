@@ -15,7 +15,7 @@ description="$(jq -r '.description' "$PLUGIN_JSON")"
 [[ "$name" == "graymatter" ]]
 [[ "$repo" == "https://github.com/ValkyrLabs/GrayMatter" ]]
 jq -e '.keywords | index("retrieval-receipts") and index("graymatter-light") and index("valoride")' "$PLUGIN_JSON" >/dev/null
-jq -e '.interface.defaultPrompt | index("Retrieve memory with receipts and obey graymatterPolicy")' "$PLUGIN_JSON" >/dev/null
+jq -e '.interface.defaultPrompt | index("Compile task-specific context from GrayMatter.")' "$PLUGIN_JSON" >/dev/null
 
 expected_line="- [GrayMatter](https://github.com/ValkyrLabs/GrayMatter) — $description"
 if ! grep -Fx -- "$expected_line" "$LISTING_DOC" >/dev/null; then

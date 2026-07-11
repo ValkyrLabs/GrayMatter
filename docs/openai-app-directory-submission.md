@@ -1,69 +1,34 @@
-# OpenAI Apps SDK Submission Notes
+# OpenAI Plugin Directory Submission
 
-## Current OpenAI path
+OpenAI now publishes Apps SDK apps as plugins. GrayMatter is an app-plus-skills plugin: its app is backed by the public MCP endpoint and its two bundled skills teach safe durable-memory and bounded-context behavior.
 
-Legacy ChatGPT plugin submission is not the public distribution path. GrayMatter should be submitted as a ChatGPT app through the OpenAI Apps SDK review flow, using the hosted MCP endpoint and the dashboard submission form.
+## Developer-mode validation
 
-Official references checked on 2026-05-12:
+1. Deploy `mcp-server/` over HTTPS with `GRAYMATTER_PUBLIC_APP=true` and the environment documented in `README.md`.
+2. Enable Developer mode in ChatGPT under Settings → Security and login.
+3. Under Settings → Plugins, create a developer-mode app using `https://api-0.valkyrlabs.com/graymatter/mcp`.
+4. Complete OAuth linking, confirm that exactly eight public tools are discovered, and run the representative prompts in `SUBMISSION_CHECKLIST.md`.
+5. After metadata changes, redeploy and refresh the developer-mode app.
 
-- https://developers.openai.com/apps-sdk
-- https://developers.openai.com/apps-sdk/deploy/submission
-- https://developers.openai.com/apps-sdk/app-submission-guidelines
-- https://developers.openai.com/apps-sdk/reference
-- https://developers.openai.com/apps-sdk/guides/security-privacy
+## Public submission
 
-OpenAI's current submission flow requires these repository-owned artifacts before account-side submission:
+1. Complete Valkyr Labs business verification in the OpenAI Platform organization and confirm the publisher identity is verified.
+2. Give the submitter Apps Management read/write access (`api.apps.write` and `api.apps.read`) and use a global-data-residency project.
+3. Open the plugin submission portal and create a `With MCP` plugin.
+4. Enter the concrete production MCP URL and OAuth configuration, then scan tools.
+5. Verify names, descriptions, strict schemas, OAuth security schemes, annotations, `_meta`, and server instructions imported from the live endpoint.
+6. Add the GrayMatter listing, two bundled skills, privacy policy, terms and support URLs, test cases, reviewer test credentials, availability, and release notes from `SUBMISSION_CHECKLIST.md`.
+7. Submit for review. After approval, publish from the portal.
 
-- A deployed HTTPS MCP endpoint, using `/mcp` for ChatGPT connector setup.
-- Apps SDK-compatible MCP tool descriptors with accurate names, descriptions, security schemes, annotations, and optional UI resource metadata.
-- A content security policy for the app UI resource.
-- Public app metadata: app name, logo, description, company URL, privacy policy URL, screenshots, test prompts and responses, and localization details.
-- Test credentials for a fully featured demo account with sample data and no inaccessible MFA or signup step.
+## Hard blockers
 
-OpenAI's dashboard-side prerequisites still require human/account action:
+Do not submit until:
 
-- Complete individual or business identity verification for the verified name GrayMatter will publish under.
-- Use a project with global data residency.
-- Ensure the submitter has `api.apps.write` permission to create drafts and submit for review, plus `api.apps.read` to view draft/review status.
-- Provide the real MCP URL, OAuth settings if selected, review credentials, screenshots, test prompts, and confirmation checkboxes in the OpenAI Platform Dashboard.
+- the HTTPS MCP route and compatibility alias are live;
+- OAuth authorization-code + PKCE `S256`, protected-resource metadata, authorization-server metadata, token validation, and JWKS are live;
+- two isolated reviewer accounts pass the public MCP smoke test;
+- production api-docs exposes the ContextPage compile endpoint;
+- the public privacy policy covers all disclosed data handling; and
+- `.app.json` contains the durable app ID assigned by the developer/submission flow.
 
-## GrayMatter readiness
-
-GrayMatter now has the repo pieces needed for an Apps SDK review package:
-
-- `mcp-server/index.js` exposes `POST /mcp`, `resources/list`, `resources/read`, Apps SDK tool metadata, and an overview widget resource.
-- `openai-app/submission-manifest.json` records the public, non-secret app metadata for dashboard entry.
-- `docs/privacy-policy.md` is the GrayMatter-specific privacy policy URL source.
-- `docs/reviewer-test-credentials.md` defines the review demo-account runbook without committing secrets.
-- `.codex-plugin/plugin.json`, `assets/logo.svg`, `assets/composer-icon.svg`, and `assets/screenshot.svg` provide local plugin and review asset metadata.
-
-## Submission copy
-
-Title:
-GrayMatter
-
-Tagline:
-Durable memory and live schema context for business-native agents.
-
-Description:
-GrayMatter gives agents durable memory, shared graph context, and authenticated awareness of the live ValkyrAI api-0 schema. It helps Codex and OpenClaw workflows persist decisions, query reusable context, inspect business objects, and coordinate agent state inside an RBAC-scoped business data environment.
-
-Company URL:
-https://valkyrlabs.com/
-
-Repository:
-https://github.com/ValkyrLabs/GrayMatter
-
-Privacy policy:
-https://github.com/ValkyrLabs/GrayMatter/blob/main/docs/privacy-policy.md
-
-MCP endpoint path:
-`/mcp`
-
-Test credentials:
-Use the secure handoff described in `docs/reviewer-test-credentials.md`. Do not commit credentials to this repository.
-
-The test credentials must unlock a fully featured demo account with sample data and no inaccessible MFA step.
-
-Setup:
-Deploy `mcp-server` on a public HTTPS host, set `VALKYR_API_BASE=https://api-0.valkyrlabs.com/v1`, configure the review account token or OAuth bridge, and submit the public `/mcp` URL in the OpenAI Platform Dashboard.
+See `SUBMISSION_CHECKLIST.md` for the ready-to-paste listing, tool explanations, prompts, data disclosure, reviewer procedure, security controls, and exact blockers.

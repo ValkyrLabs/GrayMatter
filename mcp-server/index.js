@@ -2,6 +2,7 @@
 'use strict';
 
 const http = require('node:http');
+const crypto = require('node:crypto');
 const readline = require('node:readline');
 const { execFileSync } = require('node:child_process');
 const path = require('node:path');
@@ -13,6 +14,17 @@ const DEFAULT_BUY_CREDITS_URL = 'https://valkyrlabs.com/graymatter/credits';
 const DEFAULT_SIGNUP_URL = 'https://valkyrlabs.com/graymatter/activate';
 const DEFAULT_LOGIN_PATH = '/auth/login';
 const DEFAULT_PORT = 3333;
+const DEFAULT_PUBLIC_MCP_PATH = '/graymatter/mcp';
+const COMPATIBLE_PUBLIC_MCP_PATH = '/mcp';
+const DEFAULT_PUBLIC_RESOURCE = 'https://api-0.valkyrlabs.com';
+const PUBLIC_OAUTH_SCOPES = Object.freeze(['memory:read', 'memory:write', 'context:read']);
+const PUBLIC_IDENTITY_KEYS = new Set([
+  'userid', 'user_id', 'ownerid', 'owner_id', 'principal', 'principalid', 'principal_id',
+  'organization', 'organizationid', 'organization_id', 'tenant', 'tenantid', 'tenant_id',
+  'roles', 'permissions', 'acl', 'acls'
+]);
+const PUBLIC_MAX_RESPONSE_ITEMS = 25;
+const PUBLIC_MAX_RESPONSE_STRING = 4000;
 const APP_UI_RESOURCE_URI = 'ui://graymatter/overview.html';
 const APP_CONNECT_DOMAINS = ['https://api-0.valkyrlabs.com'];
 const APP_SECURITY_SCHEMES = [
@@ -545,6 +557,191 @@ const tools = [
   })
 ];
 
+const PUBLIC_RESULT_SCHEMA = {
+  type: 'object',
+  properties: {
+    ok: { type: 'boolean' },
+    data: {},
+    nextOffset: { type: 'integer', minimum: 0 },
+    error: {
+      type: 'object',
+      properties: {
+        code: { type: 'string' },
+        message: { type: 'string' },
+        retryable: { type: 'boolean' }
+      },
+      required: ['code', 'message', 'retryable'],
+      additionalProperties: false
+    }
+  },
+  required: ['ok'],
+  additionalProperties: false
+};
+
+const publicTools = [
+  definePublicTool({
+    name: 'memory_search',
+    title: 'Search GrayMatter memory',
+    description: 'Search memories visible to the signed-in user with GrayMatter hybrid retrieval. Call before asking the user to repeat durable context, and use a narrow query plus a bounded limit.',
+    scopes: ['memory:read'],
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', minLength: 1, maxLength: 2000, description: 'The task-focused memory query.' },
+        limit: { type: 'integer', minimum: 1, maximum: 25, default: 10 },
+        offset: { type: 'integer', minimum: 0, maximum: 10000, default: 0 },
+        type: { type: 'string', enum: ['configuration', 'preference', 'decision', 'todo', 'context', 'artifact'] },
+        tags: { type: 'array', maxItems: 20, items: { type: 'string', minLength: 1, maxLength: 64 } },
+        source: { type: 'string', maxLength: 128 }
+      },
+      required: ['query'],
+      additionalProperties: false
+    },
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false, idempotentHint: true },
+    invoking: 'Searching GrayMatter memory',
+    invoked: 'Memory search ready'
+  }),
+  definePublicTool({
+    name: 'memory_get',
+    title: 'Get one GrayMatter memory',
+    description: 'Retrieve one memory by ID when the signed-in user is authorized to read it. Call after search returns an ID or when the user supplies a known memory ID.',
+    scopes: ['memory:read'],
+    inputSchema: {
+      type: 'object',
+      properties: { id: { type: 'string', format: 'uuid' } },
+      required: ['id'],
+      additionalProperties: false
+    },
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false, idempotentHint: true },
+    invoking: 'Reading GrayMatter memory',
+    invoked: 'Memory ready'
+  }),
+  definePublicTool({
+    name: 'memory_save',
+    title: 'Save GrayMatter memory',
+    description: 'Save durable information that will remain useful beyond the current conversation. Do not use for secrets, transient chatter, or data the user would not reasonably expect to persist.',
+    scopes: ['memory:write'],
+    inputSchema: {
+      type: 'object',
+      properties: {
+        title: { type: 'string', maxLength: 255 },
+        content: { type: 'string', minLength: 1, maxLength: 12000 },
+        type: { type: 'string', enum: ['configuration', 'preference', 'decision', 'todo', 'context', 'artifact'], default: 'context' },
+        tags: { type: 'array', maxItems: 20, items: { type: 'string', minLength: 1, maxLength: 64 } },
+        source: { type: 'string', maxLength: 128 },
+        importance: { type: 'string', enum: ['low', 'normal', 'high', 'critical'], default: 'normal' },
+        scope: { type: 'string', maxLength: 128 }
+      },
+      required: ['content'],
+      additionalProperties: false
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false, idempotentHint: false },
+    invoking: 'Saving GrayMatter memory',
+    invoked: 'Memory saved'
+  }),
+  definePublicTool({
+    name: 'memory_update',
+    title: 'Update GrayMatter memory',
+    description: 'Update the content or classification of one authorized memory. Call only when the user intends to revise an existing durable memory; ownership and tenant reassignment are never accepted.',
+    scopes: ['memory:write'],
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', format: 'uuid' },
+        title: { type: 'string', maxLength: 255 },
+        content: { type: 'string', minLength: 1, maxLength: 12000 },
+        type: { type: 'string', enum: ['configuration', 'preference', 'decision', 'todo', 'context', 'artifact'] },
+        tags: { type: 'array', maxItems: 20, items: { type: 'string', minLength: 1, maxLength: 64 } },
+        source: { type: 'string', maxLength: 128 },
+        importance: { type: 'string', enum: ['low', 'normal', 'high', 'critical'] },
+        scope: { type: 'string', maxLength: 128 }
+      },
+      required: ['id'],
+      additionalProperties: false,
+      minProperties: 2
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false, idempotentHint: true },
+    invoking: 'Updating GrayMatter memory',
+    invoked: 'Memory updated'
+  }),
+  definePublicTool({
+    name: 'memory_forget',
+    title: 'Forget GrayMatter memory',
+    description: 'Delete or tombstone one authorized memory using GrayMatter retention semantics. Call only after the user explicitly confirms forgetting this specific memory.',
+    scopes: ['memory:write'],
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', format: 'uuid' },
+        confirm: { type: 'boolean', const: true, description: 'Must be true only after explicit user confirmation.' },
+        confirmationText: { type: 'string', minLength: 1, maxLength: 500, description: 'Brief record of what the user confirmed.' }
+      },
+      required: ['id', 'confirm', 'confirmationText'],
+      additionalProperties: false
+    },
+    annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: false, idempotentHint: false },
+    invoking: 'Forgetting GrayMatter memory',
+    invoked: 'Memory forgotten'
+  }),
+  definePublicTool({
+    name: 'context_compile',
+    title: 'Compile task context',
+    description: 'Compile bounded task-specific context from authorized memory, ContextPage items, graph and recency signals, semantic retrieval, and reusable procedures. Prefer this over dumping broad memory search results into the conversation.',
+    scopes: ['context:read', 'memory:read'],
+    inputSchema: {
+      type: 'object',
+      properties: {
+        task: { type: 'string', minLength: 1, maxLength: 12000 },
+        tokenBudget: { type: 'integer', minimum: 256, maximum: 16000, default: 4000 },
+        includeProcedures: { type: 'boolean', default: true },
+        includeRatings: { type: 'boolean', default: true },
+        filters: { type: 'object', maxProperties: 20, additionalProperties: { type: ['string', 'number', 'boolean'] } }
+      },
+      required: ['task'],
+      additionalProperties: false
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false, idempotentHint: false },
+    invoking: 'Compiling GrayMatter context',
+    invoked: 'Context compiled'
+  }),
+  definePublicTool({
+    name: 'procedure_search',
+    title: 'Search GrayMatter procedures',
+    description: 'Find authorized reusable procedures relevant to the current task. Call when a repeatable method may already exist instead of inventing a new process.',
+    scopes: ['context:read'],
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', minLength: 1, maxLength: 2000 },
+        limit: { type: 'integer', minimum: 1, maximum: 20, default: 10 },
+        offset: { type: 'integer', minimum: 0, maximum: 10000, default: 0 },
+        enabledOnly: { type: 'boolean', default: true },
+        minimumConfidence: { type: 'number', minimum: 0, maximum: 1, default: 0 }
+      },
+      required: ['query'],
+      additionalProperties: false
+    },
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false, idempotentHint: true },
+    invoking: 'Searching GrayMatter procedures',
+    invoked: 'Procedure search ready'
+  }),
+  definePublicTool({
+    name: 'retrieval_receipt_get',
+    title: 'Get retrieval receipt',
+    description: 'Retrieve the authorized receipt that explains why context was selected. Call when the user asks for selection provenance, confidence, coverage, freshness, or policy rationale.',
+    scopes: ['context:read'],
+    inputSchema: {
+      type: 'object',
+      properties: { receiptId: { type: 'string', minLength: 1, maxLength: 128 } },
+      required: ['receiptId'],
+      additionalProperties: false
+    },
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false, idempotentHint: true },
+    invoking: 'Reading retrieval receipt',
+    invoked: 'Retrieval receipt ready'
+  })
+];
+
 function createGrayMatterMcpServer(options = {}) {
   const apiBase = withoutTrailingSlash(options.apiBase || process.env.VALKYR_API_BASE || DEFAULT_API_BASE);
   const widgetDomain = withoutTrailingSlash(options.widgetDomain || process.env.GRAYMATTER_WIDGET_DOMAIN || DEFAULT_WIDGET_DOMAIN);
@@ -560,11 +757,26 @@ function createGrayMatterMcpServer(options = {}) {
   const deploymentMode = normalizeDeploymentMode(options.deploymentMode || process.env.GRAYMATTER_MCP_MODE || 'local-dev');
   const allowedOrigins = parseAllowedOrigins(options.allowedOrigins || process.env.GRAYMATTER_ALLOWED_ORIGINS || widgetDomain);
   const allowUnsafeHeaderToken = parseBoolean(options.allowUnsafeHeaderToken ?? process.env.GRAYMATTER_ALLOW_UNSAFE_HEADER_TOKEN);
+  const publicApp = parseBoolean(options.publicApp ?? process.env.GRAYMATTER_PUBLIC_APP);
+  const publicResource = withoutTrailingSlash(options.publicResource || process.env.GRAYMATTER_PUBLIC_RESOURCE || DEFAULT_PUBLIC_RESOURCE);
+  const publicMcpPath = normalizeHttpPath(options.publicMcpPath || process.env.GRAYMATTER_PUBLIC_MCP_PATH || DEFAULT_PUBLIC_MCP_PATH);
+  const oauthIssuer = withoutTrailingSlash(options.oauthIssuer || process.env.GRAYMATTER_OAUTH_ISSUER || '');
+  const oauthJwksUri = options.oauthJwksUri || process.env.GRAYMATTER_OAUTH_JWKS_URI || '';
+  const tokenVerifier = options.tokenVerifier || verifyPublicAccessToken;
+  const jwksCache = { expiresAt: 0, keys: [] };
   const processToken = options.token || process.env.VALKYR_AUTH_TOKEN || process.env.VALKYR_JWT_SESSION || '';
   const processTenantId = options.tenantId || process.env.GRAYMATTER_TENANT_ID || process.env.VALKYR_TENANT_ID || '';
   const lightUsername = options.lightUsername || process.env.GRAYMATTER_LIGHT_USERNAME || 'admin';
   const lightPassword = options.lightPassword || process.env.GRAYMATTER_LIGHT_PASSWORD || '';
-  const security = { deploymentMode, allowedOrigins, allowUnsafeHeaderToken };
+  const security = { deploymentMode, allowedOrigins, allowUnsafeHeaderToken, publicApp };
+  const selectedTools = publicApp ? publicTools : tools;
+
+  if (publicApp && !oauthIssuer) {
+    throw new Error('GRAYMATTER_OAUTH_ISSUER is required when GRAYMATTER_PUBLIC_APP=true.');
+  }
+  if (publicApp && deploymentMode !== 'hosted-multi-tenant') {
+    throw new Error('GRAYMATTER_PUBLIC_APP requires GRAYMATTER_MCP_MODE=hosted-multi-tenant.');
+  }
 
   if (typeof fetchImpl !== 'function') {
     throw new Error('Global fetch is required. Use Node 20 or newer.');
@@ -579,11 +791,17 @@ function createGrayMatterMcpServer(options = {}) {
         return;
       }
 
+      if (req.method === 'GET' && isProtectedResourceMetadataPath(requestUrl.pathname, publicMcpPath)) {
+        sendJson(req, res, 200, protectedResourceMetadata(publicResource, oauthIssuer), security);
+        return;
+      }
+
       if (req.method === 'GET' && requestUrl.pathname === '/health') {
         sendJson(req, res, 200, {
           ok: true,
           apiBase,
-          tools: tools.map((tool) => tool.name)
+          mcpPath: publicApp ? publicMcpPath : COMPATIBLE_PUBLIC_MCP_PATH,
+          tools: selectedTools.map((tool) => tool.name)
         }, security);
         return;
       }
@@ -593,18 +811,50 @@ function createGrayMatterMcpServer(options = {}) {
         return;
       }
 
-      if (req.method === 'GET' && requestUrl.pathname === '/sse') {
+      if (!publicApp && req.method === 'GET' && requestUrl.pathname === '/sse') {
         openSseStream(req, res, security);
         return;
       }
 
-      if (req.method === 'POST' && (requestUrl.pathname === '/' || requestUrl.pathname === '/message' || requestUrl.pathname === '/mcp')) {
+      const mcpPath = isMcpRequestPath(requestUrl.pathname, publicMcpPath, publicApp);
+      if (req.method === 'GET' && mcpPath) {
+        if (publicApp) {
+          await requirePublicPrincipal(req, {
+            oauthIssuer,
+            oauthJwksUri,
+            publicResource,
+            fetchImpl,
+            tokenVerifier,
+            jwksCache
+          });
+        }
+        sendJson(req, res, 405, publicApp
+          ? publicErrorEnvelope('METHOD_NOT_ALLOWED', 'Use HTTP POST for this MCP endpoint.', false)
+          : { error: 'Method not allowed' }, security, { allow: 'POST, OPTIONS' });
+        return;
+      }
+
+      if (req.method === 'POST' && mcpPath) {
+        let principal = null;
+        let requestAuth = authContextFrom(req, processToken, security);
+        if (publicApp) {
+          assertNoIdentityOverrideHeaders(req);
+          principal = await requirePublicPrincipal(req, {
+            oauthIssuer,
+            oauthJwksUri,
+            publicResource,
+            fetchImpl,
+            tokenVerifier,
+            jwksCache
+          });
+          requestAuth = { token: principal.accessToken, requestScopedToken: true };
+        }
         const rpcRequest = await readJson(req);
         const rpcResponse = await handleRpc(rpcRequest, {
           apiBase,
           fetchImpl,
-          ...authContextFrom(req, processToken, security),
-          tenantId: tenantIdFrom(req, processTenantId, processToken),
+          ...requestAuth,
+          tenantId: publicApp ? '' : tenantIdFrom(req, processTenantId, processToken),
           lightUsername,
           lightPassword,
           loginCommand,
@@ -613,7 +863,11 @@ function createGrayMatterMcpServer(options = {}) {
           apiShellProvider,
           replayCommand,
           keychainReader,
-          widgetDomain
+          widgetDomain,
+          publicApp,
+          principal,
+          toolSet: selectedTools,
+          publicResource
         });
 
         if (rpcResponse === null) {
@@ -625,8 +879,15 @@ function createGrayMatterMcpServer(options = {}) {
         return;
       }
 
-      sendJson(req, res, 404, { error: 'Not found' }, security);
+      sendJson(req, res, 404, publicApp
+        ? publicErrorEnvelope('NOT_FOUND', 'The requested GrayMatter MCP route does not exist.', false)
+        : { error: 'Not found' }, security);
     } catch (error) {
+      if (publicApp) {
+        const mapped = publicHttpError(error, publicResource);
+        sendJson(req, res, mapped.status, mapped.body, security, mapped.headers);
+        return;
+      }
       const status = error && error.statusCode ? error.statusCode : 500;
       sendJson(req, res, status, { error: error.message }, security);
     }
@@ -710,15 +971,18 @@ async function handleRpc(message, context) {
     switch (message.method) {
       case 'initialize':
         return jsonRpcResult(id, {
-          protocolVersion: '2024-11-05',
+          protocolVersion: context.publicApp ? '2025-06-18' : '2024-11-05',
           capabilities: { tools: {}, resources: {} },
           serverInfo: {
             name: 'graymatter',
-            version: '0.1.0'
-          }
+            version: context.publicApp ? '1.0.0' : '0.1.0'
+          },
+          instructions: context.publicApp
+            ? 'Search durable memory before asking users to repeat known context. Compile bounded task context. Never request or supply tenant, owner, organization, ACL, or user overrides.'
+            : undefined
         });
       case 'tools/list':
-        return jsonRpcResult(id, { tools });
+        return jsonRpcResult(id, { tools: context.toolSet || tools });
       case 'resources/list':
         return jsonRpcResult(id, { resources: [appResourceDescriptor()] });
       case 'resources/read':
@@ -735,6 +999,9 @@ async function handleRpc(message, context) {
 
 async function callTool(params, context) {
   const name = params.name;
+  if (context.publicApp) {
+    return callPublicTool(params, context);
+  }
   const args = normalizeToolArguments(name, params.arguments);
 
   const execute = async (operation, requestFn) => {
@@ -888,6 +1155,185 @@ async function callTool(params, context) {
   }
 }
 
+async function callPublicTool(params, context) {
+  const name = params && params.name;
+  const rawArguments = params && params.arguments;
+  const args = rawArguments && typeof rawArguments === 'object' && !Array.isArray(rawArguments)
+    ? { ...rawArguments }
+    : {};
+
+  try {
+    const descriptor = publicTools.find((tool) => tool.name === name);
+    if (!descriptor) {
+      return publicToolError('TOOL_NOT_FOUND', 'This tool is not available on the public GrayMatter app surface.', false);
+    }
+    assertNoPrincipalOverrides(args);
+    requirePublicScopes(context.principal, descriptor.securitySchemes[0].scopes || []);
+
+    switch (name) {
+      case 'memory_search': {
+        const query = boundedRequiredString(args.query, 'query', 2000);
+        const limit = clampInteger(args.limit, 10, 1, 25);
+        const offset = clampInteger(args.offset, 0, 0, 10000);
+        const response = await apiRequest(context, 'POST', 'MemoryEntry/query', pickDefined({
+          query,
+          limit: limit + offset,
+          type: args.type,
+          tags: boundedStringArray(args.tags, 20, 64),
+          source: boundedOptionalString(args.source, 128)
+        }));
+        const visible = extractList(response).slice(offset, offset + limit);
+        return publicToolSuccess(visible, `Found ${visible.length} authorized memories.`, visible.length === limit ? offset + limit : undefined);
+      }
+      case 'memory_get': {
+        const id = requireUuid(args.id, 'id');
+        const response = await apiRequest(context, 'GET', `MemoryEntry/${encodeURIComponent(id)}`);
+        return publicToolSuccess(response, 'Authorized memory retrieved.');
+      }
+      case 'memory_save': {
+        const payload = buildPublicMemoryPayload(args, true);
+        const response = await apiRequest(context, 'POST', 'MemoryEntry/write', payload);
+        return publicToolSuccess(response, 'Durable memory saved.');
+      }
+      case 'memory_update': {
+        const id = requireUuid(args.id, 'id');
+        const payload = buildPublicMemoryPayload(args, false);
+        if (Object.keys(payload).length === 0) {
+          throw publicArgumentError('At least one memory field must be supplied for update.');
+        }
+        const response = await apiRequest(context, 'PATCH', `MemoryEntry/${encodeURIComponent(id)}`, payload);
+        return publicToolSuccess(response, 'Durable memory updated.');
+      }
+      case 'memory_forget': {
+        const id = requireUuid(args.id, 'id');
+        if (args.confirm !== true || !hasNonEmptyString(args.confirmationText)) {
+          return publicToolError('CONFIRMATION_REQUIRED', 'Explicit confirmation is required before forgetting this memory.', false);
+        }
+        boundedRequiredString(args.confirmationText, 'confirmationText', 500);
+        await apiRequest(context, 'DELETE', `MemoryEntry/${encodeURIComponent(id)}`);
+        return publicToolSuccess({ id, forgotten: true }, 'The confirmed memory was forgotten using GrayMatter retention semantics.');
+      }
+      case 'context_compile': {
+        const taskIntent = boundedRequiredString(args.task, 'task', 12000);
+        const response = await apiRequest(context, 'POST', 'graymatter_ops/context_page/compile', {
+          taskIntent,
+          tokenBudget: clampInteger(args.tokenBudget, 4000, 256, 16000),
+          includeProcedures: args.includeProcedures !== false,
+          includeRatings: args.includeRatings !== false,
+          filters: sanitizePublicFilters(args.filters)
+        });
+        return publicToolSuccess(response, 'Task-specific GrayMatter context compiled.');
+      }
+      case 'procedure_search': {
+        const query = boundedRequiredString(args.query, 'query', 2000).toLowerCase();
+        const limit = clampInteger(args.limit, 10, 1, 20);
+        const offset = clampInteger(args.offset, 0, 0, 10000);
+        const fetchSize = Math.min(100, Math.max(limit + offset, 20));
+        const response = await apiRequest(context, 'GET', `Procedure?page=0&size=${fetchSize}`);
+        const minimumConfidence = Math.max(0, Math.min(Number(args.minimumConfidence) || 0, 1));
+        const visible = extractList(response)
+          .filter((procedure) => args.enabledOnly === false || procedure.enabled !== false)
+          .filter((procedure) => Number(procedure.confidence || 0) >= minimumConfidence)
+          .filter((procedure) => publicSearchableText(procedure).includes(query))
+          .slice(offset, offset + limit);
+        return publicToolSuccess(visible, `Found ${visible.length} authorized procedures.`, visible.length === limit ? offset + limit : undefined);
+      }
+      case 'retrieval_receipt_get': {
+        const receiptId = boundedRequiredString(args.receiptId, 'receiptId', 128);
+        const response = decorateRetrievalReceiptResult(
+          await apiRequest(context, 'GET', `graymatter-retrieval-receipts/${encodeURIComponent(receiptId)}`)
+        );
+        return publicToolSuccess(response, 'Authorized retrieval receipt retrieved.');
+      }
+      default:
+        return publicToolError('TOOL_NOT_FOUND', 'This tool is not available on the public GrayMatter app surface.', false);
+    }
+  } catch (error) {
+    return publicToolErrorFromException(error, context.publicResource);
+  }
+}
+
+function buildPublicMemoryPayload(args, requireContent) {
+  const payload = {};
+  if (requireContent || args.content !== undefined) {
+    payload.text = boundedRequiredString(args.content, 'content', 12000);
+  }
+  if (args.title !== undefined) payload.title = boundedOptionalString(args.title, 255);
+  if (requireContent || args.type !== undefined) payload.type = args.type || 'context';
+  if (args.tags !== undefined || args.importance !== undefined) {
+    const tags = boundedStringArray(args.tags, 20, 64);
+    if (args.importance && args.importance !== 'normal') tags.push(`importance:${args.importance}`);
+    payload.tags = uniqueStrings(tags).slice(0, 20);
+  }
+  if (args.source !== undefined || args.scope !== undefined) {
+    payload.sourceChannel = boundedOptionalString(args.scope || args.source, 128);
+  }
+  return pickDefined(payload);
+}
+
+function publicSearchableText(value) {
+  if (!value || typeof value !== 'object') return '';
+  return [value.name, value.description, value.taskType, value.procedureRef]
+    .filter((part) => typeof part === 'string')
+    .join(' ')
+    .toLowerCase();
+}
+
+function sanitizePublicFilters(filters) {
+  if (filters === undefined) return undefined;
+  if (!isPlainObject(filters)) throw publicArgumentError('filters must be an object.');
+  assertNoPrincipalOverrides(filters);
+  const entries = Object.entries(filters).slice(0, 20);
+  const sanitized = {};
+  for (const [key, value] of entries) {
+    if (!/^[A-Za-z][A-Za-z0-9_.-]{0,63}$/.test(key)) {
+      throw publicArgumentError('filters contains an invalid key.');
+    }
+    if (!['string', 'number', 'boolean'].includes(typeof value)) {
+      throw publicArgumentError('filters values must be strings, numbers, or booleans.');
+    }
+    sanitized[key] = typeof value === 'string' ? value.slice(0, 512) : value;
+  }
+  return sanitized;
+}
+
+function publicArgumentError(message) {
+  const error = new Error(message);
+  error.name = 'PublicArgumentError';
+  error.statusCode = 400;
+  return error;
+}
+
+function boundedRequiredString(value, fieldName, maxLength) {
+  if (!hasNonEmptyString(value)) throw publicArgumentError(`${fieldName} is required.`);
+  const normalized = value.trim();
+  if (normalized.length > maxLength) throw publicArgumentError(`${fieldName} exceeds its maximum length.`);
+  return normalized;
+}
+
+function boundedOptionalString(value, maxLength) {
+  if (value === undefined || value === null || value === '') return undefined;
+  if (typeof value !== 'string') throw publicArgumentError('Expected a string value.');
+  const normalized = value.trim();
+  if (normalized.length > maxLength) throw publicArgumentError('A string field exceeds its maximum length.');
+  return normalized || undefined;
+}
+
+function boundedStringArray(value, maxItems, maxLength) {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value)) throw publicArgumentError('Expected an array of strings.');
+  if (value.length > maxItems) throw publicArgumentError('Too many array items were supplied.');
+  return value.map((item) => boundedRequiredString(item, 'array item', maxLength));
+}
+
+function requireUuid(value, fieldName) {
+  const normalized = boundedRequiredString(value, fieldName, 64);
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(normalized)) {
+    throw publicArgumentError(`${fieldName} must be a UUID.`);
+  }
+  return normalized;
+}
+
 function normalizeToolArguments(name, rawArguments) {
   if (typeof rawArguments === 'string') {
     return queryArgumentTool(name) ? { query: rawArguments } : { text: rawArguments, content: rawArguments };
@@ -956,6 +1402,24 @@ function defineTool(tool) {
   }
 
   return descriptor;
+}
+
+function definePublicTool(tool) {
+  const securitySchemes = [{ type: 'oauth2', scopes: [...tool.scopes] }];
+  return {
+    name: tool.name,
+    title: tool.title,
+    description: tool.description,
+    inputSchema: tool.inputSchema,
+    outputSchema: PUBLIC_RESULT_SCHEMA,
+    securitySchemes,
+    annotations: tool.annotations,
+    _meta: {
+      securitySchemes,
+      'openai/toolInvocation/invoking': tool.invoking,
+      'openai/toolInvocation/invoked': tool.invoked
+    }
+  };
 }
 
 function cloneSecuritySchemes() {
@@ -1149,13 +1613,15 @@ async function apiRequestOnce(context, method, endpoint, body) {
 
   if (context.token) {
     headers.authorization = `Bearer ${context.token}`;
-    headers.VALKYR_AUTH = context.token;
-    headers.cookie = `VALKYR_AUTH=${context.token}`;
+    if (!context.publicApp) {
+      headers.VALKYR_AUTH = context.token;
+      headers.cookie = `VALKYR_AUTH=${context.token}`;
+    }
   } else if (context.lightPassword) {
     headers.authorization = `Basic ${Buffer.from(`${context.lightUsername || 'admin'}:${context.lightPassword}`).toString('base64')}`;
   }
-  const tenantId = context.tenantId || tenantIdFromToken(context.token);
-  if (tenantId) {
+  const tenantId = context.publicApp ? '' : (context.tenantId || tenantIdFromToken(context.token));
+  if (!context.publicApp && tenantId) {
     headers['X-Tenant-Id'] = tenantId;
   }
 
@@ -2403,6 +2869,310 @@ function summarizeOpenApi(spec) {
   };
 }
 
+function normalizeHttpPath(value) {
+  const pathValue = String(value || '').trim();
+  if (!pathValue.startsWith('/') || pathValue.includes('?') || pathValue.includes('#')) {
+    throw new Error('GrayMatter MCP path must be an absolute URL path.');
+  }
+  return pathValue.length > 1 ? pathValue.replace(/\/+$/, '') : pathValue;
+}
+
+function isMcpRequestPath(pathname, publicMcpPath, publicApp) {
+  const publicPaths = new Set([publicMcpPath, COMPATIBLE_PUBLIC_MCP_PATH]);
+  if (publicApp) return publicPaths.has(pathname);
+  return publicPaths.has(pathname) || pathname === '/' || pathname === '/message';
+}
+
+function isProtectedResourceMetadataPath(pathname, publicMcpPath) {
+  const suffix = publicMcpPath.replace(/^\//, '');
+  return pathname === '/.well-known/oauth-protected-resource'
+    || pathname === `/.well-known/oauth-protected-resource/${suffix}`;
+}
+
+function protectedResourceMetadata(publicResource, oauthIssuer) {
+  return {
+    resource: publicResource,
+    authorization_servers: [oauthIssuer],
+    scopes_supported: [...PUBLIC_OAUTH_SCOPES],
+    resource_documentation: 'https://github.com/ValkyrLabs/GrayMatter/blob/main/plugins/graymatter/README.md',
+    bearer_methods_supported: ['header']
+  };
+}
+
+async function requirePublicPrincipal(req, config) {
+  const authHeader = Array.isArray(req.headers.authorization)
+    ? req.headers.authorization[0]
+    : req.headers.authorization;
+  const bearerMatch = typeof authHeader === 'string' ? authHeader.match(/^Bearer\s+(.+)$/i) : null;
+  if (!bearerMatch || !bearerMatch[1].trim()) {
+    throw publicAuthError('invalid_token', 'A valid OAuth access token is required.');
+  }
+  const accessToken = bearerMatch[1].trim();
+  let verified;
+  try {
+    verified = await config.tokenVerifier(accessToken, {
+      issuer: config.oauthIssuer,
+      jwksUri: config.oauthJwksUri,
+      audience: config.publicResource,
+      fetchImpl: config.fetchImpl,
+      jwksCache: config.jwksCache
+    });
+  } catch (error) {
+    if (error && error.name === 'PublicAuthError') throw error;
+    throw publicAuthError('invalid_token', 'The OAuth access token could not be validated.');
+  }
+  const claims = verified && verified.claims ? verified.claims : verified;
+  if (!claims || typeof claims !== 'object') {
+    throw publicAuthError('invalid_token', 'The OAuth access token did not contain a valid principal.');
+  }
+  const userId = firstNonEmptyString(claims.userId, claims.user_id, claims.sub);
+  const organizationId = firstNonEmptyString(claims.organizationId, claims.organization_id, claims.orgId, claims.org_id);
+  const tenantId = firstNonEmptyString(claims.tenantId, claims.tenant_id);
+  if (!userId || !organizationId || !tenantId) {
+    throw publicAuthError('invalid_token', 'The OAuth access token is missing required principal scope claims.');
+  }
+  return {
+    accessToken,
+    userId,
+    organizationId,
+    tenantId,
+    roles: claimStringArray(claims.roles || claims.roleList || claims.authorities),
+    permissions: claimStringArray(claims.permissions || claims.permissionList),
+    scopes: tokenScopes(claims)
+  };
+}
+
+async function verifyPublicAccessToken(token, config) {
+  const parts = String(token || '').split('.');
+  if (parts.length !== 3) throw publicAuthError('invalid_token', 'The OAuth access token is malformed.');
+  const header = parseJwtJson(parts[0]);
+  const claims = parseJwtJson(parts[1]);
+  if (!header || !claims || header.alg !== 'RS256' || !hasNonEmptyString(header.kid)) {
+    throw publicAuthError('invalid_token', 'The OAuth access token uses an unsupported signature.');
+  }
+  const now = Math.floor(Date.now() / 1000);
+  if (claims.iss !== config.issuer || !audienceMatches(claims.aud, config.audience)
+      || !Number.isFinite(Number(claims.exp)) || Number(claims.exp) <= now
+      || (claims.nbf !== undefined && Number(claims.nbf) > now + 30)) {
+    throw publicAuthError('invalid_token', 'The OAuth access token issuer, audience, or lifetime is invalid.');
+  }
+  const keys = await loadPublicJwks(config);
+  const jwk = keys.find((candidate) => candidate && candidate.kid === header.kid && candidate.kty === 'RSA');
+  if (!jwk) throw publicAuthError('invalid_token', 'The OAuth access token signing key is unavailable.');
+  let publicKey;
+  try {
+    publicKey = crypto.createPublicKey({ key: jwk, format: 'jwk' });
+  } catch {
+    throw publicAuthError('invalid_token', 'The OAuth signing key is invalid.');
+  }
+  const verified = crypto.verify(
+    'RSA-SHA256',
+    Buffer.from(`${parts[0]}.${parts[1]}`),
+    publicKey,
+    Buffer.from(parts[2].replace(/-/g, '+').replace(/_/g, '/'), 'base64')
+  );
+  if (!verified) throw publicAuthError('invalid_token', 'The OAuth access token signature is invalid.');
+  return { claims };
+}
+
+async function loadPublicJwks(config) {
+  const cache = config.jwksCache || { expiresAt: 0, keys: [] };
+  if (cache.expiresAt > Date.now() && Array.isArray(cache.keys) && cache.keys.length > 0) {
+    return cache.keys;
+  }
+  let jwksUri = config.jwksUri;
+  if (!jwksUri) {
+    const metadataResponse = await config.fetchImpl(`${withoutTrailingSlash(config.issuer)}/.well-known/oauth-authorization-server`, {
+      headers: { accept: 'application/json' }
+    });
+    if (!metadataResponse.ok) throw publicAuthError('invalid_token', 'OAuth authorization metadata is unavailable.');
+    const metadata = await metadataResponse.json();
+    jwksUri = metadata && metadata.jwks_uri;
+  }
+  if (!hasNonEmptyString(jwksUri) || !jwksUri.startsWith('https://')) {
+    throw publicAuthError('invalid_token', 'OAuth JWKS metadata is unavailable.');
+  }
+  const response = await config.fetchImpl(jwksUri, { headers: { accept: 'application/json' } });
+  if (!response.ok) throw publicAuthError('invalid_token', 'OAuth signing keys are unavailable.');
+  const payload = await response.json();
+  const keys = payload && Array.isArray(payload.keys) ? payload.keys : [];
+  if (keys.length === 0) throw publicAuthError('invalid_token', 'OAuth signing keys are unavailable.');
+  cache.keys = keys;
+  cache.expiresAt = Date.now() + 5 * 60 * 1000;
+  return keys;
+}
+
+function parseJwtJson(segment) {
+  try {
+    const normalized = String(segment || '').replace(/-/g, '+').replace(/_/g, '/');
+    const padded = normalized.padEnd(normalized.length + ((4 - (normalized.length % 4)) % 4), '=');
+    return JSON.parse(Buffer.from(padded, 'base64').toString('utf8'));
+  } catch {
+    return null;
+  }
+}
+
+function audienceMatches(audience, expected) {
+  return Array.isArray(audience) ? audience.includes(expected) : audience === expected;
+}
+
+function claimStringArray(value) {
+  if (Array.isArray(value)) return uniqueStrings(value.map(String).map((item) => item.trim()).filter(Boolean));
+  if (typeof value === 'string') return uniqueStrings(value.split(/[\s,]+/).map((item) => item.trim()).filter(Boolean));
+  return [];
+}
+
+function tokenScopes(claims) {
+  return claimStringArray(claims.scope || claims.scp);
+}
+
+function requirePublicScopes(principal, requiredScopes) {
+  const granted = new Set(principal && Array.isArray(principal.scopes) ? principal.scopes : []);
+  const missing = requiredScopes.filter((scope) => !granted.has(scope));
+  if (missing.length > 0) {
+    const error = new Error('The OAuth access token does not grant the required operation scope.');
+    error.name = 'PublicScopeError';
+    error.statusCode = 403;
+    throw error;
+  }
+}
+
+function assertNoIdentityOverrideHeaders(req) {
+  const forbiddenHeaders = ['x-tenant-id', 'x-organization-id', 'x-user-id', 'x-owner-id', 'x-valkyr-token'];
+  if (forbiddenHeaders.some((header) => req.headers[header] !== undefined)) {
+    throw publicArgumentError('Identity and tenant override headers are not accepted.');
+  }
+}
+
+function assertNoPrincipalOverrides(value, depth = 0) {
+  if (depth > 8 || value === null || value === undefined) return;
+  if (Array.isArray(value)) {
+    value.forEach((item) => assertNoPrincipalOverrides(item, depth + 1));
+    return;
+  }
+  if (typeof value !== 'object') return;
+  for (const [key, nested] of Object.entries(value)) {
+    const normalized = key.replace(/[-\s]/g, '_').toLowerCase();
+    if (PUBLIC_IDENTITY_KEYS.has(normalized)) {
+      throw publicArgumentError('Identity, tenant, organization, owner, role, permission, and ACL overrides are not accepted.');
+    }
+    assertNoPrincipalOverrides(nested, depth + 1);
+  }
+}
+
+function publicAuthError(code, message) {
+  const error = new Error(message);
+  error.name = 'PublicAuthError';
+  error.oauthError = code;
+  error.statusCode = 401;
+  return error;
+}
+
+function publicAuthChallenge(publicResource, oauthError, description) {
+  const metadataUrl = `${withoutTrailingSlash(publicResource)}/.well-known/oauth-protected-resource`;
+  const safeError = oauthError || 'invalid_token';
+  const safeDescription = String(description || 'OAuth authorization is required.').replace(/["\\\r\n]/g, ' ');
+  return `Bearer resource_metadata="${metadataUrl}", scope="${PUBLIC_OAUTH_SCOPES.join(' ')}", error="${safeError}", error_description="${safeDescription}"`;
+}
+
+function publicHttpError(error, publicResource) {
+  if (error && error.name === 'PublicAuthError') {
+    const challenge = publicAuthChallenge(publicResource, error.oauthError, 'OAuth authorization is required.');
+    return {
+      status: 401,
+      body: publicErrorEnvelope('AUTH_REQUIRED', 'OAuth authorization is required.', true),
+      headers: { 'www-authenticate': challenge }
+    };
+  }
+  if (error && error.name === 'PublicArgumentError') {
+    return { status: 400, body: publicErrorEnvelope('INVALID_ARGUMENT', error.message, false), headers: {} };
+  }
+  return { status: 500, body: publicErrorEnvelope('INTERNAL_ERROR', 'GrayMatter could not process the request.', true), headers: {} };
+}
+
+function publicToolSuccess(value, text, nextOffset) {
+  const structuredContent = {
+    ok: true,
+    data: compactPublicValue(value)
+  };
+  if (nextOffset !== undefined) structuredContent.nextOffset = nextOffset;
+  return {
+    structuredContent,
+    content: [{ type: 'text', text }]
+  };
+}
+
+function publicToolErrorFromException(error, publicResource) {
+  let code = 'INTERNAL_ERROR';
+  let message = 'GrayMatter could not complete the operation.';
+  let retryable = false;
+  const status = Number(error && (error.status || error.statusCode));
+  if (error && error.name === 'PublicArgumentError') {
+    code = 'INVALID_ARGUMENT';
+    message = error.message;
+  } else if (error && error.name === 'PublicScopeError') {
+    code = 'FORBIDDEN';
+    message = 'The signed-in user or OAuth grant does not allow this operation.';
+  } else if (status === 401) {
+    code = 'AUTH_REQUIRED';
+    message = 'OAuth authorization is required.';
+    retryable = true;
+  } else if (status === 403) {
+    code = 'FORBIDDEN';
+    message = 'The signed-in user is not authorized for this operation.';
+  } else if (status === 404) {
+    code = 'NOT_FOUND';
+    message = 'The requested authorized record was not found.';
+  } else if (status === 409) {
+    code = 'CONFLICT';
+    message = 'The operation conflicts with the current record state.';
+  } else if (status === 400 || status === 413 || status === 422) {
+    code = 'INVALID_ARGUMENT';
+    message = 'The request did not satisfy the GrayMatter tool contract.';
+  } else if (status >= 500 || (error && error.name === 'TypeError')) {
+    code = 'UPSTREAM_UNAVAILABLE';
+    message = 'GrayMatter is temporarily unavailable.';
+    retryable = true;
+  }
+  const result = publicToolError(code, message, retryable);
+  if (code === 'AUTH_REQUIRED') {
+    result._meta = { 'mcp/www_authenticate': [publicAuthChallenge(publicResource, 'invalid_token', message)] };
+  }
+  return result;
+}
+
+function publicToolError(code, message, retryable) {
+  return {
+    isError: true,
+    structuredContent: publicErrorEnvelope(code, message, retryable),
+    content: [{ type: 'text', text: message }]
+  };
+}
+
+function publicErrorEnvelope(code, message, retryable) {
+  return { ok: false, error: { code, message, retryable: Boolean(retryable) } };
+}
+
+function compactPublicValue(value, depth = 0) {
+  if (value === null || value === undefined) return value;
+  if (depth > 7) return '[truncated]';
+  if (typeof value === 'string') return value.length > PUBLIC_MAX_RESPONSE_STRING
+    ? `${value.slice(0, PUBLIC_MAX_RESPONSE_STRING)}…`
+    : value;
+  if (typeof value !== 'object') return value;
+  if (Array.isArray(value)) {
+    return value.slice(0, PUBLIC_MAX_RESPONSE_ITEMS).map((item) => compactPublicValue(item, depth + 1));
+  }
+  const sanitized = {};
+  for (const [key, nested] of Object.entries(value)) {
+    if (/token|secret|password|credential|decrypted|ownerId|lastModifiedById|tenantId|organizationId|principal/i.test(key)) {
+      continue;
+    }
+    sanitized[key] = compactPublicValue(nested, depth + 1);
+  }
+  return sanitized;
+}
+
 function authContextFrom(req, processToken = '', security = defaultSecurityConfig()) {
   const headerToken = req.headers['x-valkyr-token'];
   if (headerToken && HOSTED_DEPLOYMENT_MODES.has(security.deploymentMode) && !security.allowUnsafeHeaderToken) {
@@ -2527,10 +3297,11 @@ function readJson(req) {
   });
 }
 
-function sendJson(req, res, status, payload, security = defaultSecurityConfig()) {
+function sendJson(req, res, status, payload, security = defaultSecurityConfig(), extraHeaders = {}) {
   res.writeHead(status, {
     ...corsHeaders(req, security),
-    'content-type': 'application/json'
+    'content-type': 'application/json',
+    ...extraHeaders
   });
   res.end(JSON.stringify(payload));
 }
@@ -2541,7 +3312,7 @@ function sendNoContent(req, res, security = defaultSecurityConfig()) {
 }
 
 function defaultSecurityConfig() {
-  return { deploymentMode: 'local-dev', allowedOrigins: [], allowUnsafeHeaderToken: false };
+  return { deploymentMode: 'local-dev', allowedOrigins: [], allowUnsafeHeaderToken: false, publicApp: false };
 }
 
 function normalizeDeploymentMode(value) {
@@ -2563,7 +3334,9 @@ function parseBoolean(value) {
 
 function corsHeaders(req, security = defaultSecurityConfig()) {
   const headers = {
-    'access-control-allow-headers': 'authorization,content-type,x-valkyr-token',
+    'access-control-allow-headers': security.publicApp
+      ? 'authorization,content-type,mcp-protocol-version,mcp-session-id'
+      : 'authorization,content-type,x-valkyr-token',
     'access-control-allow-methods': 'GET,POST,OPTIONS',
     vary: 'Origin'
   };
@@ -2679,7 +3452,9 @@ function withoutTrailingSlash(value) {
 module.exports = {
   createGrayMatterMcpServer,
   startStdioServer,
-  tools
+  tools,
+  publicTools,
+  verifyPublicAccessToken
 };
 
 if (require.main === module) {

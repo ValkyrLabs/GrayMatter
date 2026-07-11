@@ -6,10 +6,15 @@ OUT="${GRAYMATTER_PLUGIN_PACKAGE_OUT:-$ROOT/graymatter.skill}"
 
 REQUIRED=(
   .codex-plugin/plugin.json
+  .app.json
   .mcp.json
   skills/graymatter/SKILL.md
   skills/graymatter-analytics/SKILL.md
   skills/graymatter-analytics/references/semantic-layer-template.md
+  skills/graymatter-memory/SKILL.md
+  skills/graymatter-memory/agents/openai.yaml
+  skills/graymatter-context/SKILL.md
+  skills/graymatter-context/agents/openai.yaml
   docs/agent-discovery.md
   docs/awesome-codex-plugins.md
   docs/graymatter-light.md
@@ -18,8 +23,11 @@ REQUIRED=(
   docs/reviewer-test-credentials.md
   docs/thorapi-integration.md
   openai-app/submission-manifest.json
+  SUBMISSION_CHECKLIST.md
+  assets/graymatter-logo.png
   clawhub.json
   mcp-server/index.js
+  mcp-server/Dockerfile
   mcp-server/package.json
   scripts/gm-activate
   scripts/gm-activation-fastlane
@@ -31,6 +39,7 @@ REQUIRED=(
   scripts/gm-mcp-contract
   scripts/gm-agent-smoke-matrix
   scripts/gm-status
+  scripts/smoke-test-public-mcp.sh
   scripts/gm-write
   scripts/gm-record
   scripts/gm-light-smoke

@@ -11,8 +11,8 @@
 - Website: `https://valkyrlabs.com/`
 - Support URL: `https://valkyrlabs.com/support`
 - Support email: `support@valkyrlabs.com`
-- Privacy policy: `https://valkyrlabs.com/privacy-policy`
-- Privacy-policy missing-item flag: `NO`; re-audit the published text against the data disclosure below before submission.
+- Privacy policy: `https://valkyrlabs.com/v1/Legal/privacy/`
+- Privacy-policy missing-item flag: `NO`; live coverage verified for memory content, retrieval/context queries, OAuth processing, retention, deletion, and tenant isolation on 2026-07-11.
 - Terms: `https://valkyrlabs.com/terms`
 - Terms missing-item flag: `NO`
 - Production MCP URL target: `https://api-0.valkyrlabs.com/graymatter/mcp`
@@ -130,11 +130,8 @@ Deletion:
 
 ## Known submission blockers
 
-- **BLOCKER — production MCP not deployed:** `https://api-0.valkyrlabs.com/graymatter/mcp` is the target but was not deployed or verified by this repository-only implementation.
-- **BLOCKER — no OAuth authorization server:** current api-0 exposes username/password JWT sessions and OAuth client login for providers such as GitHub/Google, but live authorization-server/OIDC discovery endpoints return `401`; authorization-code + PKCE, token, and JWKS endpoints must be implemented and verified.
-- **BLOCKER — live ContextPage contract drift:** the checked-out ValkyrAI source contains `/graymatter_ops/context_page/compile`, but the current production api-docs snapshot does not advertise it; deploy the canonical schema/runtime before `context_compile` can pass live review.
+- **VERIFIED — production MCP and OAuth:** the public MCP routes, OAuth discovery, PKCE authorization-code server, JWKS, audience binding, reviewer receipt, and tenant-isolation checks are deployed and verified.
+- **VERIFIED — live ContextPage contract:** production api-docs advertises `/v1/graymatter_ops/context_page/compile` and the related ContextPage operations.
+- **VERIFIED — reviewer accounts and privacy:** two isolated non-admin reviewers, an authorized receipt fixture, and the published privacy coverage are ready.
 - **BLOCKER — app ID pending:** `.app.json` intentionally contains an empty `apps` mapping until the developer/submission portal assigns the final app ID.
-- **BLOCKER — reviewer accounts:** two isolated, non-admin reviewer accounts and a receipt fixture must be provisioned.
 - **BLOCKER — platform administration:** confirm business verification, Apps Management permissions, a global-data-residency project, and production domain verification.
-- **REVIEW REQUIRED — privacy text:** verify the public privacy policy expressly covers memory content, search/context queries, OAuth processing, retention, deletion, and tenant isolation described above.
-

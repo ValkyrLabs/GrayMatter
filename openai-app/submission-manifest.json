@@ -6,7 +6,7 @@
   "companyUrl": "https://valkyrlabs.com/",
   "supportUrl": "https://valkyrlabs.com/support",
   "supportEmail": "support@valkyrlabs.com",
-  "privacyPolicyUrl": "https://valkyrlabs.com/privacy-policy",
+  "privacyPolicyUrl": "https://valkyrlabs.com/v1/Legal/privacy/",
   "termsUrl": "https://valkyrlabs.com/terms",
   "productionMcpUrl": "https://api-0.valkyrlabs.com/graymatter/mcp",
   "compatibilityMcpUrl": "https://api-0.valkyrlabs.com/mcp",
@@ -30,5 +30,5 @@
     "retrieval_receipt_get"
   ],
   "submissionChecklist": "SUBMISSION_CHECKLIST.md",
-  "status": "blocked_pending_production_mcp_oauth_and_reviewer_accounts"
+  "status": "pending_openai_publisher_setup_and_app_id"
 }

@@ -1,0 +1,29 @@
+[Unit]
+Description=GrayMatter public MCP service
+After=network-online.target valkyrai.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=bitnami
+WorkingDirectory=/home/bitnami/GrayMatter/mcp-server
+ExecStart=/opt/bitnami/node/bin/node /home/bitnami/GrayMatter/mcp-server/index.js
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+Environment="NODE_ENV=production"
+Environment="PORT=3333"
+Environment="GRAYMATTER_MCP_MODE=hosted-multi-tenant"
+Environment="GRAYMATTER_PUBLIC_APP=true"
+Environment="GRAYMATTER_PUBLIC_RESOURCE=https://api-0.valkyrlabs.com"
+Environment="GRAYMATTER_PUBLIC_MCP_PATH=/graymatter/mcp"
+Environment="GRAYMATTER_OAUTH_ISSUER=https://api-0.valkyrlabs.com"
+Environment="GRAYMATTER_OAUTH_JWKS_URI=https://api-0.valkyrlabs.com/oauth2/jwks"
+Environment="GRAYMATTER_ALLOWED_ORIGINS=https://chatgpt.com"
+Environment="VALKYR_API_BASE=http://127.0.0.1:8080/v1"
+
+[Install]
+WantedBy=multi-user.target

@@ -161,6 +161,71 @@ test('memory_query distinguishes missing starter credits from paid credit deplet
   }
 });
 
+test('memory_query falls back to lexical MemoryEntry list when embeddings quota is exhausted', async () => {
+  const requests = [];
+  const fakeApi = http.createServer(async (req, res) => {
+    const body = await readBody(req);
+    requests.push({ method: req.method, path: new URL(req.url, 'http://fake.local').pathname, body });
+
+    if (req.method === 'POST' && req.url === '/v1/MemoryEntry/query') {
+      res.writeHead(500, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({
+        disabled: true,
+        unavailable: true,
+        error: 'openai embeddings failed: 429 insufficient_quota',
+        warning: 'Memory search is unavailable because the embedding provider quota is exhausted.'
+      }));
+      return;
+    }
+
+    if (req.method === 'GET' && req.url === '/v1/MemoryEntry') {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({
+        content: [
+          { id: 'mem-1', type: 'context', text: 'Stainless sprint CRM warm leads need founder-led follow-up', sourceChannel: 'codex:workspace:crm' },
+          { id: 'mem-2', type: 'todo', text: 'Unrelated billing cleanup', sourceChannel: 'codex:workspace:crm' },
+          { id: 'mem-3', type: 'context', text: 'Stainless pricing objection notes', sourceChannel: 'codex:workspace:other' }
+        ]
+      }));
+      return;
+    }
+
+    res.writeHead(404, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ message: 'not found' }));
+  });
+  const apiBase = await listen(fakeApi);
+  const server = createGrayMatterMcpServer({ apiBase: `${apiBase}/v1` });
+  const baseUrl = await listen(server);
+
+  try {
+    const body = await postRpc(baseUrl, {
+      jsonrpc: '2.0',
+      id: 'quota',
+      method: 'tools/call',
+      params: {
+        name: 'memory_query',
+        arguments: {
+          query: 'Stainless sprint CRM warm leads founder outreach',
+          type: 'context',
+          sourceChannel: 'codex:workspace:crm',
+          limit: 5
+        }
+      }
+    });
+
+    const out = JSON.parse(body.result.content[0].text);
+    assert.equal(out.degraded, true);
+    assert.equal(out.reason, 'embedding_quota_exhausted');
+    assert.equal(out.retrievalMode, 'lexical_fallback');
+    assert.equal(out.count, 1);
+    assert.equal(out.results[0].id, 'mem-1');
+    assert.equal(requests[0].path, '/v1/MemoryEntry/query');
+    assert.equal(requests[1].path, '/v1/MemoryEntry');
+  } finally {
+    await closeServers(server, fakeApi);
+  }
+});
+
 test('memory_query returns auth recovery for 401', async () => {
   const fakeApi = createFakeApi(401, { message: 'token expired' });
   const apiBase = await listen(fakeApi);

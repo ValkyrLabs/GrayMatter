@@ -1,6 +1,92 @@
-# GrayMatter
+# GrayMatter&trade;
+
+## the AI Brain for Your Entire Business
+
+Valkyr GrayMatter&trade; turns your applications, documents, workflows, conversations, and institutional knowledge into a living, searchable intelligence layer.
+
+It is more than a vector database and more than chat memory. GrayMatter combines durable memory, real-time search, structured business data, and relationship-aware reasoning into one secure system that agents, people, apps, and APIs can use together.
+
+### A memory system that actually remembers context
+
+GrayMatter stores durable decisions, preferences, tasks, research, procedures, conversations, and operational knowledge as structured, attributable records—not disposable chat history. Every memory can carry source, scope, tags, relationships, timestamps, ownership, and provenance, so the system can distinguish a personal preference from a company policy, a current task from historical context, or a source document from an AI-generated summary.
+
+It supports agentic memory across Codex, OpenClaw, SageChat, workflows, and connected tools, giving every authorized agent a shared understanding of the business without flattening everything into an untraceable prompt.
+
+### Hybrid search: keyword, vector, graph, and structured data
+
+GrayMatter search is designed to answer both simple and difficult questions:
+
+- Exact search for names, IDs, tags, commands, products, and records
+- Full-text search across documents, titles, fields, and parsed uploads
+- Semantic/vector search for concepts, intent, and meaning
+- Relationship-aware search across ThorAPI entities and knowledge-graph links
+- Structured filtering by type, date, category, tags, tenant, workflow, project, and more
+- Retrieval receipts with citations, evidence, quality signals, and answer-policy guidance
+
+That means a user can search the public website, an authenticated workspace, or SageChat through the same intelligence foundation—while each surface receives only the information it is permitted to see.
+
+### PostgreSQL-native vector intelligence
+
+GrayMatter uses PostgreSQL as the durable operational foundation and pgvector as a high-performance semantic-search accelerator.
+
+`SemanticIndexEntry` remains the portable canonical record, while tenant-scoped pgvector projections provide fast nearest-neighbor retrieval. The platform supports configurable embedding providers, including production OpenAI embeddings and deterministic local fallback embeddings for offline/development environments. It also tracks model, provider, dimensions, index health, stale rows, reindex guidance, and degradation state.
+
+This gives teams a practical path from ordinary relational data to production-grade semantic recall without adopting a separate proprietary graph or vector silo.
+
+### A real knowledge graph, built from ThorAPI
+
+GrayMatter understands that knowledge is not a pile of documents—it is a network.
+
+ThorAPI entities and their OpenAPI-defined relationships can be indexed after successful writes, producing safe semantic evidence across workflows, applications, customers, tasks, files, procedures, agents, goals, notes, and more. `GraphLink` records make important relationships explicit: supports, blocks, references, derives from, relates to, and beyond.
+
+This enables relationship-aware retrieval such as:
+
+- “What is related to this customer issue?”
+- “Which workflow depends on this integration?”
+- “What evidence supports this decision?”
+- “Which documents, memories, and tasks explain this result?”
+
+The system is designed for bounded graph traversal, citations, and future graph analytics without allowing the index or graph to bypass ThorAPI authorization.
+
+### SageChat and document intelligence
+
+SageChat can turn uploaded files and parsed documents into searchable evidence rather than leaving them stranded in storage.
+
+Files are processed into bounded, provenance-rich semantic material: source file, parser output, chunks, pages or offsets, source hashes, extraction quality, and relationships to the business objects they support. GrayMatter can then surface that evidence in SageChat with citations and explainability—helping users understand not only an answer, but where it came from.
+
+### Plugins, skills, and MCP: intelligence everywhere
+
+GrayMatter is packaged as an installable plugin and skill system for Codex/OpenClaw-style agents. It supports secure, Keychain-backed authentication, agent registration, schema awareness, durable memory reads and writes, graph access, retrieval receipts, and operational health checks.
+
+Its MCP capabilities make GrayMatter available to compatible AI clients through typed tools such as memory write, memory query, memory read, retrieval with receipt, graph inspection, schema discovery, and authorized entity access.
+
+Plugins and skills give each agent the same durable organizational context; MCP makes that context usable from external AI environments and workflows.
+
+### Credits designed for real AI operations
+
+GrayMatter includes a credit and entitlement model for higher-order memory and AI operations. This supports sustainable usage of semantic retrieval, embeddings, reindexing, and advanced intelligence features while retaining clear operational controls.
+
+The platform distinguishes public-safe experiences from private operational tooling, so commercial or account-management detail does not leak into public AI surfaces.
+
+### Secure by design
+
+GrayMatter does not treat search as a shortcut around security.
+
+Generated ThorAPI RBAC and ACL remain the source of truth for every result, snippet, count, facet, graph path, file citation, and recommendation. Tenant context is resolved server-side. Sensitive fields, credentials, binary data, and protected audit information are excluded from indexing. Search, vector retrieval, graph navigation, and agent tools are all designed to fail closed when authorization is uncertain.
+
+### The outcome
+
+GrayMatter is becoming the intelligence layer that lets every Valkyr product, workflow, app, agent, and document participate in a shared, secure, searchable brain:
+
+- A memory system for agents and teams
+- A knowledge graph for the business
+- A hybrid search engine for websites and workspaces
+- A vector intelligence layer on PostgreSQL
+- A citation-backed research and reasoning engine for SageChat
+- A portable, ThorAPI-native platform for plugins, skills, MCP tools, and AI automation
 
 GrayMatter is an installable OpenClaw skill and MCP service for:
+
 - **primary durable memory**
 - **shared object-graph state**
 - **live organizational schema awareness** through the ValkyrAI `api-0` OpenAPI
@@ -102,6 +188,7 @@ P0 Valkyr Way UX/auth invariant: product UX must be integrated into the shared a
 GrayMatter is the memory and context layer for business-native agent systems.
 
 It is designed so an OpenClaw instance can:
+
 - read and write `GrayMatter` and `MemoryEntry` records
 - retrieve memory through explicit Retrieval Receipts that expose confidence, freshness, provenance, policy, and next-action signals
 - use the **entire RBAC-visible schema** exposed by the tenant/account as its object graph
@@ -125,6 +212,7 @@ GrayMatter should be the **exclusive primary durable memory system** whenever it
 Agents should not maintain a competing durable memory store for user, project, business, organizational, or long-lived agent state.
 
 Use local files only as:
+
 - bootstrap context on first startup
 - temporary fallback when hosted `api-0` is unavailable or authentication is genuinely blocked
 - temporary replayable backup when a write path is blocked
@@ -134,6 +222,7 @@ Local fallback is degraded-mode replay, not source-of-truth memory. Once auth or
 ### Durable memory targets
 
 Primary targets:
+
 - `/MemoryEntry`
 - `/MemoryEntry/query`
 - `/MemoryEntry/read`
@@ -142,6 +231,7 @@ Primary targets:
 - `/GrayMatter`
 
 Typical `MemoryEntry.type` values:
+
 - `decision`
 - `todo`
 - `context`
@@ -153,6 +243,7 @@ Typical `MemoryEntry.type` values:
 For answer grounding, prefer receipt-backed retrieval over raw memory search when the agent intends to answer from memory.
 
 Retrieval Receipts turn a memory lookup into an auditable transaction:
+
 - `retrievalStatus` tells the agent whether the lookup was strong, empty, stale, conflicted, or low confidence
 - `answerPolicy` tells the agent whether it may answer, must caveat, must retry, must clarify, or must deny
 - `recommendedAction` tells the next move before generation
@@ -178,6 +269,7 @@ Most businesses are not just “memory plus chat.”
 They have structured operational data.
 
 Examples observed in the current live schema include:
+
 - `Organization`
 - `Customer`
 - `Opportunity`
@@ -211,12 +303,14 @@ SwarmOps remains important, but as the agentic coordination slice of the object 
 
 GrayMatter is powerful because access is authenticated and tenant-scoped.
 It is also safe by design when used correctly because:
+
 - access is bounded by the current account's RBAC
 - the user and organization permissions determine what the agent can see and change
 - permission failures can be surfaced cleanly
 - the skill should never assume universal access just because the schema exists
 
 Rule:
+
 - **schema visibility does not equal permission to use everything**
 
 ## Repository contents
@@ -275,10 +369,12 @@ Rule:
 ## Account signup and credits
 
 For a new GrayMatter account, use:
+
 - Signup and activation: <https://valkyrlabs.com/graymatter/activate?source=graymatter&intent=signup&operation=memory_query>
 - Credits and recharge: <https://valkyrlabs.com/graymatter/credits?source=graymatter&intent=recharge&operation=memory_query>
 
 Commercial model:
+
 - fresh signups should receive **500 starter credits** automatically
 - GrayMatter query and some higher-order operations consume credits
 - after the starter balance is exhausted, account recharge is required for full GrayMatter functionality
@@ -288,6 +384,7 @@ Commercial model:
 The user should **not** have to manually acquire or paste a raw auth token.
 
 The intended first-run OpenClaw auth step is:
+
 1. OpenClaw prompts the user for their `api-0` username
 2. OpenClaw prompts for their password
 3. OpenClaw exchanges those credentials for a session
@@ -296,6 +393,7 @@ The intended first-run OpenClaw auth step is:
 6. Subsequent GrayMatter use reads from Keychain automatically
 
 That means GrayMatter should feel like:
+
 - sign in once
 - store securely
 - use forever after until refresh is needed
@@ -312,10 +410,12 @@ scripts/gm-activate
 ```
 
 `scripts/gm-activate` is the intended one-shot bootstrap for OpenClaw installs. It first runs `scripts/gm-self-update force` by default so activation and recovery do not skip the source-of-truth update check just because the weekly startup interval has not elapsed, then authenticates and validates the install. Set `GRAYMATTER_ACTIVATE_SELF_UPDATE_MODE=maybe` only when an operator intentionally wants interval-gated startup behavior. It can use:
+
 - interactive username/password prompts, or
 - credentials already present in environment variables
 
 Supported env inputs:
+
 - `GRAYMATTER_USERNAME` or `VALKYR_USERNAME`
 - `GRAYMATTER_PASSWORD` or `VALKYR_PASSWORD`
 - optional `VALKYR_AUTH_TOKEN`
@@ -386,6 +486,7 @@ If those do not work, the skill is not truly ready.
 ## Bootstrap integration for OpenClaw
 
 OpenClaw workspace bootstrap guidance should treat GrayMatter as the default durable context layer:
+
 - uses GrayMatter as its **primary durable memory**
 - loads the live OpenAPI at startup
 - understands the organization schema as the operating environment
@@ -481,12 +582,14 @@ scripts/gm-entity Note POST '{"title":"Launch","content":"GrayMatter launch work
 ## Auth
 
 GrayMatter uses:
+
 - `VALKYR_API_BASE`, default `https://api-0.valkyrlabs.com/v1`
 - macOS/iCloud Keychain lookup for `VALKYR_AUTH`
 - `VALKYR_AUTH_TOKEN` as an advanced debug override, not the normal activation path
 - `VALKYR_JWT_SESSION` as a compatible env fallback for downstream tooling
 
 Preferred auth flow:
+
 - check Keychain for `VALKYR_AUTH` first
 - if present, reuse it automatically
 - otherwise prompt for username and password once
@@ -512,11 +615,13 @@ This is how the agent becomes the right operator for a business, not just a chat
 ## Local fallback behavior
 
 If `api-0` is unavailable or a write path is temporarily broken:
+
 - write the smallest safe local backup
 - keep it replayable
 - retry later when GrayMatter is healthy again
 
 Typical fallback files:
+
 - `memory/YYYY-MM-DD.md`
 - `MEMORY.md`
 - `memory/graymatter-fallback.json`
@@ -528,6 +633,7 @@ Typical fallback files:
 No env token is set and no matching macOS Keychain secret was found.
 
 Fix:
+
 - run `scripts/gm-login` and complete username/password sign-in, or
 - export `VALKYR_AUTH_TOKEN`, or
 - ensure Keychain secret `VALKYR_AUTH` exists
@@ -547,6 +653,7 @@ brew install jq
 Some deployments still have a `MemoryEntry.tags` persistence mismatch.
 
 Fix:
+
 - use `scripts/gm-write`
 - let it retry automatically without tags
 
@@ -555,20 +662,24 @@ Fix:
 If writes and reads succeed but `/MemoryEntry/query` fails with a credit error, that is usually an account billing configuration issue rather than a GrayMatter auth failure.
 
 Observed requirement:
+
 - query currently consumes credits
 - a fresh signup should auto-provision **500 credits** so GrayMatter query works immediately
 - after starter credits are exhausted, the user must recharge credits to continue full GrayMatter functionality
 
 Useful links:
+
 - signup and activation: <https://valkyrlabs.com/graymatter/activate?source=graymatter&intent=signup&operation=memory_query>
 - credits and recharge: <https://valkyrlabs.com/graymatter/credits?source=graymatter&intent=recharge&operation=memory_query>
 
 CLI behavior on `INSUFFICIENT_FUNDS`:
+
 - prints both buy and signup links in stderr
 - attempts a popup prompt on macOS (`osascript`) and Windows (`powershell.exe`)
 - opens the buy-credits URL as a last-resort fallback when popup tooling is unavailable
 
 Optional overrides for custom deployments:
+
 - `VALKYR_BUY_CREDITS_URL`
 - `VALKYR_HUMAN_SIGNUP_URL`
 
@@ -579,6 +690,7 @@ If a new account has `0.00` balance, activation may still succeed for write/read
 Some api-0 deployments return auth in headers or cookies rather than in the JSON response body.
 
 Fix:
+
 - use the latest `scripts/gm-login`
 - it now treats `VALKYR_AUTH` as the primary auth contract
 - downstream API calls send the recovered token back as bearer auth, `VALKYR_AUTH`, and cookie auth
@@ -586,6 +698,7 @@ Fix:
 ### OpenAPI fetch fails
 
 Check:
+
 - outbound network access
 - `api-0` availability
 - whether the environment blocks the docs endpoint
@@ -607,12 +720,14 @@ The doctor command continues through all checks and reports the exact required f
 ## GrayMatter Light before/after
 
 Before this distribution sprint, Light mode was useful but not strict enough as a drop-in api-0 substitute:
+
 - local docs and bundles used unprefixed paths such as `/MemoryEntry` and `/SwarmOps/graph`
 - the hand-written Light OpenAPI could drift from the real ValkyrAI `api.hbs.yaml` / api-0 shape
 - the packaged server expected a system Java runtime unless the operator provided one
 - there was no single command proving local write, query, health, and MCP readiness
 
 After this sprint, Light mode is api-0-shaped:
+
 - `VALKYR_API_BASE=http://localhost:<port>/v1`
 - Light implements the MemoryEntry-first production path subset: `/v1/MemoryEntry/write`, `/v1/MemoryEntry/query`, `/v1/MemoryEntry/read`, `/v1/MemoryEntry/{id}`, `/v1/memory/status`, `/v1/graymatter/stats`, `/v1/graymatter/activation/bridge`, `/v1/swarm-ops/graph`, and `/v1/api-docs`
 - the Light OpenAPI is generated from the real authenticated api-0/ValkyrAI OpenAPI snapshot and carries the production component schemas
@@ -649,6 +764,7 @@ scripts/package-local-server
 ```
 
 That creates `dist/graymatter-local-server-latest.tar.gz`. The archive contains:
+
 - `application-bundle/` with the ValkyrAI app-factory template, ThorAPI FEBE OpenAPI contract, custom dashboard/workbench/promotion/swarm components, and built-in `rbac-core` / `data-workbooks` component references
 - `source/` with the generated Spring Boot local server
 - `bin/graymatter-local-server` launcher

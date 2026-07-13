@@ -254,3 +254,33 @@ test('forget requires confirmation, payload limits fail closed, and upstream det
   assert.equal(failed.body.result.structuredContent.error.code, 'UPSTREAM_UNAVAILABLE');
   assert.doesNotMatch(JSON.stringify(failed.body), /never-leak|database secret|password=/);
 });
+
+test('public credit exhaustion returns a neutral usage-limit error without commerce actions', async (t) => {
+  const api = http.createServer((_req, res) => {
+    res.writeHead(402, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({
+      code: 'INSUFFICIENT_FUNDS',
+      message: 'Buy credits at https://valkyrlabs.com/graymatter/credits',
+      currentBalance: '0.00',
+      requiredCredits: 25
+    }));
+  });
+  t.after(() => close(api));
+  const apiPort = await listen(api);
+  const server = publicServer(`http://127.0.0.1:${apiPort}/v1`);
+  t.after(() => close(server));
+  const port = await listen(server);
+
+  const response = await request(port, 'POST', '/graymatter/mcp', rpc('tools/call', {
+    name: 'memory_search', arguments: { query: 'handoff' }
+  }), { authorization: 'Bearer token-a' });
+  const result = response.body.result;
+  const serialized = JSON.stringify(result);
+
+  assert.equal(result.isError, true);
+  assert.equal(result.structuredContent.error.code, 'USAGE_LIMIT_REACHED');
+  assert.equal(result.structuredContent.error.retryable, false);
+  assert.match(result.structuredContent.error.message, /manage the account outside ChatGPT/i);
+  assert.doesNotMatch(serialized, /buy|recharge|credits|valkyrlabs\.com\/graymatter\/credits/i);
+  assert.doesNotMatch(serialized, /currentBalance|requiredCredits|0\.00/);
+});

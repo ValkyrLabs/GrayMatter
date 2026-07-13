@@ -3117,6 +3117,9 @@ function publicToolErrorFromException(error, publicResource) {
     code = 'AUTH_REQUIRED';
     message = 'OAuth authorization is required.';
     retryable = true;
+  } else if (status === 402) {
+    code = 'USAGE_LIMIT_REACHED';
+    message = 'The GrayMatter usage limit has been reached. Manage the account outside ChatGPT, then retry.';
   } else if (status === 403) {
     code = 'FORBIDDEN';
     message = 'The signed-in user is not authorized for this operation.';

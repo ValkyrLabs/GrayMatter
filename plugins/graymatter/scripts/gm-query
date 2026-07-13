@@ -286,7 +286,7 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 GRAYMATTER_API_COMMAND="${GRAYMATTER_API_COMMAND:-${SCRIPT_DIR}/graymatter_api.sh}"
 
-is_query_timeout_response() {
+is_query_degraded_response() {
   local file="$1"
 
   if [[ ! -s "$file" ]]; then
@@ -299,15 +299,19 @@ is_query_timeout_response() {
         .error?,
         .message?,
         .classification?,
+        .warning?,
+        .action?,
         .details?.error?,
-        .details?.message?
+        .details?.message?,
+        .details?.warning?,
+        .details?.action?
       ]
       | map(select(type == "string") | ascii_downcase)
-      | any(test("transaction timeout|timeout expired|timed out"))
+      | any(test("transaction timeout|timeout expired|timed out|insufficient_quota|quota exhausted|embeddings? failed|embedding provider quota"))
     ' "$file" >/dev/null 2>&1 && return 0
   fi
 
-  grep -Eiq 'transaction timeout|timeout expired|timed out' "$file"
+  grep -Eiq 'transaction timeout|timeout expired|timed out|insufficient_quota|quota exhausted|embeddings? failed|embedding provider quota' "$file"
 }
 
 fallback_memoryentry_filter() {
@@ -341,19 +345,33 @@ fallback_memoryentry_filter() {
           .description?,
           .content?,
           .type?,
-          .source?,
-          .sourceChannel?,
           tag_text
         ]
         | map(select(. != null) | tostring)
         | join(" ")
         | ascii_downcase;
+      def query_terms:
+        $q
+        | gsub("[^a-z0-9_-]+"; " ")
+        | split(" ")
+        | map(select(length > 2))
+        | unique;
+      def lexical_score($text):
+        query_terms as $terms
+        | if ($terms | length) == 0 then
+            (if ($text | contains($q)) then 1 else 0 end)
+          else
+            ($terms | map(. as $term | select($text | contains($term))) | length)
+          end;
       entries
+      | map(. as $entry | (searchable_text) as $text | $entry + {"_gmLexicalScore": lexical_score($text)})
       | map(select(
           ($type == "" or (.type? == $type))
           and ($source == "" or (.source? == $source) or (.sourceChannel? == $source))
-          and (searchable_text | contains($q))
+          and ((searchable_text | contains($q)) or (._gmLexicalScore > 0))
         ))
+      | sort_by(._gmLexicalScore) | reverse
+      | map(del(._gmLexicalScore))
       | .[:$limit]
     ' "$list_body"
 }
@@ -448,8 +466,8 @@ if [[ -s "$QUERY_RESPONSE" ]]; then
   echo >&2
 fi
 
-if [[ "${GRAYMATTER_QUERY_TIMEOUT_FALLBACK:-true}" == "true" ]] && is_query_timeout_response "$QUERY_RESPONSE"; then
-  echo "gm-query: MemoryEntry/query timed out; falling back to MemoryEntry list filtering" >&2
+if [[ "${GRAYMATTER_QUERY_TIMEOUT_FALLBACK:-true}" == "true" ]] && is_query_degraded_response "$QUERY_RESPONSE"; then
+  echo "gm-query: MemoryEntry/query degraded; falling back to MemoryEntry list filtering" >&2
   FALLBACK_RESPONSE="$(mktemp "${TMPDIR:-/tmp}/gm-query-fallback-response.XXXXXX")"
   trap 'rm -f "$QUERY_RESPONSE" "$FALLBACK_RESPONSE"' EXIT
   run_memoryentry_timeout_fallback >"$FALLBACK_RESPONSE"

@@ -129,7 +129,7 @@ Operational rules:
 
 GrayMatter MCP exposes direct tools for:
 
-- Memory write/read/query
+- Memory write/read/query plus receipt-backed `omega_recall` and idempotent `omega_forget`
 - Retrieval receipts
 - GrayMatter status and capabilities
 - Semantic search and reindex
@@ -139,5 +139,10 @@ GrayMatter MCP exposes direct tools for:
 - Swarm graph
 - Generic RBAC-scoped entity list/get/create
 - Live OpenAPI schema summary
+
+The high-level OmegaRAG tools are additive: use `omega_recall` for the governed
+ContextPage/receipt/trajectory envelope and `omega_forget` for scoped deletion
+proof. Both forward operation inputs only; api-0 derives tenant, principal,
+owner, ACL, and provider scope.
 
 The generic entity tools are intentional: api-0 exposes a large business schema and the agent should operate against the current live schema rather than a stale hard-coded list.

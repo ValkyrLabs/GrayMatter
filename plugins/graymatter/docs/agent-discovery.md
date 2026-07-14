@@ -36,6 +36,10 @@ Required tool names:
 
 The current MCP server also exposes richer GrayMatter tools such as retrieval receipts, schema summaries, and graph inspection. Do not rename the portable tools to `store_memory`, `search_memory`, or `compile_context`.
 
+For OmegaRAG-capable hosts, prefer `omega_recall` for a bounded receipt-backed
+ContextPage and `omega_forget` for confirmed scoped deletion; identity and ACL
+scope remain server-derived.
+
 ## Light mode
 
 GrayMatter Light is the local H2 runtime. It is a drop-in/drop-out local substitute for the api-0 memory subset, using the same production-style base URL and paths:

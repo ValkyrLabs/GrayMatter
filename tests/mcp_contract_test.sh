@@ -32,7 +32,7 @@ jq -e '
   | index("answerAllowed") and index("caveatRequired") and index("disposition") and index("requiredActions")
 ' "$PORTABLE_CONTRACT" >/dev/null
 
-jq -e '.tools | map(.name) | sort == ["memory_get","memory_health","memory_link","memory_put","memory_put_batch","memory_query","memory_replay_deferred","memory_retrieve_with_receipt","retrieval_receipt_get","retrieval_receipt_query"]' < <("${ROOT}/scripts/gm-mcp-contract") >/dev/null
+jq -e '.tools | map(.name) | sort == ["memory_get","memory_health","memory_link","memory_put","memory_put_batch","memory_query","memory_replay_deferred","memory_retrieve_with_receipt","omega_forget","omega_recall","retrieval_receipt_get","retrieval_receipt_query"]' < <("${ROOT}/scripts/gm-mcp-contract") >/dev/null
 jq -e '.tools[] | select(.name == "memory_retrieve_with_receipt") | .outputSchema.required | index("graymatterPolicy")' < <("${ROOT}/scripts/gm-mcp-contract") >/dev/null
 jq -e '.tools | length > 0' < <("${ROOT}/scripts/gm-mcp-contract" --mode=portable --validate) >/dev/null
 jq -e '.errors.AUTH_REQUIRED and .errors.UPSTREAM_UNAVAILABLE' < <("${ROOT}/scripts/gm-mcp-contract" legacy) >/dev/null

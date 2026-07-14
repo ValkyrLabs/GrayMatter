@@ -209,7 +209,7 @@ Local/server packaging:
 - `scripts/package-local-server`
 
 MCP server:
-- `mcp-server/` exposes `memory_write`, `memory_read`, `memory_query`, `memory_retrieve_with_receipt`, `retrieval_receipt_get`, `retrieval_receipt_query`, `graph_get`, GrayMatter status/semantic/retrieval/activation/MCP-bundle tools, `graymatter_invariant_preflight`, `entity_list`, `entity_get`, `entity_create`, and `schema_summary`
+- `mcp-server/` exposes `memory_write`, `memory_read`, `memory_query`, `memory_retrieve_with_receipt`, high-level `omega_recall` and `omega_forget`, `retrieval_receipt_get`, `retrieval_receipt_query`, `graph_get`, GrayMatter status/semantic/retrieval/activation/MCP-bundle tools, `graymatter_invariant_preflight`, `entity_list`, `entity_get`, `entity_create`, and `schema_summary`
 - set `VALKYR_API_BASE` to hosted api-0 for Cloud mode or to the running GrayMatter Light base URL for local ThorAPI mode
 
 Design boundary:

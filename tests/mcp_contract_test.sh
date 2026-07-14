@@ -11,7 +11,7 @@ jq -e '.version == "v1"' "$LEGACY_CONTRACT" >/dev/null
 jq -e '.errors.AUTH_REQUIRED and .errors.UPSTREAM_UNAVAILABLE' "$LEGACY_CONTRACT" >/dev/null
 
 jq -e '.version == "v1"' "$PORTABLE_CONTRACT" >/dev/null
-for t in memory_query memory_retrieve_with_receipt omega_remember omega_plan omega_recall omega_forget omega_trajectory_get omega_evaluate retrieval_receipt_get retrieval_receipt_query memory_get memory_put memory_put_batch memory_link memory_health memory_replay_deferred; do
+for t in memory_query memory_retrieve_with_receipt omega_remember omega_plan omega_recall omega_forget omega_trajectory_get omega_evaluate omega_outcome retrieval_receipt_get retrieval_receipt_query memory_get memory_put memory_put_batch memory_link memory_health memory_replay_deferred; do
   jq -e --arg t "$t" '.tools[] | select(.name==$t)' "$PORTABLE_CONTRACT" >/dev/null
 done
 jq -e '
@@ -32,7 +32,7 @@ jq -e '
   | index("answerAllowed") and index("caveatRequired") and index("disposition") and index("requiredActions")
 ' "$PORTABLE_CONTRACT" >/dev/null
 
-jq -e '.tools | map(.name) | sort == ["memory_get","memory_health","memory_link","memory_put","memory_put_batch","memory_query","memory_replay_deferred","memory_retrieve_with_receipt","omega_evaluate","omega_forget","omega_plan","omega_recall","omega_remember","omega_trajectory_get","retrieval_receipt_get","retrieval_receipt_query"]' < <("${ROOT}/scripts/gm-mcp-contract") >/dev/null
+jq -e '.tools | map(.name) | sort == ["memory_get","memory_health","memory_link","memory_put","memory_put_batch","memory_query","memory_replay_deferred","memory_retrieve_with_receipt","omega_evaluate","omega_forget","omega_outcome","omega_plan","omega_recall","omega_remember","omega_trajectory_get","retrieval_receipt_get","retrieval_receipt_query"]' < <("${ROOT}/scripts/gm-mcp-contract") >/dev/null
 jq -e '.tools[] | select(.name == "memory_retrieve_with_receipt") | .outputSchema.required | index("graymatterPolicy")' < <("${ROOT}/scripts/gm-mcp-contract") >/dev/null
 jq -e '.tools | length > 0' < <("${ROOT}/scripts/gm-mcp-contract" --mode=portable --validate) >/dev/null
 jq -e '.errors.AUTH_REQUIRED and .errors.UPSTREAM_UNAVAILABLE' < <("${ROOT}/scripts/gm-mcp-contract" legacy) >/dev/null

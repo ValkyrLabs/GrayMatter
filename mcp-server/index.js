@@ -345,6 +345,29 @@ const tools = [
     invoked: 'OmegaRAG evaluation ready'
   }),
   defineTool({
+    name: 'omega_outcome',
+    title: 'Record OmegaRAG outcome',
+    description: 'Attach a content-free workflow, action, test, rating, or correction outcome to an authorized OmegaRAG trajectory. Raw answers and notes never enter the server payload.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        trajectoryId: { type: 'string', minLength: 1, maxLength: 128 },
+        outcome: { type: 'string', enum: ['success', 'failure', 'partial', 'canceled'] },
+        outcomeRef: { type: 'string', maxLength: 128 },
+        workflowExecutionRef: { type: 'string', maxLength: 128 },
+        actionRef: { type: 'string', maxLength: 128 },
+        testRef: { type: 'string', maxLength: 128 },
+        ratingScore: { type: 'number', minimum: 0, maximum: 100 },
+        correctionHash: { type: 'string', pattern: '^[0-9a-f]{64}$' },
+        outcomeHash: { type: 'string', pattern: '^[0-9a-f]{64}$' }
+      },
+      required: ['trajectoryId', 'outcome']
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true, idempotentHint: true },
+    invoking: 'Recording OmegaRAG outcome',
+    invoked: 'OmegaRAG outcome recorded'
+  }),
+  defineTool({
     name: 'retrieval_receipt_get',
     title: 'Get retrieval receipt',
     description: 'Fetch a persisted GrayMatter retrieval receipt by receiptId for audit or debugging.',
@@ -1218,6 +1241,24 @@ async function callTool(params, context) {
         trajectoryId: args.trajectoryId,
         profile: args.profile
       })));
+    case 'omega_outcome':
+      requireString(args.trajectoryId, 'trajectoryId');
+      requireString(args.outcome, 'outcome');
+      return execute('omega_outcome', () => apiRequest(
+        context,
+        'POST',
+        `graymatter/omega/trajectories/${encodeURIComponent(args.trajectoryId)}/outcome`,
+        pickDefined({
+          outcome: args.outcome,
+          outcomeRef: args.outcomeRef,
+          workflowExecutionRef: args.workflowExecutionRef,
+          actionRef: args.actionRef,
+          testRef: args.testRef,
+          ratingScore: args.ratingScore,
+          correctionHash: args.correctionHash,
+          outcomeHash: args.outcomeHash
+        })
+      ));
     case 'retrieval_receipt_get':
       requireString(args.receiptId, 'receiptId');
       return execute('retrieval_receipt_get', async () => decorateRetrievalReceiptResult(

@@ -217,6 +217,7 @@ test('stdio mode exposes the GrayMatter MCP tools for Codex plugin launch', asyn
         'omega_forget',
         'omega_trajectory_get',
         'omega_evaluate',
+        'omega_outcome',
         'retrieval_receipt_get',
         'retrieval_receipt_query',
         'graph_get',
@@ -422,6 +423,7 @@ test('tools/list exposes the GrayMatter tool surface', async () => {
         'omega_forget',
         'omega_trajectory_get',
         'omega_evaluate',
+        'omega_outcome',
         'retrieval_receipt_get',
         'retrieval_receipt_query',
         'graph_get',
@@ -496,6 +498,15 @@ test('OmegaRAG MCP tools use governed plan, recall, forget, trajectory, and eval
       res.end(JSON.stringify({ evaluation: { evaluationId: 'eval-1' }, replayed: false }));
       return;
     }
+    if (record.path === '/v1/graymatter/omega/trajectories/traj-1/outcome' && record.method === 'POST') {
+      assert.equal(record.body.outcome, 'success');
+      assert.equal(record.body.workflowExecutionRef, 'wf-1');
+      assert.equal(record.body.ratingScore, 95);
+      assert.equal(record.body.ownerId, undefined);
+      assert.equal(record.body.tenantId, undefined);
+      res.end(JSON.stringify({ trajectory: { trajectoryId: 'traj-1', outcome: 'success' }, replayed: false }));
+      return;
+    }
     throw new Error(`Unexpected ${record.method} ${record.path}`);
   });
 
@@ -559,6 +570,20 @@ test('OmegaRAG MCP tools use governed plan, recall, forget, trajectory, and eval
         arguments: { trajectoryId: 'traj-1', profile: 'MEMORY_RECALL' }
       }
     });
+    const outcome = await postRpc(baseUrl, {
+      jsonrpc: '2.0',
+      id: 'omega-outcome',
+      method: 'tools/call',
+      params: {
+        name: 'omega_outcome',
+        arguments: {
+          trajectoryId: 'traj-1',
+          outcome: 'success',
+          workflowExecutionRef: 'wf-1',
+          ratingScore: 95
+        }
+      }
+    });
 
     assert.deepEqual(JSON.parse(remember.body.result.content[0].text), {
       memoryRef: 'mem-1', receiptRef: 'rr-remember-1', replayed: false
@@ -578,7 +603,10 @@ test('OmegaRAG MCP tools use governed plan, recall, forget, trajectory, and eval
     assert.deepEqual(JSON.parse(evaluation.body.result.content[0].text), {
       evaluation: { evaluationId: 'eval-1' }, replayed: false
     });
-    assert.equal(fakeApi.requests.length, 6);
+    assert.deepEqual(JSON.parse(outcome.body.result.content[0].text), {
+      trajectory: { trajectoryId: 'traj-1', outcome: 'success' }, replayed: false
+    });
+    assert.equal(fakeApi.requests.length, 7);
   } finally {
     server.close();
     fakeApi.server.close();

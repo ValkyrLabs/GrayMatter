@@ -211,6 +211,7 @@ test('stdio mode exposes the GrayMatter MCP tools for Codex plugin launch', asyn
         'memory_health',
         'memory_replay_deferred',
         'memory_retrieve_with_receipt',
+        'omega_remember',
         'omega_recall',
         'omega_forget',
         'retrieval_receipt_get',
@@ -412,6 +413,7 @@ test('tools/list exposes the GrayMatter tool surface', async () => {
         'memory_health',
         'memory_replay_deferred',
         'memory_retrieve_with_receipt',
+        'omega_remember',
         'omega_recall',
         'omega_forget',
         'retrieval_receipt_get',
@@ -441,6 +443,15 @@ test('tools/list exposes the GrayMatter tool surface', async () => {
 test('OmegaRAG MCP tools use the governed recall and forget contracts without client identity', async () => {
   const fakeApi = createFakeApi(async (_req, res, record) => {
     res.writeHead(200, { 'content-type': 'application/json' });
+    if (record.path === '/v1/graymatter/omega/remember' && record.method === 'POST') {
+      assert.equal(record.body.text, 'remember this decision');
+      assert.equal(record.body.type, 'decision');
+      assert.equal(record.body.idempotencyKey, 'remember-1');
+      assert.equal(record.body.ownerId, undefined);
+      assert.equal(record.body.tenantId, undefined);
+      res.end(JSON.stringify({ memoryRef: 'mem-1', receiptRef: 'rr-remember-1', replayed: false }));
+      return;
+    }
     if (record.path === '/v1/graymatter/omega/recall' && record.method === 'POST') {
       assert.equal(record.body.query, 'what changed');
       assert.equal(record.body.mode, 'BALANCED');
@@ -466,6 +477,15 @@ test('OmegaRAG MCP tools use the governed recall and forget contracts without cl
   const baseUrl = await listen(server);
 
   try {
+    const remember = await postRpc(baseUrl, {
+      jsonrpc: '2.0',
+      id: 'omega-remember',
+      method: 'tools/call',
+      params: {
+        name: 'omega_remember',
+        arguments: { text: 'remember this decision', type: 'decision', idempotencyKey: 'remember-1' }
+      }
+    });
     const recall = await postRpc(baseUrl, {
       jsonrpc: '2.0',
       id: 'omega-recall',
@@ -489,13 +509,16 @@ test('OmegaRAG MCP tools use the governed recall and forget contracts without cl
       }
     });
 
+    assert.deepEqual(JSON.parse(remember.body.result.content[0].text), {
+      memoryRef: 'mem-1', receiptRef: 'rr-remember-1', replayed: false
+    });
     assert.deepEqual(JSON.parse(recall.body.result.content[0].text), {
       receiptRef: 'rr-1', trajectoryRef: 'traj-1', scopeHash: 'a'.repeat(64)
     });
     assert.deepEqual(JSON.parse(forget.body.result.content[0].text), {
       memoryRef: '11111111-1111-4111-8111-111111111111', deletionStatus: 'deleted', replayed: false
     });
-    assert.equal(fakeApi.requests.length, 2);
+    assert.equal(fakeApi.requests.length, 3);
   } finally {
     server.close();
     fakeApi.server.close();

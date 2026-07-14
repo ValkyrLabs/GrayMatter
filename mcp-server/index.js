@@ -239,6 +239,26 @@ const tools = [
     invoked: 'Retrieval receipt ready'
   }),
   defineTool({
+    name: 'omega_remember',
+    title: 'Remember with OmegaRAG',
+    description: 'Form one scoped durable GrayMatter memory through the canonical OmegaRAG path. The server derives owner, tenant, ACLs, indexing scope, receipt lineage, and replay behavior.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        text: { type: 'string', minLength: 1, maxLength: 655350 },
+        type: { type: 'string', enum: ['configuration', 'preference', 'decision', 'todo', 'context', 'artifact'] },
+        title: { type: 'string', maxLength: 255 },
+        tags: { type: 'array', maxItems: 50, items: { type: 'string', maxLength: 128 } },
+        sourceChannel: { type: 'string', maxLength: 128 },
+        idempotencyKey: { type: 'string', minLength: 1, maxLength: 200, pattern: '^[A-Za-z0-9._:-]+$' }
+      },
+      required: ['text', 'idempotencyKey']
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true, idempotentHint: true },
+    invoking: 'Remembering with OmegaRAG',
+    invoked: 'OmegaRAG memory remembered'
+  }),
+  defineTool({
     name: 'omega_recall',
     title: 'Recall with OmegaRAG',
     description: 'Run one bounded tenant-scoped OmegaRAG memory recall. The server derives identity and ACL scope and returns a ContextPage, durable receipt, trajectory reference, answer policy, and bounded usage envelope.',
@@ -1097,6 +1117,17 @@ async function callTool(params, context) {
       return execute('memory_retrieve_with_receipt', async () => decorateRetrievalReceiptResult(
         await apiRequest(context, 'POST', 'graymatter-retrieval-receipts', buildRetrievalReceiptPayload(args))
       ));
+    case 'omega_remember':
+      requireString(args.text, 'text');
+      requireString(args.idempotencyKey, 'idempotencyKey');
+      return execute('omega_remember', () => apiRequest(context, 'POST', 'graymatter/omega/remember', pickDefined({
+        text: args.text,
+        type: args.type,
+        title: args.title,
+        tags: args.tags,
+        sourceChannel: args.sourceChannel,
+        idempotencyKey: args.idempotencyKey
+      })));
     case 'omega_recall':
       requireString(args.query, 'query');
       return execute('omega_recall', () => apiRequest(context, 'POST', 'graymatter/omega/recall', pickDefined({

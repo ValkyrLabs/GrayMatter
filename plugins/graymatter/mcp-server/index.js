@@ -21,7 +21,8 @@ const PUBLIC_OAUTH_SCOPES = Object.freeze(['memory:read', 'memory:write', 'conte
 const PUBLIC_IDENTITY_KEYS = new Set([
   'userid', 'user_id', 'ownerid', 'owner_id', 'principal', 'principalid', 'principal_id',
   'organization', 'organizationid', 'organization_id', 'tenant', 'tenantid', 'tenant_id',
-  'roles', 'permissions', 'acl', 'acls'
+  'roles', 'role', 'permissions', 'acl', 'acls', 'authorization', 'authcontext',
+  'capabilitygrant', 'scopehash'
 ]);
 const PUBLIC_MAX_RESPONSE_ITEMS = 25;
 const PUBLIC_MAX_RESPONSE_STRING = 4000;
@@ -223,7 +224,6 @@ const tools = [
         query: { type: 'string' },
         agentId: { type: 'string' },
         workflowId: { type: 'string' },
-        tenantId: { type: 'string' },
         topK: { type: 'integer', minimum: 1, maximum: 100 },
         retrievalMode: { type: 'string', enum: ['VECTOR', 'KEYWORD', 'HYBRID', 'SCHEMA_FILTERED', 'RECENCY_BIASED'] },
         includeItems: { type: 'boolean' },
@@ -2585,11 +2585,11 @@ function buildMemoryQueryPayload(args) {
 }
 
 function buildRetrievalReceiptPayload(args) {
+  assertNoPrincipalOverrides(args);
   const payload = pickDefined({
     query: args.query,
     agentId: args.agentId,
     workflowId: args.workflowId,
-    tenantId: args.tenantId,
     topK: args.topK,
     retrievalMode: args.retrievalMode,
     includeItems: args.includeItems,

@@ -1083,6 +1083,39 @@ test('retrieval receipt tools route to the ThorAPI receipt surface', async () =>
   }
 });
 
+test('retrieval receipt MCP rejects client identity and ACL overrides before api-0', async () => {
+  const fakeApi = createFakeApi(async (_req, res, record) => {
+    throw new Error(`Unexpected ${record.method} ${record.path}`);
+  });
+  const apiBase = await listen(fakeApi.server);
+  const server = createGrayMatterMcpServer({ apiBase: `${apiBase}/v1` });
+  const baseUrl = await listen(server);
+
+  try {
+    const result = await postRpc(baseUrl, {
+      jsonrpc: '2.0',
+      id: 'receipt-forged-scope',
+      method: 'tools/call',
+      params: {
+        name: 'memory_retrieve_with_receipt',
+        arguments: {
+          query: 'current pricing',
+          tenantId: 'other-tenant',
+          filters: { nested: { ownerId: 'forged-owner' } }
+        }
+      }
+    });
+
+    assert.equal(result.status, 200);
+    assert.equal(result.body.error.code, -32000);
+    assert.match(result.body.error.message, /Identity, tenant, organization, owner, role, permission, and ACL overrides/);
+    assert.equal(fakeApi.requests.length, 0);
+  } finally {
+    server.close();
+    fakeApi.server.close();
+  }
+});
+
 test('retrieval receipt MCP results include fail-closed GrayMatter policy guidance', async () => {
   const fakeApi = createFakeApi(async (_req, res, record) => {
     res.writeHead(200, { 'content-type': 'application/json' });

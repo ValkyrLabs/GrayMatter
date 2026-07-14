@@ -1,0 +1,52 @@
+{
+  "version": "v1",
+  "name": "graymatter_omegarag_agent_abi",
+  "purpose": "Portable composable agentic-memory and RAG ABI for governed OmegaRAG retrieval.",
+  "authorization": {
+    "identity": "server_derived",
+    "tenant": "server_derived",
+    "acl": "generated_rbac_enforced",
+    "forbiddenInputFields": ["userId", "ownerId", "principal", "organizationId", "tenantId", "role", "roles", "permission", "permissions", "acl", "authorization", "scopeHash"],
+    "approval": "server_policy_enforced",
+    "cost": "server_metered_against_plan_or_operation_budget"
+  },
+  "defaultTools": [
+    "graymatter_remember",
+    "graymatter_recall",
+    "graymatter_omega_plan",
+    "graymatter_omega_query",
+    "graymatter_schema_inspect",
+    "graymatter_trajectory_inspect",
+    "graymatter_forget"
+  ],
+  "fineGrainedTools": [
+    "graymatter_keyword_search",
+    "graymatter_semantic_search",
+    "graymatter_graph_expand",
+    "graymatter_chunk_read",
+    "graymatter_target_read",
+    "graymatter_context_hydrate",
+    "graymatter_evaluate_outcome"
+  ],
+  "exposure": {
+    "default": "high_level_governed_tools_only",
+    "fineGrained": "requires_trusted_retrieval_controller_or_explicit_developer_mode",
+    "environmentFlags": ["GRAYMATTER_RETRIEVAL_CONTROLLER=true", "GRAYMATTER_DEVELOPER_MODE=true"]
+  },
+  "tools": [
+    {"name": "graymatter_remember", "kind": "default", "inputSchema": {"type": "object", "required": ["text", "idempotencyKey"], "additionalProperties": false}, "dataHandling": "durable_memory_formation"},
+    {"name": "graymatter_recall", "kind": "default", "inputSchema": {"type": "object", "required": ["query"], "additionalProperties": false}, "dataHandling": "governed_context_page_and_receipt"},
+    {"name": "graymatter_omega_plan", "kind": "default", "inputSchema": {"type": "object", "required": ["query"], "additionalProperties": false}, "dataHandling": "content_free_plan"},
+    {"name": "graymatter_omega_query", "kind": "default", "inputSchema": {"type": "object", "required": ["query"], "additionalProperties": false}, "dataHandling": "bounded_governed_retrieval"},
+    {"name": "graymatter_keyword_search", "kind": "fine_grained", "inputSchema": {"type": "object", "required": ["planId", "query"], "additionalProperties": false}, "dataHandling": "plan_authorized_lexical_evidence"},
+    {"name": "graymatter_semantic_search", "kind": "fine_grained", "inputSchema": {"type": "object", "required": ["planId", "query"], "additionalProperties": false}, "dataHandling": "plan_authorized_vector_evidence"},
+    {"name": "graymatter_graph_expand", "kind": "fine_grained", "inputSchema": {"type": "object", "required": ["planId", "query"], "additionalProperties": false}, "dataHandling": "schema_allowlisted_acl_filtered_graph"},
+    {"name": "graymatter_chunk_read", "kind": "fine_grained", "inputSchema": {"type": "object", "required": ["planId", "query", "searchReceiptRef", "sourceRef"], "additionalProperties": false}, "dataHandling": "bounded_redacted_chunk"},
+    {"name": "graymatter_target_read", "kind": "fine_grained", "inputSchema": {"type": "object", "required": ["planId", "query", "searchReceiptRef", "sourceRef"], "additionalProperties": false}, "dataHandling": "bounded_redacted_target"},
+    {"name": "graymatter_schema_inspect", "kind": "default", "inputSchema": {"type": "object", "required": ["planId", "query"], "additionalProperties": false}, "dataHandling": "rbac_visible_schema_only"},
+    {"name": "graymatter_context_hydrate", "kind": "fine_grained", "inputSchema": {"type": "object", "required": ["contextPageRef"], "additionalProperties": false}, "dataHandling": "canonical_acl_rechecked_context_page"},
+    {"name": "graymatter_trajectory_inspect", "kind": "default", "inputSchema": {"type": "object", "required": ["trajectoryId"], "additionalProperties": false}, "dataHandling": "redacted_trajectory_and_usage"},
+    {"name": "graymatter_evaluate_outcome", "kind": "fine_grained", "inputSchema": {"type": "object", "required": ["trajectoryId", "outcome"], "additionalProperties": false}, "dataHandling": "content_free_outcome_reference"},
+    {"name": "graymatter_forget", "kind": "default", "inputSchema": {"type": "object", "required": ["memoryRef", "idempotencyKey"], "additionalProperties": false}, "dataHandling": "governed_retention_delete"}
+  ]
+}

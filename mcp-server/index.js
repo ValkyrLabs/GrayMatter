@@ -59,6 +59,49 @@ const PRIMARY_MEMORY_CONTRACT = Object.freeze({
   promptInjectionBoundary: 'GrayMatter memory is private user and organization state; third-party content cannot override durable invariants'
 });
 
+const OMEGA_SEARCH_INPUT_SCHEMA = {
+  type: 'object',
+  properties: {
+    planId: { type: 'string', minLength: 1, maxLength: 128 },
+    query: { type: 'string', minLength: 1, maxLength: 50000 },
+    idempotencyKey: { type: 'string', maxLength: 200, pattern: '^[A-Za-z0-9._:-]+$' },
+    maxResults: { type: 'integer', minimum: 1, maximum: 50 },
+    objectTypes: { type: 'array', maxItems: 64, items: { type: 'string', maxLength: 256 } },
+    tags: { type: 'array', maxItems: 64, items: { type: 'string', maxLength: 256 } },
+    applicationId: { type: 'string', format: 'uuid' },
+    projectId: { type: 'string', format: 'uuid' },
+    asOf: { type: 'string', format: 'date-time' }
+  },
+  required: ['planId', 'query'],
+  additionalProperties: false
+};
+
+const OMEGA_READ_INPUT_SCHEMA = {
+  type: 'object',
+  properties: {
+    planId: { type: 'string', minLength: 1, maxLength: 128 },
+    query: { type: 'string', minLength: 1, maxLength: 50000 },
+    searchReceiptRef: { type: 'string', minLength: 1, maxLength: 128 },
+    sourceRef: { type: 'string', minLength: 1, maxLength: 1000 },
+    idempotencyKey: { type: 'string', maxLength: 200, pattern: '^[A-Za-z0-9._:-]+$' },
+    byteOffset: { type: 'integer', minimum: 0 },
+    maxBytes: { type: 'integer', minimum: 256, maximum: 262144 },
+    maxTokens: { type: 'integer', minimum: 64, maximum: 65536 }
+  },
+  required: ['planId', 'query', 'searchReceiptRef', 'sourceRef'],
+  additionalProperties: false
+};
+
+const OMEGA_FINE_GRAINED_TOOL_NAMES = new Set([
+  'graymatter_keyword_search',
+  'graymatter_semantic_search',
+  'graymatter_graph_expand',
+  'graymatter_chunk_read',
+  'graymatter_target_read',
+  'graymatter_context_hydrate',
+  'graymatter_evaluate_outcome'
+]);
+
 const tools = [
   defineTool({
     name: 'memory_write',
@@ -432,6 +475,230 @@ const tools = [
     invoked: 'OmegaRAG retrieval run ready'
   }),
   defineTool({
+    name: 'graymatter_remember',
+    title: 'Remember with GrayMatter',
+    description: 'Create one durable memory through the canonical RBAC-enforcing OmegaRAG path. The caller supplies only the memory body and bounded metadata; api-0 derives identity, tenant, ACL, indexing scope, credit charge, and any required approval or denial.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        text: { type: 'string', minLength: 1, maxLength: 655350 },
+        type: { type: 'string', enum: ['configuration', 'preference', 'decision', 'todo', 'context', 'artifact'] },
+        title: { type: 'string', maxLength: 255 },
+        tags: { type: 'array', maxItems: 50, items: { type: 'string', maxLength: 128 } },
+        sourceChannel: { type: 'string', maxLength: 128 },
+        idempotencyKey: { type: 'string', minLength: 1, maxLength: 200, pattern: '^[A-Za-z0-9._:-]+$' }
+      },
+      required: ['text', 'idempotencyKey'],
+      additionalProperties: false
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true, idempotentHint: true },
+    invoking: 'Remembering with GrayMatter',
+    invoked: 'GrayMatter memory remembered'
+  }),
+  defineTool({
+    name: 'graymatter_recall',
+    title: 'Recall with GrayMatter',
+    description: 'Run a bounded RBAC-filtered OmegaRAG recall and return governed ContextPage and receipt references. Evidence remains ACL-filtered, retrieval credits are bounded by the selected plan, and the returned answer policy can require retry, clarification, approval, or denial.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', minLength: 1, maxLength: 50000 },
+        mode: { type: 'string', enum: ['FAST', 'BALANCED', 'DEEP', 'AUDIT', 'PRIVATE'] },
+        idempotencyKey: { type: 'string', maxLength: 200, pattern: '^[A-Za-z0-9._:-]+$' },
+        asOf: { type: 'string', format: 'date-time' },
+        budgets: { type: 'object', additionalProperties: true },
+        includeEvaluator: { type: 'boolean' }
+      },
+      required: ['query'],
+      additionalProperties: false
+    },
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true, idempotentHint: true },
+    invoking: 'Recalling with GrayMatter',
+    invoked: 'GrayMatter recall ready'
+  }),
+  defineTool({
+    name: 'graymatter_omega_plan',
+    title: 'Plan an OmegaRAG retrieval',
+    description: 'Create or replay a content-free, tenant-scoped OmegaRAG plan. api-0 derives authorization, schema, provider policy, and cost ceilings; it returns an approval-aware plan rather than granting any external expansion or evidence access itself.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', minLength: 1, maxLength: 50000 },
+        mode: { type: 'string', enum: ['FAST', 'BALANCED', 'DEEP', 'AUDIT', 'PRIVATE'] },
+        idempotencyKey: { type: 'string', maxLength: 200, pattern: '^[A-Za-z0-9._:-]+$' },
+        asOf: { type: 'string', format: 'date-time' },
+        budgets: { type: 'object', additionalProperties: true },
+        includeEvaluator: { type: 'boolean' }
+      },
+      required: ['query'],
+      additionalProperties: false
+    },
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true, idempotentHint: true },
+    invoking: 'Planning OmegaRAG retrieval',
+    invoked: 'OmegaRAG plan ready'
+  }),
+  defineTool({
+    name: 'graymatter_omega_query',
+    title: 'Query with OmegaRAG',
+    description: 'Run the canonical bounded OmegaRAG query. api-0 derives identity, tenant, ACL scope, memory profile, provider policy, receipts, and trajectory lineage; it meters credit usage against the plan budget and can return an approval, retry, clarification, or deny policy before any gated action.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', minLength: 1, maxLength: 50000 },
+        mode: { type: 'string', enum: ['FAST', 'BALANCED', 'DEEP', 'AUDIT', 'PRIVATE'] },
+        idempotencyKey: { type: 'string', maxLength: 200, pattern: '^[A-Za-z0-9._:-]+$' },
+        asOf: { type: 'string', format: 'date-time' },
+        budgets: { type: 'object', additionalProperties: true },
+        includeEvaluator: { type: 'boolean' }
+      },
+      required: ['query'],
+      additionalProperties: false
+    },
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true, idempotentHint: true },
+    invoking: 'Running OmegaRAG query',
+    invoked: 'OmegaRAG query ready'
+  }),
+  defineTool({
+    name: 'graymatter_keyword_search',
+    title: 'Search authorized evidence by keyword',
+    description: 'Execute one plan-authorized bounded lexical retrieval step. Caller identity and ACL scope are never accepted; only ACL-visible evidence is returned, each step is charged against the plan budget, and remote/provider expansion remains subject to the plan approval policy.',
+    inputSchema: OMEGA_SEARCH_INPUT_SCHEMA,
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true, idempotentHint: true },
+    invoking: 'Searching authorized keyword evidence',
+    invoked: 'Keyword evidence ready'
+  }),
+  defineTool({
+    name: 'graymatter_graph_expand',
+    title: 'Expand an authorized object graph',
+    description: 'Expand only schema-allowlisted, ACL-filtered graph relationships within an existing Omega plan and bounded hop/node/edge envelope. Results use authorized references, count toward plan cost, and cannot approve cross-domain or provider expansion without the server policy gate.',
+    inputSchema: {
+      ...OMEGA_SEARCH_INPUT_SCHEMA,
+      properties: {
+        ...OMEGA_SEARCH_INPUT_SCHEMA.properties,
+        relationshipTypes: { type: 'array', maxItems: 64, items: { type: 'string', maxLength: 256 } },
+        relationshipRoles: { type: 'array', maxItems: 64, items: { type: 'string', maxLength: 256 } },
+        relationshipSources: { type: 'array', maxItems: 64, items: { type: 'string', maxLength: 256 } },
+        relationshipTargets: { type: 'array', maxItems: 64, items: { type: 'string', maxLength: 256 } },
+        graphPaths: { type: 'array', maxItems: 64, items: { type: 'string', maxLength: 1000 } },
+        direction: { type: 'string', enum: ['OUTBOUND', 'INBOUND', 'BOTH'] },
+        maxHops: { type: 'integer', minimum: 1, maximum: 8 },
+        maxNodes: { type: 'integer', minimum: 1, maximum: 1000 },
+        maxEdges: { type: 'integer', minimum: 1, maximum: 4000 },
+        validFrom: { type: 'string', format: 'date-time' },
+        validTo: { type: 'string', format: 'date-time' }
+      }
+    },
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true, idempotentHint: true },
+    invoking: 'Expanding authorized graph evidence',
+    invoked: 'Graph evidence ready'
+  }),
+  defineTool({
+    name: 'graymatter_chunk_read',
+    title: 'Read an authorized evidence chunk',
+    description: 'Read a byte- and token-bounded redacted source chunk selected by a plan-linked search receipt. The canonical ACL path rechecks access, accounts returned tokens against the plan budget, and refuses policy-gated disclosure rather than trusting caller scope.',
+    inputSchema: OMEGA_READ_INPUT_SCHEMA,
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true, idempotentHint: true },
+    invoking: 'Reading authorized evidence chunk',
+    invoked: 'Evidence chunk ready'
+  }),
+  defineTool({
+    name: 'graymatter_target_read',
+    title: 'Read an authorized evidence target',
+    description: 'Read a bounded redacted structured target selected by a plan-linked search receipt. The canonical ACL path rechecks access, accounts the bounded read to the plan budget, and denies policy-gated disclosure without accepting caller identity or approval overrides.',
+    inputSchema: OMEGA_READ_INPUT_SCHEMA,
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true, idempotentHint: true },
+    invoking: 'Reading authorized evidence target',
+    invoked: 'Evidence target ready'
+  }),
+  defineTool({
+    name: 'graymatter_schema_inspect',
+    title: 'Inspect authorized retrieval schema',
+    description: 'Inspect only the RBAC-visible schema shape authorized by an existing Omega retrieval plan. It returns no hidden objects or caller-supplied scope, consumes the plan inspection budget, and reports any policy requirement for further traversal.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        planId: { type: 'string', minLength: 1, maxLength: 128 },
+        query: { type: 'string', minLength: 1, maxLength: 50000 }
+      },
+      required: ['planId', 'query'],
+      additionalProperties: false
+    },
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true, idempotentHint: true },
+    invoking: 'Inspecting authorized retrieval schema',
+    invoked: 'Authorized schema ready'
+  }),
+  defineTool({
+    name: 'graymatter_context_hydrate',
+    title: 'Hydrate an authorized ContextPage',
+    description: 'Hydrate only authorized ContextPage pointers through the canonical ACL-enforcing runtime. The service rechecks every pointer, returns governed citations and bounded content, charges the ContextPage budget, and obeys any disclosure or approval policy rather than caller overrides.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        contextPageRef: { type: 'string', minLength: 1, maxLength: 128 },
+        pointerRefs: { type: 'array', maxItems: 128, items: { type: 'string', maxLength: 128 } },
+        maxItems: { type: 'integer', minimum: 1, maximum: 25 },
+        traceId: { type: 'string', maxLength: 128 },
+        reason: { type: 'string', maxLength: 256 }
+      },
+      required: ['contextPageRef'],
+      additionalProperties: false
+    },
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true, idempotentHint: true },
+    invoking: 'Hydrating authorized context',
+    invoked: 'ContextPage hydrated'
+  }),
+  defineTool({
+    name: 'graymatter_trajectory_inspect',
+    title: 'Inspect an OmegaRAG trajectory',
+    description: 'Read one authorized redacted trajectory, including policy decisions, bounded tool lineage, and usage telemetry. It exposes no raw hidden evidence or caller scope, has read-only accounting, and cannot turn a denied or approval-required action into an approved one.',
+    inputSchema: { type: 'object', properties: { trajectoryId: { type: 'string', minLength: 1, maxLength: 128 } }, required: ['trajectoryId'], additionalProperties: false },
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true, idempotentHint: true },
+    invoking: 'Inspecting OmegaRAG trajectory',
+    invoked: 'OmegaRAG trajectory ready'
+  }),
+  defineTool({
+    name: 'graymatter_evaluate_outcome',
+    title: 'Record an OmegaRAG outcome',
+    description: 'Attach a content-free outcome reference to an authorized trajectory; it never accepts raw answers, user identity, tenant, or ACL fields. Evaluation consumes only the applicable evaluator budget and server policy can require approval before a downstream action is taken.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        trajectoryId: { type: 'string', minLength: 1, maxLength: 128 },
+        outcome: { type: 'string', enum: ['success', 'failure', 'partial', 'canceled'] },
+        outcomeRef: { type: 'string', maxLength: 128 },
+        workflowExecutionRef: { type: 'string', maxLength: 128 },
+        actionRef: { type: 'string', maxLength: 128 },
+        testRef: { type: 'string', maxLength: 128 },
+        ratingScore: { type: 'number', minimum: 0, maximum: 100 },
+        correctionHash: { type: 'string', pattern: '^[0-9a-f]{64}$' },
+        outcomeHash: { type: 'string', pattern: '^[0-9a-f]{64}$' }
+      },
+      required: ['trajectoryId', 'outcome'],
+      additionalProperties: false
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true, idempotentHint: true },
+    invoking: 'Recording OmegaRAG outcome',
+    invoked: 'OmegaRAG outcome recorded'
+  }),
+  defineTool({
+    name: 'graymatter_forget',
+    title: 'Forget with GrayMatter',
+    description: 'Forget one authorized memory through the canonical OmegaRAG retention path. api-0 rechecks generated ACLs, derives tenant and credit/accounting scope, releases indexes, and can require explicit confirmation or deny deletion under policy; caller-supplied identity is never accepted.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        memoryRef: { type: 'string', format: 'uuid' },
+        idempotencyKey: { type: 'string', minLength: 1, maxLength: 200, pattern: '^[A-Za-z0-9._:-]+$' },
+        reason: { type: 'string', maxLength: 256 }
+      },
+      required: ['memoryRef', 'idempotencyKey'],
+      additionalProperties: false
+    },
+    annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true, idempotentHint: true },
+    invoking: 'Forgetting GrayMatter memory',
+    invoked: 'GrayMatter memory forgotten'
+  }),
+  defineTool({
     name: 'retrieval_receipt_get',
     title: 'Get retrieval receipt',
     description: 'Fetch a persisted GrayMatter retrieval receipt by receiptId for audit or debugging.',
@@ -513,17 +780,26 @@ const tools = [
   defineTool({
     name: 'graymatter_semantic_search',
     title: 'Search semantic index',
-    description: 'Search the GrayMatter semantic index directly when RBAC and entitlements permit it.',
+    description: 'Search the semantic index through a plan when planId is supplied, or use the existing direct RBAC/entitlement path otherwise. api-0 derives identity and scope, applies the applicable credit budget, and returns policy-gated results rather than honoring caller approval or tenant overrides.',
     inputSchema: {
       type: 'object',
       properties: {
-        query: { type: 'string' },
+        planId: { type: 'string', minLength: 1, maxLength: 128 },
+        query: { type: 'string', minLength: 1, maxLength: 50000 },
         limit: { type: 'integer', minimum: 1, maximum: 100 },
-        filters: { type: 'object', additionalProperties: true }
+        filters: { type: 'object', additionalProperties: true },
+        idempotencyKey: { type: 'string', maxLength: 200, pattern: '^[A-Za-z0-9._:-]+$' },
+        maxResults: { type: 'integer', minimum: 1, maximum: 50 },
+        objectTypes: { type: 'array', maxItems: 64, items: { type: 'string', maxLength: 256 } },
+        tags: { type: 'array', maxItems: 64, items: { type: 'string', maxLength: 256 } },
+        applicationId: { type: 'string', format: 'uuid' },
+        projectId: { type: 'string', format: 'uuid' },
+        asOf: { type: 'string', format: 'date-time' }
       },
-      required: ['query']
+      required: ['query'],
+      additionalProperties: false
     },
-    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true, idempotentHint: false },
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true, idempotentHint: true },
     invoking: 'Searching semantic index',
     invoked: 'Semantic results ready'
   }),
@@ -962,7 +1238,7 @@ function createGrayMatterMcpServer(options = {}) {
   const lightUsername = options.lightUsername || process.env.GRAYMATTER_LIGHT_USERNAME || 'admin';
   const lightPassword = options.lightPassword || process.env.GRAYMATTER_LIGHT_PASSWORD || '';
   const security = { deploymentMode, allowedOrigins, allowUnsafeHeaderToken, publicApp };
-  const selectedTools = publicApp ? publicTools : tools;
+  const selectedTools = publicApp ? publicTools : selectPrivateToolSet(options);
 
   if (publicApp && !oauthIssuer) {
     throw new Error('GRAYMATTER_OAUTH_ISSUER is required when GRAYMATTER_PUBLIC_APP=true.');
@@ -1117,8 +1393,22 @@ function createRpcContext(options = {}) {
     apiShellProvider,
     replayCommand,
     keychainReader: options.keychainReader || readTokenFromKeychain,
-    widgetDomain
+    widgetDomain,
+    toolSet: selectPrivateToolSet(options)
   };
+}
+
+function selectPrivateToolSet(options = {}) {
+  const retrievalController = parseBoolean(
+    options.retrievalController
+      ?? options.trustedRetrievalController
+      ?? process.env.GRAYMATTER_RETRIEVAL_CONTROLLER
+  );
+  const developerMode = parseBoolean(options.developerMode ?? process.env.GRAYMATTER_DEVELOPER_MODE);
+  if (retrievalController || developerMode) {
+    return tools;
+  }
+  return tools.filter((tool) => !OMEGA_FINE_GRAINED_TOOL_NAMES.has(tool.name));
 }
 
 function startStdioServer(options = {}) {
@@ -1195,6 +1485,9 @@ async function callTool(params, context) {
   if (context.publicApp) {
     return callPublicTool(params, context);
   }
+  if (context.toolSet && !context.toolSet.some((tool) => tool.name === name)) {
+    throw new Error('This tool requires a trusted retrieval-controller or explicit GrayMatter developer mode.');
+  }
   const args = normalizeToolArguments(name, params.arguments);
 
   const execute = async (operation, requestFn) => {
@@ -1253,10 +1546,90 @@ async function callTool(params, context) {
       return execute('memory_retrieve_with_receipt', async () => decorateRetrievalReceiptResult(
         await apiRequest(context, 'POST', 'graymatter-retrieval-receipts', buildRetrievalReceiptPayload(args))
       ));
+    case 'graymatter_omega_query':
+      assertNoPrincipalOverrides(args);
+      requireString(args.query, 'query');
+      return execute('graymatter_omega_query', () => apiRequest(context, 'POST', 'graymatter/omega/query', omegaQueryPayload(args)));
+    case 'graymatter_keyword_search':
+      assertNoPrincipalOverrides(args);
+      requireString(args.planId, 'planId');
+      requireString(args.query, 'query');
+      return execute('graymatter_keyword_search', () => apiRequest(
+        context, 'POST', 'graymatter/omega/tools/keyword-search', omegaSearchPayload(args)
+      ));
+    case 'graymatter_graph_expand':
+      assertNoPrincipalOverrides(args);
+      requireString(args.planId, 'planId');
+      requireString(args.query, 'query');
+      return execute('graymatter_graph_expand', () => apiRequest(
+        context, 'POST', 'graymatter/omega/tools/graph-expand', pickDefined({
+          ...omegaSearchPayload(args),
+          relationshipTypes: args.relationshipTypes,
+          relationshipRoles: args.relationshipRoles,
+          relationshipSources: args.relationshipSources,
+          relationshipTargets: args.relationshipTargets,
+          graphPaths: args.graphPaths,
+          direction: args.direction,
+          maxHops: args.maxHops,
+          maxNodes: args.maxNodes,
+          maxEdges: args.maxEdges,
+          validFrom: args.validFrom,
+          validTo: args.validTo
+        })
+      ));
+    case 'graymatter_chunk_read':
+      assertNoPrincipalOverrides(args);
+      requireOmegaReadInputs(args);
+      return execute('graymatter_chunk_read', () => apiRequest(
+        context, 'POST', 'graymatter/omega/tools/chunk-read', omegaReadPayload(args)
+      ));
+    case 'graymatter_target_read':
+      assertNoPrincipalOverrides(args);
+      requireOmegaReadInputs(args);
+      return execute('graymatter_target_read', () => apiRequest(
+        context, 'POST', 'graymatter/omega/tools/target-read', omegaReadPayload(args)
+      ));
+    case 'graymatter_schema_inspect':
+      assertNoPrincipalOverrides(args);
+      requireString(args.planId, 'planId');
+      requireString(args.query, 'query');
+      return execute('graymatter_schema_inspect', () => apiRequest(
+        context, 'POST', 'graymatter/omega/tools/schema-inspect', { planId: args.planId, query: args.query }
+      ));
+    case 'graymatter_context_hydrate':
+      assertNoPrincipalOverrides(args);
+      requireString(args.contextPageRef, 'contextPageRef');
+      return execute('graymatter_context_hydrate', () => apiRequest(
+        context, 'POST', 'graymatter_ops/context_page/hydrate', pickDefined({
+          contextPageRef: args.contextPageRef,
+          pointerRefs: args.pointerRefs,
+          maxItems: args.maxItems,
+          traceId: args.traceId,
+          reason: args.reason
+        })
+      ));
+    case 'graymatter_trajectory_inspect':
+      assertNoPrincipalOverrides(args);
+      requireString(args.trajectoryId, 'trajectoryId');
+      return execute('graymatter_trajectory_inspect', () => apiRequest(
+        context, 'GET', `graymatter/omega/trajectories/${encodeURIComponent(args.trajectoryId)}`
+      ));
+    case 'graymatter_evaluate_outcome':
+      assertNoPrincipalOverrides(args);
+      requireString(args.trajectoryId, 'trajectoryId');
+      requireString(args.outcome, 'outcome');
+      return execute('graymatter_evaluate_outcome', () => apiRequest(
+        context,
+        'POST',
+        `graymatter/omega/trajectories/${encodeURIComponent(args.trajectoryId)}/outcome`,
+        omegaOutcomePayload(args)
+      ));
+    case 'graymatter_remember':
     case 'omega_remember':
+      assertNoPrincipalOverrides(args);
       requireString(args.text, 'text');
       requireString(args.idempotencyKey, 'idempotencyKey');
-      return execute('omega_remember', () => apiRequest(context, 'POST', 'graymatter/omega/remember', pickDefined({
+      return execute(name, () => apiRequest(context, 'POST', 'graymatter/omega/remember', pickDefined({
         text: args.text,
         type: args.type,
         title: args.title,
@@ -1264,16 +1637,11 @@ async function callTool(params, context) {
         sourceChannel: args.sourceChannel,
         idempotencyKey: args.idempotencyKey
       })));
+    case 'graymatter_omega_plan':
     case 'omega_plan':
+      assertNoPrincipalOverrides(args);
       requireString(args.query, 'query');
-      return execute('omega_plan', () => apiRequest(context, 'POST', 'graymatter/omega/plan', pickDefined({
-        query: args.query,
-        mode: args.mode,
-        idempotencyKey: args.idempotencyKey,
-        asOf: args.asOf,
-        budgets: args.budgets,
-        includeEvaluator: args.includeEvaluator
-      })));
+      return execute(name, () => apiRequest(context, 'POST', 'graymatter/omega/plan', omegaQueryPayload(args)));
     case 'omega_resolve_domains':
       assertNoPrincipalOverrides(args);
       requireString(args.planId, 'planId');
@@ -1290,25 +1658,23 @@ async function callTool(params, context) {
           allowRemoteExpansion: args.allowRemoteExpansion
         })
       ));
+    case 'graymatter_recall':
     case 'omega_recall':
+      assertNoPrincipalOverrides(args);
       requireString(args.query, 'query');
-      return execute('omega_recall', () => apiRequest(context, 'POST', 'graymatter/omega/recall', pickDefined({
-        query: args.query,
-        mode: args.mode,
-        idempotencyKey: args.idempotencyKey,
-        asOf: args.asOf,
-        budgets: args.budgets,
-        includeEvaluator: args.includeEvaluator
-      })));
+      return execute(name, () => apiRequest(context, 'POST', 'graymatter/omega/recall', omegaQueryPayload(args)));
+    case 'graymatter_forget':
     case 'omega_forget':
+      assertNoPrincipalOverrides(args);
       requireString(args.memoryRef, 'memoryRef');
       requireString(args.idempotencyKey, 'idempotencyKey');
-      return execute('omega_forget', () => apiRequest(context, 'POST', 'graymatter/omega/forget', pickDefined({
+      return execute(name, () => apiRequest(context, 'POST', 'graymatter/omega/forget', pickDefined({
         memoryRef: args.memoryRef,
         idempotencyKey: args.idempotencyKey,
         reason: args.reason
       })));
     case 'omega_trajectory_get':
+      assertNoPrincipalOverrides(args);
       requireString(args.trajectoryId, 'trajectoryId');
       return execute('omega_trajectory_get', () => apiRequest(
         context,
@@ -1316,12 +1682,14 @@ async function callTool(params, context) {
         `graymatter/omega/trajectories/${encodeURIComponent(args.trajectoryId)}`
       ));
     case 'omega_evaluate':
+      assertNoPrincipalOverrides(args);
       requireString(args.trajectoryId, 'trajectoryId');
       return execute('omega_evaluate', () => apiRequest(context, 'POST', 'graymatter/omega/evaluate', pickDefined({
         trajectoryId: args.trajectoryId,
         profile: args.profile
       })));
     case 'omega_outcome':
+      assertNoPrincipalOverrides(args);
       requireString(args.trajectoryId, 'trajectoryId');
       requireString(args.outcome, 'outcome');
       return execute('omega_outcome', () => apiRequest(
@@ -1340,6 +1708,7 @@ async function callTool(params, context) {
         })
       ));
     case 'omega_index_job': {
+      assertNoPrincipalOverrides(args);
       requireString(args.operation, 'operation');
       const operation = args.operation;
       if (!['estimate', 'start', 'get', 'cancel'].includes(operation)) {
@@ -1362,6 +1731,7 @@ async function callTool(params, context) {
       })));
     }
     case 'omega_retrieval_run': {
+      assertNoPrincipalOverrides(args);
       requireString(args.operation, 'operation');
       const operation = args.operation;
       if (!['start', 'get', 'cancel', 'resume'].includes(operation)) {
@@ -1413,7 +1783,17 @@ async function callTool(params, context) {
     case 'graymatter_status':
       return execute('graymatter_status', () => apiRequest(context, 'GET', grayMatterStatusEndpoint(args.surface)));
     case 'graymatter_semantic_search':
+      assertNoPrincipalOverrides(args);
       requireString(args.query, 'query');
+      if (args.planId) {
+        requireString(args.planId, 'planId');
+        return execute('graymatter_semantic_search', () => apiRequest(
+          context,
+          'POST',
+          'graymatter/omega/tools/semantic-search',
+          omegaSearchPayload({ ...args, maxResults: args.maxResults ?? args.limit })
+        ));
+      }
       return execute('graymatter_semantic_search', () => apiRequest(context, 'POST', 'memory/semantic-index/search', pickDefined({
         query: args.query,
         limit: args.limit,
@@ -1699,6 +2079,14 @@ function queryArgumentTool(name) {
   return [
     'memory_query',
     'memory_retrieve_with_receipt',
+    'graymatter_recall',
+    'graymatter_omega_plan',
+    'graymatter_omega_query',
+    'graymatter_keyword_search',
+    'graymatter_graph_expand',
+    'graymatter_chunk_read',
+    'graymatter_target_read',
+    'graymatter_schema_inspect',
     'omega_recall',
     'graymatter_retrieval_context',
     'graymatter_invariant_preflight',
@@ -3066,6 +3454,64 @@ function pickDefined(values) {
   return Object.fromEntries(
     Object.entries(values).filter(([, value]) => value !== undefined && value !== null && String(value).length > 0)
   );
+}
+
+function omegaQueryPayload(args) {
+  return pickDefined({
+    query: args.query,
+    mode: args.mode,
+    idempotencyKey: args.idempotencyKey,
+    asOf: args.asOf,
+    budgets: args.budgets,
+    includeEvaluator: args.includeEvaluator
+  });
+}
+
+function omegaSearchPayload(args) {
+  return pickDefined({
+    planId: args.planId,
+    query: args.query,
+    idempotencyKey: args.idempotencyKey,
+    maxResults: args.maxResults,
+    objectTypes: args.objectTypes,
+    tags: args.tags,
+    applicationId: args.applicationId,
+    projectId: args.projectId,
+    asOf: args.asOf
+  });
+}
+
+function requireOmegaReadInputs(args) {
+  requireString(args.planId, 'planId');
+  requireString(args.query, 'query');
+  requireString(args.searchReceiptRef, 'searchReceiptRef');
+  requireString(args.sourceRef, 'sourceRef');
+}
+
+function omegaReadPayload(args) {
+  return pickDefined({
+    planId: args.planId,
+    query: args.query,
+    searchReceiptRef: args.searchReceiptRef,
+    sourceRef: args.sourceRef,
+    idempotencyKey: args.idempotencyKey,
+    byteOffset: args.byteOffset,
+    maxBytes: args.maxBytes,
+    maxTokens: args.maxTokens
+  });
+}
+
+function omegaOutcomePayload(args) {
+  return pickDefined({
+    outcome: args.outcome,
+    outcomeRef: args.outcomeRef,
+    workflowExecutionRef: args.workflowExecutionRef,
+    actionRef: args.actionRef,
+    testRef: args.testRef,
+    ratingScore: args.ratingScore,
+    correctionHash: args.correctionHash,
+    outcomeHash: args.outcomeHash
+  });
 }
 
 function normalizeEntityCreatePayload(entityType, body) {

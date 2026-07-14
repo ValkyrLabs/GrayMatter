@@ -221,11 +221,17 @@ test('stdio mode exposes the GrayMatter MCP tools for Codex plugin launch', asyn
         'omega_outcome',
         'omega_index_job',
         'omega_retrieval_run',
+        'graymatter_remember',
+        'graymatter_recall',
+        'graymatter_omega_plan',
+        'graymatter_omega_query',
+        'graymatter_schema_inspect',
+        'graymatter_trajectory_inspect',
+        'graymatter_forget',
         'retrieval_receipt_get',
         'retrieval_receipt_query',
         'graph_get',
         'graymatter_status',
-        'graymatter_semantic_search',
         'graymatter_semantic_reindex',
         'graymatter_object_graph_shape',
         'graymatter_retrieval_tools',
@@ -430,11 +436,17 @@ test('tools/list exposes the GrayMatter tool surface', async () => {
         'omega_outcome',
         'omega_index_job',
         'omega_retrieval_run',
+        'graymatter_remember',
+        'graymatter_recall',
+        'graymatter_omega_plan',
+        'graymatter_omega_query',
+        'graymatter_schema_inspect',
+        'graymatter_trajectory_inspect',
+        'graymatter_forget',
         'retrieval_receipt_get',
         'retrieval_receipt_query',
         'graph_get',
         'graymatter_status',
-        'graymatter_semantic_search',
         'graymatter_semantic_reindex',
         'graymatter_object_graph_shape',
         'graymatter_retrieval_tools',
@@ -451,6 +463,47 @@ test('tools/list exposes the GrayMatter tool surface', async () => {
     );
   } finally {
     server.close();
+  }
+});
+
+test('default agents receive governed OmegaRAG tools while trusted controllers unlock fine-grained retrieval', async () => {
+  const defaultServer = createGrayMatterMcpServer({ apiBase: 'https://api-0.example.test/v1' });
+  const controllerServer = createGrayMatterMcpServer({
+    apiBase: 'https://api-0.example.test/v1',
+    retrievalController: true
+  });
+  const defaultBaseUrl = await listen(defaultServer);
+  const controllerBaseUrl = await listen(controllerServer);
+
+  try {
+    const defaultListed = await postRpc(defaultBaseUrl, {
+      jsonrpc: '2.0', id: 'default-tools', method: 'tools/list'
+    });
+    const controllerListed = await postRpc(controllerBaseUrl, {
+      jsonrpc: '2.0', id: 'controller-tools', method: 'tools/list'
+    });
+    const defaultNames = defaultListed.body.result.tools.map((tool) => tool.name);
+    const controllerNames = controllerListed.body.result.tools.map((tool) => tool.name);
+
+    for (const coreTool of [
+      'graymatter_omega_query',
+      'graymatter_remember',
+      'graymatter_recall',
+      'graymatter_omega_plan',
+      'graymatter_schema_inspect',
+      'graymatter_trajectory_inspect'
+    ]) {
+      assert.ok(defaultNames.includes(coreTool));
+    }
+    assert.equal(defaultNames.includes('graymatter_keyword_search'), false);
+    assert.equal(defaultNames.includes('graymatter_semantic_search'), false);
+    assert.equal(defaultNames.includes('graymatter_context_hydrate'), false);
+    assert.ok(controllerNames.includes('graymatter_keyword_search'));
+    assert.ok(controllerNames.includes('graymatter_semantic_search'));
+    assert.ok(controllerNames.includes('graymatter_context_hydrate'));
+  } finally {
+    defaultServer.close();
+    controllerServer.close();
   }
 });
 
@@ -782,6 +835,96 @@ test('OmegaRAG MCP tools use governed plan, recall, index jobs, forget, trajecto
   }
 });
 
+test('portable OmegaRAG agent ABI routes bounded plan-authorized steps and rejects identity overrides', async () => {
+  const expectedPaths = new Set([
+    '/v1/graymatter/omega/remember',
+    '/v1/graymatter/omega/recall',
+    '/v1/graymatter/omega/plan',
+    '/v1/graymatter/omega/query',
+    '/v1/graymatter/omega/tools/keyword-search',
+    '/v1/graymatter/omega/tools/semantic-search',
+    '/v1/graymatter/omega/tools/graph-expand',
+    '/v1/graymatter/omega/tools/chunk-read',
+    '/v1/graymatter/omega/tools/target-read',
+    '/v1/graymatter/omega/tools/schema-inspect',
+    '/v1/graymatter_ops/context_page/hydrate',
+    '/v1/graymatter/omega/trajectories/traj-1',
+    '/v1/graymatter/omega/trajectories/traj-1/outcome',
+    '/v1/graymatter/omega/forget'
+  ]);
+  const fakeApi = createFakeApi(async (_req, res, record) => {
+    assert.ok(expectedPaths.has(record.path), `Unexpected ${record.method} ${record.path}`);
+    if (record.body) {
+      assert.equal(record.body.ownerId, undefined);
+      assert.equal(record.body.tenantId, undefined);
+      assert.equal(record.body.organizationId, undefined);
+      assert.equal(record.body.acl, undefined);
+    }
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ endpoint: record.path, method: record.method, accepted: true }));
+  });
+
+  const apiBase = await listen(fakeApi.server);
+  const server = createGrayMatterMcpServer({ apiBase: `${apiBase}/v1`, retrievalController: true });
+  const baseUrl = await listen(server);
+  const planArguments = { planId: 'plan-1', query: 'what changed', idempotencyKey: 'plan-step-1' };
+  const readArguments = {
+    planId: 'plan-1',
+    query: 'what changed',
+    searchReceiptRef: 'search-1',
+    sourceRef: 'source-1',
+    maxTokens: 512
+  };
+
+  try {
+    const calls = [
+      { name: 'graymatter_remember', arguments: { text: 'remember this decision', type: 'decision', idempotencyKey: 'remember-1' } },
+      { name: 'graymatter_recall', arguments: { query: 'what changed', mode: 'BALANCED', idempotencyKey: 'recall-1' } },
+      { name: 'graymatter_omega_plan', arguments: { query: 'what changed', mode: 'DEEP', idempotencyKey: 'plan-1' } },
+      { name: 'graymatter_omega_query', arguments: { query: 'what changed', mode: 'BALANCED', idempotencyKey: 'query-1' } },
+      { name: 'graymatter_keyword_search', arguments: planArguments },
+      { name: 'graymatter_semantic_search', arguments: { ...planArguments, maxResults: 7 } },
+      { name: 'graymatter_graph_expand', arguments: { ...planArguments, maxHops: 2, maxNodes: 12, maxEdges: 24 } },
+      { name: 'graymatter_chunk_read', arguments: readArguments },
+      { name: 'graymatter_target_read', arguments: readArguments },
+      { name: 'graymatter_schema_inspect', arguments: { planId: 'plan-1', query: 'what changed' } },
+      { name: 'graymatter_context_hydrate', arguments: { contextPageRef: 'context-1', pointerRefs: ['ptr-1'], maxItems: 1 } },
+      { name: 'graymatter_trajectory_inspect', arguments: { trajectoryId: 'traj-1' } },
+      { name: 'graymatter_evaluate_outcome', arguments: { trajectoryId: 'traj-1', outcome: 'success', workflowExecutionRef: 'wf-1' } },
+      { name: 'graymatter_forget', arguments: { memoryRef: '11111111-1111-4111-8111-111111111111', idempotencyKey: 'forget-1' } }
+    ];
+
+    for (const [index, tool] of calls.entries()) {
+      const result = await postRpc(baseUrl, {
+        jsonrpc: '2.0',
+        id: `portable-omega-${index}`,
+        method: 'tools/call',
+        params: tool
+      });
+      assert.equal(result.status, 200);
+      assert.equal(JSON.parse(result.body.result.content[0].text).accepted, true);
+    }
+
+    const requestCount = fakeApi.requests.length;
+    const denied = await postRpc(baseUrl, {
+      jsonrpc: '2.0',
+      id: 'portable-omega-denied',
+      method: 'tools/call',
+      params: {
+        name: 'graymatter_keyword_search',
+        arguments: { ...planArguments, ownerId: 'attempted-override' }
+      }
+    });
+    assert.equal(denied.status, 200);
+    assert.match(denied.body.error.message, /Identity, tenant, organization, owner, role, permission, and ACL overrides are not accepted/);
+    assert.equal(fakeApi.requests.length, requestCount);
+    assert.deepEqual(new Set(fakeApi.requests.map((record) => record.path)), expectedPaths);
+  } finally {
+    server.close();
+    fakeApi.server.close();
+  }
+});
+
 test('memory_read, memory_query, and graph_get route to api-0', async () => {
   const fakeApi = createFakeApi(async (_req, res, record) => {
     res.writeHead(200, { 'content-type': 'application/json' });
@@ -930,7 +1073,7 @@ test('GrayMatter capability tools expose the server-side memory and graph power 
   });
 
   const apiBase = await listen(fakeApi.server);
-  const server = createGrayMatterMcpServer({ apiBase: `${apiBase}/v1` });
+  const server = createGrayMatterMcpServer({ apiBase: `${apiBase}/v1`, retrievalController: true });
   const baseUrl = await listen(server);
 
   try {

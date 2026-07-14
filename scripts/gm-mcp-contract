@@ -5,10 +5,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 LEGACY_CONTRACT_PATH="${ROOT_DIR}/references/mcp/memory-tool-contract.v1.json"
 PORTABLE_CONTRACT_PATH="${ROOT_DIR}/references/contracts/mcp/graymatter_mcp_tools_v1.json"
+OMEGA_AGENT_ABI_CONTRACT_PATH="${ROOT_DIR}/references/contracts/mcp/graymatter_omegarag_agent_abi_v1.json"
 mode="portable"
 if [[ $# -gt 0 ]]; then
   case "$1" in
-    portable|legacy)
+    portable|legacy|omega|agent-abi)
       mode="$1"
       shift
       ;;
@@ -18,6 +19,10 @@ if [[ $# -gt 0 ]]; then
       ;;
     --mode=legacy)
       mode="legacy"
+      shift
+      ;;
+    --mode=omega|--mode=agent-abi)
+      mode="omega"
       shift
       ;;
   esac
@@ -30,8 +35,11 @@ case "${mode}" in
   legacy)
     CONTRACT_PATH="${LEGACY_CONTRACT_PATH}"
     ;;
+  omega|agent-abi)
+    CONTRACT_PATH="${OMEGA_AGENT_ABI_CONTRACT_PATH}"
+    ;;
   *)
-    printf 'usage: %s [portable|legacy]\n' "$(basename "$0")" >&2
+    printf 'usage: %s [portable|legacy|omega]\n' "$(basename "$0")" >&2
     exit 2
     ;;
 esac

@@ -76,6 +76,7 @@ REQUIRED=(
   examples/graymatter-light-memoryentry.yaml
   references/contracts/mcp/graymatter_mcp_contract_v1.json
   references/contracts/mcp/graymatter_mcp_tools_v1.json
+  references/contracts/mcp/graymatter_omegarag_agent_abi_v1.json
   references/mcp/memory-tool-contract.v1.json
   references/public-release-checklist.md
   references/multi-agent-conventions.md

@@ -31,6 +31,8 @@ The repo-level `.mcp.json` points Codex at `node mcp-server/index.js --stdio`.
 | `VALKYR_AUTH_TOKEN` | Local/private only | none | Bearer token from `scripts/gm-login`. In hosted multi-tenant mode this process-wide fallback is ignored. |
 | `VALKYR_API_BASE` | No | `https://api-0.valkyrlabs.com/v1` | API base to target. Use hosted api-0, a self-hosted api-0, or a local GrayMatter Light ThorAPI instance. |
 | `GRAYMATTER_MCP_MODE` | No | `local-dev` | Deployment mode: `local-dev`, `private-stdio`, `single-tenant`, or `hosted-multi-tenant`. Hosted modes disable wildcard CORS. |
+| `GRAYMATTER_RETRIEVAL_CONTROLLER` | No | `false` | Expose fine-grained OmegaRAG retrieval tools only to a trusted retrieval-controller runtime. api-0 remains the ACL and policy authority. |
+| `GRAYMATTER_DEVELOPER_MODE` | No | `false` | Expose fine-grained OmegaRAG retrieval tools for an intentional developer session. Do not set it for ordinary agent installations. |
 | `GRAYMATTER_ALLOWED_ORIGINS` | Hosted modes | `GRAYMATTER_WIDGET_DOMAIN` | Comma-separated trusted browser origins allowed to receive CORS credentials in hosted/public modes. |
 | `GRAYMATTER_ALLOW_UNSAFE_HEADER_TOKEN` | No | `false` | Explicit override that allows `X-Valkyr-Token` in hosted modes for private testing only. |
 | `GRAYMATTER_LOGIN_COMMAND` | No | `../scripts/gm-login` | Login helper used to refresh process-scoped auth after api-0 returns `SESSION_EXPIRED`. |
@@ -72,6 +74,21 @@ Stdio mode exposes the same JSON-RPC methods over newline-delimited stdin/stdout
 The server also implements `resources/list` and `resources/read` for the Apps SDK overview widget at `ui://graymatter/overview.html`. Tool descriptors include Apps SDK security scheme mirrors, tool invocation status text, and action annotations for review.
 
 ## Available Tools
+
+### OmegaRAG portable agent ABI
+
+`references/contracts/mcp/graymatter_omegarag_agent_abi_v1.json` is the versioned portable ABI for Codex, OpenClaw, ValorIDE, and other agent hosts. Every ABI tool derives identity, tenant, and ACL scope on api-0; callers must never send those fields. The server accounts credit and token use against the retrieval plan or operation budget and treats approval, retry, clarification, and denial as server policy rather than client instructions.
+
+Default agents receive `graymatter_remember`, `graymatter_recall`, `graymatter_omega_plan`, `graymatter_omega_query`, `graymatter_schema_inspect`, `graymatter_trajectory_inspect`, and `graymatter_forget`. The fine-grained retrieval-controller tools—keyword/vector search, graph expansion, chunk/target reads, ContextPage hydration, and outcome evaluation—require a verified retrieval controller or explicit developer mode. Set `GRAYMATTER_RETRIEVAL_CONTROLLER=true` only for a trusted retrieval-controller runtime, or `GRAYMATTER_DEVELOPER_MODE=true` for an intentional developer session; both modes retain api-0 RBAC and policy enforcement.
+
+| Portable tool | Backing API path | Governed behavior |
+| --- | --- | --- |
+| `graymatter_remember` / `graymatter_recall` / `graymatter_omega_plan` / `graymatter_omega_query` / `graymatter_forget` | Canonical `/graymatter/omega/*` paths | Durable memory, plan, retrieval, and retention actions with server-derived tenant/ACL, receipts, trajectory lineage, and credit telemetry. |
+| `graymatter_keyword_search` / `graymatter_semantic_search` / `graymatter_graph_expand` | `POST /graymatter/omega/tools/*` | Plan-authorized, bounded lexical/vector/graph evidence steps; no caller identity or expansion approval override. |
+| `graymatter_schema_inspect` | `POST /graymatter/omega/tools/schema-inspect` | Default plan-authorized inspection of RBAC-visible schema only. |
+| `graymatter_chunk_read` / `graymatter_target_read` | `POST /graymatter/omega/tools/*` | Rechecks receipt-linked ACL visibility and returns bounded redacted evidence only. |
+| `graymatter_context_hydrate` | `POST /graymatter_ops/context_page/hydrate` | Hydrates only canonical ACL-checked ContextPage pointers. |
+| `graymatter_trajectory_inspect` / `graymatter_evaluate_outcome` | `GET /graymatter/omega/trajectories/{id}`, `POST /graymatter/omega/trajectories/{id}/outcome` | Reads redacted trajectory/usage or attaches content-free outcome references. |
 
 | Tool | Backing API path | Description |
 | --- | --- | --- |

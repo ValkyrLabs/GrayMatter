@@ -67,6 +67,16 @@ require jq -e '.mcpServers.graymatter.args == ["mcp-server/index.js", "--stdio"]
   echo "Codex marketplace plugin skill missing" >&2
   exit 1
 }
+for destination in ThorAPI TrustFabric ValorIDE ValkyrAI GridHeim SWARM; do
+  grep -q "\*\*$destination\*\*" "$ROOT/skills/graymatter/SKILL.md" || {
+    echo "Standalone OpenClaw skill is missing $destination routing guidance" >&2
+    exit 1
+  }
+  grep -q "\*\*$destination\*\*" "$ROOT/plugins/graymatter/skills/graymatter/SKILL.md" || {
+    echo "Codex marketplace skill is missing $destination routing guidance" >&2
+    exit 1
+  }
+done
 [[ -f "$ROOT/plugins/graymatter/skills/graymatter-analytics/SKILL.md" ]] || {
   echo "Codex marketplace plugin analytics skill missing" >&2
   exit 1

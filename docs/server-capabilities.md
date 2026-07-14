@@ -141,9 +141,11 @@ GrayMatter MCP exposes direct tools for:
 - Live OpenAPI schema summary
 
 The high-level OmegaRAG tools are additive: use `omega_remember` for durable
-formation, `omega_recall` for the governed ContextPage/receipt/trajectory
-envelope, and `omega_forget` for scoped deletion proof. All three forward
-operation inputs only; api-0 derives tenant, principal, owner, ACL, and
-provider scope.
+formation, `omega_plan` for a content-free deterministic plan, `omega_recall`
+for the governed ContextPage/receipt/trajectory envelope, `omega_forget` for
+scoped deletion proof, `omega_trajectory_get` for redacted trajectory
+inspection, and `omega_evaluate` for durable deterministic evaluation. All
+forward operation inputs only; api-0 derives tenant, principal, owner, ACL,
+and provider scope.
 
 The generic entity tools are intentional: api-0 exposes a large business schema and the agent should operate against the current live schema rather than a stale hard-coded list.

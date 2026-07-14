@@ -259,6 +259,26 @@ const tools = [
     invoked: 'OmegaRAG memory remembered'
   }),
   defineTool({
+    name: 'omega_plan',
+    title: 'Plan with OmegaRAG',
+    description: 'Create or replay a deterministic, content-free OmegaRAG retrieval plan. The server derives identity, tenant, schema, ACL, policy, and bounded budgets.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', minLength: 1, maxLength: 50000 },
+        mode: { type: 'string', enum: ['FAST', 'BALANCED', 'DEEP', 'AUDIT', 'PRIVATE'] },
+        idempotencyKey: { type: 'string', maxLength: 200, pattern: '^[A-Za-z0-9._:-]+$' },
+        asOf: { type: 'string', format: 'date-time' },
+        budgets: { type: 'object', additionalProperties: true },
+        includeEvaluator: { type: 'boolean' }
+      },
+      required: ['query']
+    },
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true, idempotentHint: true },
+    invoking: 'Planning OmegaRAG retrieval',
+    invoked: 'OmegaRAG plan ready'
+  }),
+  defineTool({
     name: 'omega_recall',
     title: 'Recall with OmegaRAG',
     description: 'Run one bounded tenant-scoped OmegaRAG memory recall. The server derives identity and ACL scope and returns a ContextPage, durable receipt, trajectory reference, answer policy, and bounded usage envelope.',
@@ -294,6 +314,35 @@ const tools = [
     annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true, idempotentHint: true },
     invoking: 'Forgetting memory with OmegaRAG',
     invoked: 'OmegaRAG memory forgotten'
+  }),
+  defineTool({
+    name: 'omega_trajectory_get',
+    title: 'Inspect OmegaRAG trajectory',
+    description: 'Read one authorized redacted OmegaRAG trajectory and its ordered tool steps. Content and identity scope remain server-authoritative.',
+    inputSchema: {
+      type: 'object',
+      properties: { trajectoryId: { type: 'string', minLength: 1, maxLength: 128 } },
+      required: ['trajectoryId']
+    },
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true, idempotentHint: true },
+    invoking: 'Inspecting OmegaRAG trajectory',
+    invoked: 'OmegaRAG trajectory ready'
+  }),
+  defineTool({
+    name: 'omega_evaluate',
+    title: 'Evaluate OmegaRAG trajectory',
+    description: 'Run or replay the deterministic policy-aware evaluator for one authorized OmegaRAG trajectory.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        trajectoryId: { type: 'string', minLength: 1, maxLength: 128 },
+        profile: { type: 'string', enum: ['STANDARD', 'MEMORY_RECALL', 'CODE', 'WORKFLOW_ACTION', 'BUSINESS_ANALYSIS', 'AUDIT', 'RESEARCH'] }
+      },
+      required: ['trajectoryId']
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true, idempotentHint: true },
+    invoking: 'Evaluating OmegaRAG trajectory',
+    invoked: 'OmegaRAG evaluation ready'
   }),
   defineTool({
     name: 'retrieval_receipt_get',
@@ -1128,6 +1177,16 @@ async function callTool(params, context) {
         sourceChannel: args.sourceChannel,
         idempotencyKey: args.idempotencyKey
       })));
+    case 'omega_plan':
+      requireString(args.query, 'query');
+      return execute('omega_plan', () => apiRequest(context, 'POST', 'graymatter/omega/plan', pickDefined({
+        query: args.query,
+        mode: args.mode,
+        idempotencyKey: args.idempotencyKey,
+        asOf: args.asOf,
+        budgets: args.budgets,
+        includeEvaluator: args.includeEvaluator
+      })));
     case 'omega_recall':
       requireString(args.query, 'query');
       return execute('omega_recall', () => apiRequest(context, 'POST', 'graymatter/omega/recall', pickDefined({
@@ -1145,6 +1204,19 @@ async function callTool(params, context) {
         memoryRef: args.memoryRef,
         idempotencyKey: args.idempotencyKey,
         reason: args.reason
+      })));
+    case 'omega_trajectory_get':
+      requireString(args.trajectoryId, 'trajectoryId');
+      return execute('omega_trajectory_get', () => apiRequest(
+        context,
+        'GET',
+        `graymatter/omega/trajectories/${encodeURIComponent(args.trajectoryId)}`
+      ));
+    case 'omega_evaluate':
+      requireString(args.trajectoryId, 'trajectoryId');
+      return execute('omega_evaluate', () => apiRequest(context, 'POST', 'graymatter/omega/evaluate', pickDefined({
+        trajectoryId: args.trajectoryId,
+        profile: args.profile
       })));
     case 'retrieval_receipt_get':
       requireString(args.receiptId, 'receiptId');

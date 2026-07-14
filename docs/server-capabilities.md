@@ -147,7 +147,10 @@ scoped deletion proof, `omega_trajectory_get` for redacted trajectory
 inspection, `omega_evaluate` for durable deterministic evaluation,
 `omega_outcome` for content-free workflow/action/test outcome linkage, and
 `omega_index_job` for estimate/start/inspect/cancel of durable tenant-scoped
-semantic-index jobs. All
+semantic-index jobs. `omega_retrieval_run` starts, inspects, safely cancels,
+or hash-verifiably resumes a tenant-scoped deep retrieval run; raw query text
+is forwarded only for active execution and is never retained in durable run
+state. All
 forward operation inputs only; api-0 derives tenant, principal, owner, ACL,
 and provider scope.
 

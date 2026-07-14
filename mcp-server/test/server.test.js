@@ -219,6 +219,7 @@ test('stdio mode exposes the GrayMatter MCP tools for Codex plugin launch', asyn
         'omega_evaluate',
         'omega_outcome',
         'omega_index_job',
+        'omega_retrieval_run',
         'retrieval_receipt_get',
         'retrieval_receipt_query',
         'graph_get',
@@ -426,6 +427,7 @@ test('tools/list exposes the GrayMatter tool surface', async () => {
         'omega_evaluate',
         'omega_outcome',
         'omega_index_job',
+        'omega_retrieval_run',
         'retrieval_receipt_get',
         'retrieval_receipt_query',
         'graph_get',
@@ -528,6 +530,28 @@ test('OmegaRAG MCP tools use governed plan, recall, index jobs, forget, trajecto
     }
     if (record.path === '/v1/graymatter/omega/index-jobs/job-1/cancel' && record.method === 'POST') {
       res.end(JSON.stringify({ jobId: 'job-1', state: 'CANCELED', replayed: false }));
+      return;
+    }
+    if (record.path === '/v1/graymatter/omega/runs' && record.method === 'POST') {
+      assert.equal(record.body.query, 'deep retrieval');
+      assert.equal(record.body.idempotencyKey, 'run-1');
+      assert.equal(record.body.mode, 'DEEP');
+      assert.equal(record.body.ownerId, undefined);
+      assert.equal(record.body.tenantId, undefined);
+      res.end(JSON.stringify({ run: { runId: 'run-1', state: 'QUEUED' }, replayed: false }));
+      return;
+    }
+    if (record.path === '/v1/graymatter/omega/runs/run-1' && record.method === 'GET') {
+      res.end(JSON.stringify({ run: { runId: 'run-1', state: 'QUEUED' }, replayed: false }));
+      return;
+    }
+    if (record.path === '/v1/graymatter/omega/runs/run-1/cancel' && record.method === 'POST') {
+      res.end(JSON.stringify({ run: { runId: 'run-1', state: 'CANCELED' }, replayed: false }));
+      return;
+    }
+    if (record.path === '/v1/graymatter/omega/runs/run-1/resume' && record.method === 'POST') {
+      assert.deepEqual(record.body, { query: 'deep retrieval' });
+      res.end(JSON.stringify({ run: { runId: 'run-1', state: 'QUEUED' }, replayed: false }));
       return;
     }
     throw new Error(`Unexpected ${record.method} ${record.path}`);
@@ -634,6 +658,26 @@ test('OmegaRAG MCP tools use governed plan, recall, index jobs, forget, trajecto
       method: 'tools/call',
       params: { name: 'omega_index_job', arguments: { operation: 'cancel', jobId: 'job-1' } }
     });
+    const runStart = await postRpc(baseUrl, {
+      jsonrpc: '2.0', id: 'omega-run-start', method: 'tools/call',
+      params: { name: 'omega_retrieval_run', arguments: {
+        operation: 'start', query: 'deep retrieval', mode: 'DEEP', idempotencyKey: 'run-1'
+      } }
+    });
+    const runGet = await postRpc(baseUrl, {
+      jsonrpc: '2.0', id: 'omega-run-get', method: 'tools/call',
+      params: { name: 'omega_retrieval_run', arguments: { operation: 'get', runId: 'run-1' } }
+    });
+    const runCancel = await postRpc(baseUrl, {
+      jsonrpc: '2.0', id: 'omega-run-cancel', method: 'tools/call',
+      params: { name: 'omega_retrieval_run', arguments: { operation: 'cancel', runId: 'run-1' } }
+    });
+    const runResume = await postRpc(baseUrl, {
+      jsonrpc: '2.0', id: 'omega-run-resume', method: 'tools/call',
+      params: { name: 'omega_retrieval_run', arguments: {
+        operation: 'resume', runId: 'run-1', query: 'deep retrieval'
+      } }
+    });
 
     assert.deepEqual(JSON.parse(remember.body.result.content[0].text), {
       memoryRef: 'mem-1', receiptRef: 'rr-remember-1', replayed: false
@@ -668,7 +712,19 @@ test('OmegaRAG MCP tools use governed plan, recall, index jobs, forget, trajecto
     assert.deepEqual(JSON.parse(cancel.body.result.content[0].text), {
       jobId: 'job-1', state: 'CANCELED', replayed: false
     });
-    assert.equal(fakeApi.requests.length, 11);
+    assert.deepEqual(JSON.parse(runStart.body.result.content[0].text), {
+      run: { runId: 'run-1', state: 'QUEUED' }, replayed: false
+    });
+    assert.deepEqual(JSON.parse(runGet.body.result.content[0].text), {
+      run: { runId: 'run-1', state: 'QUEUED' }, replayed: false
+    });
+    assert.deepEqual(JSON.parse(runCancel.body.result.content[0].text), {
+      run: { runId: 'run-1', state: 'CANCELED' }, replayed: false
+    });
+    assert.deepEqual(JSON.parse(runResume.body.result.content[0].text), {
+      run: { runId: 'run-1', state: 'QUEUED' }, replayed: false
+    });
+    assert.equal(fakeApi.requests.length, 15);
   } finally {
     server.close();
     fakeApi.server.close();

@@ -389,6 +389,29 @@ const tools = [
     invoked: 'OmegaRAG index job ready'
   }),
   defineTool({
+    name: 'omega_retrieval_run',
+    title: 'Manage OmegaRAG retrieval run',
+    description: 'Start, inspect, cancel, or hash-verified resume of a durable tenant-scoped OmegaRAG deep retrieval run. The adapter forwards only operation inputs; api-0 derives identity, tenant, ACL scope, and provider access while durable run state remains content-free.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        operation: { type: 'string', enum: ['start', 'get', 'cancel', 'resume'] },
+        runId: { type: 'string', minLength: 1, maxLength: 128 },
+        query: { type: 'string', minLength: 1, maxLength: 50000 },
+        mode: { type: 'string', enum: ['FAST', 'BALANCED', 'DEEP', 'AUDIT', 'PRIVATE'] },
+        idempotencyKey: { type: 'string', minLength: 1, maxLength: 200, pattern: '^[A-Za-z0-9._:-]+$' },
+        asOf: { type: 'string', format: 'date-time' },
+        budgets: { type: 'object' },
+        includeEvaluator: { type: 'boolean' }
+      },
+      required: ['operation'],
+      additionalProperties: false
+    },
+    annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true, idempotentHint: true },
+    invoking: 'Managing OmegaRAG retrieval run',
+    invoked: 'OmegaRAG retrieval run ready'
+  }),
+  defineTool({
     name: 'retrieval_receipt_get',
     title: 'Get retrieval receipt',
     description: 'Fetch a persisted GrayMatter retrieval receipt by receiptId for audit or debugging.',
@@ -1300,6 +1323,42 @@ async function callTool(params, context) {
         dryRun: operation === 'estimate' ? true : args.dryRun,
         idempotencyKey: args.idempotencyKey,
         targetTypes: args.targetTypes
+      })));
+    }
+    case 'omega_retrieval_run': {
+      requireString(args.operation, 'operation');
+      const operation = args.operation;
+      if (!['start', 'get', 'cancel', 'resume'].includes(operation)) {
+        throw new Error('operation must be one of start, get, cancel, or resume');
+      }
+      if (operation === 'get' || operation === 'cancel') {
+        requireString(args.runId, 'runId');
+        const suffix = operation === 'cancel' ? '/cancel' : '';
+        return execute('omega_retrieval_run', () => apiRequest(
+          context,
+          operation === 'get' ? 'GET' : 'POST',
+          `graymatter/omega/runs/${encodeURIComponent(args.runId)}${suffix}`
+        ));
+      }
+      if (operation === 'resume') {
+        requireString(args.runId, 'runId');
+        requireString(args.query, 'query');
+        return execute('omega_retrieval_run', () => apiRequest(
+          context,
+          'POST',
+          `graymatter/omega/runs/${encodeURIComponent(args.runId)}/resume`,
+          { query: args.query }
+        ));
+      }
+      requireString(args.query, 'query');
+      requireString(args.idempotencyKey, 'idempotencyKey');
+      return execute('omega_retrieval_run', () => apiRequest(context, 'POST', 'graymatter/omega/runs', pickDefined({
+        query: args.query,
+        mode: args.mode,
+        idempotencyKey: args.idempotencyKey,
+        asOf: args.asOf,
+        budgets: args.budgets,
+        includeEvaluator: args.includeEvaluator
       })));
     }
     case 'retrieval_receipt_get':

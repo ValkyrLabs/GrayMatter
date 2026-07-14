@@ -144,8 +144,10 @@ The high-level OmegaRAG tools are additive: use `omega_remember` for durable
 formation, `omega_plan` for a content-free deterministic plan, `omega_recall`
 for the governed ContextPage/receipt/trajectory envelope, `omega_forget` for
 scoped deletion proof, `omega_trajectory_get` for redacted trajectory
-inspection, `omega_evaluate` for durable deterministic evaluation, and
-`omega_outcome` for content-free workflow/action/test outcome linkage. All
+inspection, `omega_evaluate` for durable deterministic evaluation,
+`omega_outcome` for content-free workflow/action/test outcome linkage, and
+`omega_index_job` for estimate/start/inspect/cancel of durable tenant-scoped
+semantic-index jobs. All
 forward operation inputs only; api-0 derives tenant, principal, owner, ACL,
 and provider scope.
 

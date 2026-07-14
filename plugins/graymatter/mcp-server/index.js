@@ -368,6 +368,27 @@ const tools = [
     invoked: 'OmegaRAG outcome recorded'
   }),
   defineTool({
+    name: 'omega_index_job',
+    title: 'Manage OmegaRAG index job',
+    description: 'Estimate, start, inspect, or cancel a durable tenant-scoped OmegaRAG semantic-index job. The server derives owner, tenant, ACL scope, credits, and idempotency; memory content and caller identity are never sent by this adapter.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        operation: { type: 'string', enum: ['estimate', 'start', 'get', 'cancel'] },
+        mode: { type: 'string', enum: ['estimate', 'full', 'incremental', 'cleanup', 'tombstone'] },
+        dryRun: { type: 'boolean' },
+        idempotencyKey: { type: 'string', minLength: 1, maxLength: 200, pattern: '^[A-Za-z0-9._:-]+$' },
+        targetTypes: { type: 'array', maxItems: 20, items: { type: 'string', maxLength: 128 } },
+        jobId: { type: 'string', minLength: 1, maxLength: 128 }
+      },
+      required: ['operation'],
+      additionalProperties: false
+    },
+    annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true, idempotentHint: true },
+    invoking: 'Managing OmegaRAG index job',
+    invoked: 'OmegaRAG index job ready'
+  }),
+  defineTool({
     name: 'retrieval_receipt_get',
     title: 'Get retrieval receipt',
     description: 'Fetch a persisted GrayMatter retrieval receipt by receiptId for audit or debugging.',
@@ -1259,6 +1280,28 @@ async function callTool(params, context) {
           outcomeHash: args.outcomeHash
         })
       ));
+    case 'omega_index_job': {
+      requireString(args.operation, 'operation');
+      const operation = args.operation;
+      if (!['estimate', 'start', 'get', 'cancel'].includes(operation)) {
+        throw new Error('operation must be one of estimate, start, get, or cancel');
+      }
+      if (operation === 'get' || operation === 'cancel') {
+        requireString(args.jobId, 'jobId');
+        const suffix = operation === 'get' ? '' : '/cancel';
+        return execute('omega_index_job', () => apiRequest(
+          context,
+          operation === 'get' ? 'GET' : 'POST',
+          `graymatter/omega/index-jobs/${encodeURIComponent(args.jobId)}${suffix}`
+        ));
+      }
+      return execute('omega_index_job', () => apiRequest(context, 'POST', 'graymatter/omega/index-jobs', pickDefined({
+        mode: operation === 'estimate' ? 'estimate' : args.mode,
+        dryRun: operation === 'estimate' ? true : args.dryRun,
+        idempotencyKey: args.idempotencyKey,
+        targetTypes: args.targetTypes
+      })));
+    }
     case 'retrieval_receipt_get':
       requireString(args.receiptId, 'receiptId');
       return execute('retrieval_receipt_get', async () => decorateRetrievalReceiptResult(

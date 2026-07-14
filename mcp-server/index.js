@@ -239,6 +239,43 @@ const tools = [
     invoked: 'Retrieval receipt ready'
   }),
   defineTool({
+    name: 'omega_recall',
+    title: 'Recall with OmegaRAG',
+    description: 'Run one bounded tenant-scoped OmegaRAG memory recall. The server derives identity and ACL scope and returns a ContextPage, durable receipt, trajectory reference, answer policy, and bounded usage envelope.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', minLength: 1, maxLength: 50000 },
+        mode: { type: 'string', enum: ['FAST', 'BALANCED', 'DEEP', 'AUDIT', 'PRIVATE'] },
+        idempotencyKey: { type: 'string', maxLength: 200, pattern: '^[A-Za-z0-9._:-]+$' },
+        asOf: { type: 'string', format: 'date-time' },
+        budgets: { type: 'object', additionalProperties: true },
+        includeEvaluator: { type: 'boolean' }
+      },
+      required: ['query']
+    },
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true, idempotentHint: true },
+    invoking: 'Running OmegaRAG recall',
+    invoked: 'OmegaRAG recall ready'
+  }),
+  defineTool({
+    name: 'omega_forget',
+    title: 'Forget with OmegaRAG',
+    description: 'Forget one authorized scoped memory through the canonical OmegaRAG deletion path. The server rechecks generated ACLs, releases semantic-index references, and returns a content-free idempotent deletion receipt.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        memoryRef: { type: 'string', format: 'uuid' },
+        idempotencyKey: { type: 'string', minLength: 1, maxLength: 200, pattern: '^[A-Za-z0-9._:-]+$' },
+        reason: { type: 'string', maxLength: 256 }
+      },
+      required: ['memoryRef', 'idempotencyKey']
+    },
+    annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true, idempotentHint: true },
+    invoking: 'Forgetting memory with OmegaRAG',
+    invoked: 'OmegaRAG memory forgotten'
+  }),
+  defineTool({
     name: 'retrieval_receipt_get',
     title: 'Get retrieval receipt',
     description: 'Fetch a persisted GrayMatter retrieval receipt by receiptId for audit or debugging.',
@@ -1060,6 +1097,24 @@ async function callTool(params, context) {
       return execute('memory_retrieve_with_receipt', async () => decorateRetrievalReceiptResult(
         await apiRequest(context, 'POST', 'graymatter-retrieval-receipts', buildRetrievalReceiptPayload(args))
       ));
+    case 'omega_recall':
+      requireString(args.query, 'query');
+      return execute('omega_recall', () => apiRequest(context, 'POST', 'graymatter/omega/recall', pickDefined({
+        query: args.query,
+        mode: args.mode,
+        idempotencyKey: args.idempotencyKey,
+        asOf: args.asOf,
+        budgets: args.budgets,
+        includeEvaluator: args.includeEvaluator
+      })));
+    case 'omega_forget':
+      requireString(args.memoryRef, 'memoryRef');
+      requireString(args.idempotencyKey, 'idempotencyKey');
+      return execute('omega_forget', () => apiRequest(context, 'POST', 'graymatter/omega/forget', pickDefined({
+        memoryRef: args.memoryRef,
+        idempotencyKey: args.idempotencyKey,
+        reason: args.reason
+      })));
     case 'retrieval_receipt_get':
       requireString(args.receiptId, 'receiptId');
       return execute('retrieval_receipt_get', async () => decorateRetrievalReceiptResult(
@@ -1362,6 +1417,7 @@ function queryArgumentTool(name) {
   return [
     'memory_query',
     'memory_retrieve_with_receipt',
+    'omega_recall',
     'graymatter_retrieval_context',
     'graymatter_invariant_preflight',
     'graymatter_semantic_search'

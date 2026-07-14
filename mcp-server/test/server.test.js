@@ -211,6 +211,8 @@ test('stdio mode exposes the GrayMatter MCP tools for Codex plugin launch', asyn
         'memory_health',
         'memory_replay_deferred',
         'memory_retrieve_with_receipt',
+        'omega_recall',
+        'omega_forget',
         'retrieval_receipt_get',
         'retrieval_receipt_query',
         'graph_get',
@@ -410,6 +412,8 @@ test('tools/list exposes the GrayMatter tool surface', async () => {
         'memory_health',
         'memory_replay_deferred',
         'memory_retrieve_with_receipt',
+        'omega_recall',
+        'omega_forget',
         'retrieval_receipt_get',
         'retrieval_receipt_query',
         'graph_get',
@@ -431,6 +435,70 @@ test('tools/list exposes the GrayMatter tool surface', async () => {
     );
   } finally {
     server.close();
+  }
+});
+
+test('OmegaRAG MCP tools use the governed recall and forget contracts without client identity', async () => {
+  const fakeApi = createFakeApi(async (_req, res, record) => {
+    res.writeHead(200, { 'content-type': 'application/json' });
+    if (record.path === '/v1/graymatter/omega/recall' && record.method === 'POST') {
+      assert.equal(record.body.query, 'what changed');
+      assert.equal(record.body.mode, 'BALANCED');
+      assert.equal(record.body.idempotencyKey, 'recall-1');
+      assert.equal(record.body.ownerId, undefined);
+      assert.equal(record.body.tenantId, undefined);
+      res.end(JSON.stringify({ receiptRef: 'rr-1', trajectoryRef: 'traj-1', scopeHash: 'a'.repeat(64) }));
+      return;
+    }
+    if (record.path === '/v1/graymatter/omega/forget' && record.method === 'POST') {
+      assert.equal(record.body.memoryRef, '11111111-1111-4111-8111-111111111111');
+      assert.equal(record.body.idempotencyKey, 'forget-1');
+      assert.equal(record.body.ownerId, undefined);
+      assert.equal(record.body.tenantId, undefined);
+      res.end(JSON.stringify({ memoryRef: record.body.memoryRef, deletionStatus: 'deleted', replayed: false }));
+      return;
+    }
+    throw new Error(`Unexpected ${record.method} ${record.path}`);
+  });
+
+  const apiBase = await listen(fakeApi.server);
+  const server = createGrayMatterMcpServer({ apiBase: `${apiBase}/v1` });
+  const baseUrl = await listen(server);
+
+  try {
+    const recall = await postRpc(baseUrl, {
+      jsonrpc: '2.0',
+      id: 'omega-recall',
+      method: 'tools/call',
+      params: {
+        name: 'omega_recall',
+        arguments: { query: 'what changed', mode: 'BALANCED', idempotencyKey: 'recall-1' }
+      }
+    });
+    const forget = await postRpc(baseUrl, {
+      jsonrpc: '2.0',
+      id: 'omega-forget',
+      method: 'tools/call',
+      params: {
+        name: 'omega_forget',
+        arguments: {
+          memoryRef: '11111111-1111-4111-8111-111111111111',
+          idempotencyKey: 'forget-1',
+          reason: 'user requested deletion'
+        }
+      }
+    });
+
+    assert.deepEqual(JSON.parse(recall.body.result.content[0].text), {
+      receiptRef: 'rr-1', trajectoryRef: 'traj-1', scopeHash: 'a'.repeat(64)
+    });
+    assert.deepEqual(JSON.parse(forget.body.result.content[0].text), {
+      memoryRef: '11111111-1111-4111-8111-111111111111', deletionStatus: 'deleted', replayed: false
+    });
+    assert.equal(fakeApi.requests.length, 2);
+  } finally {
+    server.close();
+    fakeApi.server.close();
   }
 });
 

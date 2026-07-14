@@ -129,7 +129,7 @@ Operational rules:
 
 GrayMatter MCP exposes direct tools for:
 
-- Memory write/read/query plus receipt-backed `omega_recall` and idempotent `omega_forget`
+- Memory write/read/query plus plan-bound tenant-local `omega_resolve_domains`, receipt-backed `omega_recall`, and idempotent `omega_forget`
 - Retrieval receipts
 - GrayMatter status and capabilities
 - Semantic search and reindex
@@ -141,7 +141,8 @@ GrayMatter MCP exposes direct tools for:
 - Live OpenAPI schema summary
 
 The high-level OmegaRAG tools are additive: use `omega_remember` for durable
-formation, `omega_plan` for a content-free deterministic plan, `omega_recall`
+formation, `omega_plan` for a content-free deterministic plan, `omega_resolve_domains`
+for an ACL-filtered local-first route, `omega_recall`
 for the governed ContextPage/receipt/trajectory envelope, `omega_forget` for
 scoped deletion proof, `omega_trajectory_get` for redacted trajectory
 inspection, `omega_evaluate` for durable deterministic evaluation,

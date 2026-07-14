@@ -213,6 +213,7 @@ test('stdio mode exposes the GrayMatter MCP tools for Codex plugin launch', asyn
         'memory_retrieve_with_receipt',
         'omega_remember',
         'omega_plan',
+        'omega_resolve_domains',
         'omega_recall',
         'omega_forget',
         'omega_trajectory_get',
@@ -421,6 +422,7 @@ test('tools/list exposes the GrayMatter tool surface', async () => {
         'memory_retrieve_with_receipt',
         'omega_remember',
         'omega_plan',
+        'omega_resolve_domains',
         'omega_recall',
         'omega_forget',
         'omega_trajectory_get',
@@ -480,6 +482,28 @@ test('OmegaRAG MCP tools use governed plan, recall, index jobs, forget, trajecto
       assert.equal(record.body.ownerId, undefined);
       assert.equal(record.body.tenantId, undefined);
       res.end(JSON.stringify({ plan: { planId: 'plan-1' }, steps: [], replayed: false, warnings: [] }));
+      return;
+    }
+    if (record.path === '/v1/graymatter/omega/domains/resolve' && record.method === 'POST') {
+      assert.deepEqual(record.body, {
+        planId: 'plan-1',
+        query: 'what changed',
+        requestedDomainRefs: ['11111111-1111-4111-8111-111111111111'],
+        maxDomains: 2,
+        allowRemoteExpansion: false
+      });
+      res.end(JSON.stringify({
+        planRef: 'plan-1',
+        authorizedScopeHash: 'b'.repeat(64),
+        domains: [{ domainRef: '11111111-1111-4111-8111-111111111111', domainKey: 'crm' }],
+        routingStrategy: 'local-first-domain-score/v1',
+        localFirst: true,
+        crossTenantExpansionAllowed: false,
+        remoteExpansionAllowed: false,
+        brokerRequired: false,
+        policyFlags: ['tenant_scope:org_omega'],
+        observedAt: '2026-07-14T18:00:00Z'
+      }));
       return;
     }
     if (record.path === '/v1/graymatter/omega/forget' && record.method === 'POST') {
@@ -589,6 +613,21 @@ test('OmegaRAG MCP tools use governed plan, recall, index jobs, forget, trajecto
         arguments: { query: 'what changed', mode: 'BALANCED', idempotencyKey: 'recall-1' }
       }
     });
+    const domains = await postRpc(baseUrl, {
+      jsonrpc: '2.0',
+      id: 'omega-domains',
+      method: 'tools/call',
+      params: {
+        name: 'omega_resolve_domains',
+        arguments: {
+          planId: 'plan-1',
+          query: 'what changed',
+          requestedDomainRefs: ['11111111-1111-4111-8111-111111111111'],
+          maxDomains: 2,
+          allowRemoteExpansion: false
+        }
+      }
+    });
     const forget = await postRpc(baseUrl, {
       jsonrpc: '2.0',
       id: 'omega-forget',
@@ -685,6 +724,18 @@ test('OmegaRAG MCP tools use governed plan, recall, index jobs, forget, trajecto
     assert.deepEqual(JSON.parse(plan.body.result.content[0].text), {
       plan: { planId: 'plan-1' }, steps: [], replayed: false, warnings: []
     });
+    assert.deepEqual(JSON.parse(domains.body.result.content[0].text), {
+      planRef: 'plan-1',
+      authorizedScopeHash: 'b'.repeat(64),
+      domains: [{ domainRef: '11111111-1111-4111-8111-111111111111', domainKey: 'crm' }],
+      routingStrategy: 'local-first-domain-score/v1',
+      localFirst: true,
+      crossTenantExpansionAllowed: false,
+      remoteExpansionAllowed: false,
+      brokerRequired: false,
+      policyFlags: ['tenant_scope:org_omega'],
+      observedAt: '2026-07-14T18:00:00Z'
+    });
     assert.deepEqual(JSON.parse(recall.body.result.content[0].text), {
       receiptRef: 'rr-1', trajectoryRef: 'traj-1', scopeHash: 'a'.repeat(64)
     });
@@ -724,7 +775,7 @@ test('OmegaRAG MCP tools use governed plan, recall, index jobs, forget, trajecto
     assert.deepEqual(JSON.parse(runResume.body.result.content[0].text), {
       run: { runId: 'run-1', state: 'QUEUED' }, replayed: false
     });
-    assert.equal(fakeApi.requests.length, 15);
+    assert.equal(fakeApi.requests.length, 16);
   } finally {
     server.close();
     fakeApi.server.close();
@@ -1102,6 +1153,40 @@ test('retrieval receipt MCP rejects client identity and ACL overrides before api
           query: 'current pricing',
           tenantId: 'other-tenant',
           filters: { nested: { ownerId: 'forged-owner' } }
+        }
+      }
+    });
+
+    assert.equal(result.status, 200);
+    assert.equal(result.body.error.code, -32000);
+    assert.match(result.body.error.message, /Identity, tenant, organization, owner, role, permission, and ACL overrides/);
+    assert.equal(fakeApi.requests.length, 0);
+  } finally {
+    server.close();
+    fakeApi.server.close();
+  }
+});
+
+test('Omega domain MCP rejects client identity and ACL overrides before api-0', async () => {
+  const fakeApi = createFakeApi(async (_req, _res, record) => {
+    throw new Error(`Unexpected ${record.method} ${record.path}`);
+  });
+  const apiBase = await listen(fakeApi.server);
+  const server = createGrayMatterMcpServer({ apiBase: `${apiBase}/v1` });
+  const baseUrl = await listen(server);
+
+  try {
+    const result = await postRpc(baseUrl, {
+      jsonrpc: '2.0',
+      id: 'domains-forged-scope',
+      method: 'tools/call',
+      params: {
+        name: 'omega_resolve_domains',
+        arguments: {
+          planId: 'plan-1',
+          query: 'current renewal risk',
+          tenantId: 'other-tenant',
+          requestedDomainRefs: ['11111111-1111-4111-8111-111111111111']
         }
       }
     });

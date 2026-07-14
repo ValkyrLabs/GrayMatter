@@ -279,6 +279,26 @@ const tools = [
     invoked: 'OmegaRAG plan ready'
   }),
   defineTool({
+    name: 'omega_resolve_domains',
+    title: 'Resolve OmegaRAG domains',
+    description: 'Resolve the smallest authorized tenant-local retrieval domain route for an existing OmegaRAG plan. The server derives identity and ACL scope; remote expansion is only considered when explicitly requested and policy-authorized.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        planId: { type: 'string', minLength: 1, maxLength: 128 },
+        query: { type: 'string', minLength: 1, maxLength: 50000 },
+        requestedDomainRefs: { type: 'array', maxItems: 32, items: { type: 'string', format: 'uuid' } },
+        maxDomains: { type: 'integer', minimum: 1, maximum: 16 },
+        allowRemoteExpansion: { type: 'boolean' }
+      },
+      required: ['planId', 'query'],
+      additionalProperties: false
+    },
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true, idempotentHint: true },
+    invoking: 'Resolving authorized OmegaRAG domains',
+    invoked: 'OmegaRAG domain route ready'
+  }),
+  defineTool({
     name: 'omega_recall',
     title: 'Recall with OmegaRAG',
     description: 'Run one bounded tenant-scoped OmegaRAG memory recall. The server derives identity and ACL scope and returns a ContextPage, durable receipt, trajectory reference, answer policy, and bounded usage envelope.',
@@ -1254,6 +1274,22 @@ async function callTool(params, context) {
         budgets: args.budgets,
         includeEvaluator: args.includeEvaluator
       })));
+    case 'omega_resolve_domains':
+      assertNoPrincipalOverrides(args);
+      requireString(args.planId, 'planId');
+      requireString(args.query, 'query');
+      return execute('omega_resolve_domains', () => apiRequest(
+        context,
+        'POST',
+        'graymatter/omega/domains/resolve',
+        pickDefined({
+          planId: args.planId,
+          query: args.query,
+          requestedDomainRefs: args.requestedDomainRefs,
+          maxDomains: args.maxDomains,
+          allowRemoteExpansion: args.allowRemoteExpansion
+        })
+      ));
     case 'omega_recall':
       requireString(args.query, 'query');
       return execute('omega_recall', () => apiRequest(context, 'POST', 'graymatter/omega/recall', pickDefined({

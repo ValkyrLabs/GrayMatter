@@ -83,12 +83,13 @@ The server also implements `resources/list` and `resources/read` for the Apps SD
 | `memory_health` | `GET /memory/status` | Check the configured GrayMatter memory backend. |
 | `memory_replay_deferred` | Local replay hook | Replay filesystem-deferred memory writes through `scripts/gm-replay-deferred`. |
 | `memory_retrieve_with_receipt` | `POST /graymatter-retrieval-receipts` | Search memory and return a Retrieval Receipt with quality, provenance, policy, and recommended action signals. |
+| `omega_resolve_domains` | `POST /graymatter/omega/domains/resolve` | Resolve the smallest authorized tenant-local domain route for a plan before a scoped retrieval step. |
 | `retrieval_receipt_get` | `GET /graymatter-retrieval-receipts/{receiptId}` | Fetch one persisted Retrieval Receipt for audit/debug workflows. |
 | `retrieval_receipt_query` | `GET /graymatter-retrieval-receipts` | List receipts by trace, agent, workflow, status, or time range. |
 | `graph_get` | `GET /swarm-ops/graph` | Inspect the SwarmOps shared object graph. |
 | `graymatter_status` | `GET /memory/status`, `/memory/capabilities`, `/memory/usage`, `/memory/semantic-health`, `/graymatter/semantic-index/manifest`, `/graymatter/control`, `/graymatter/admin/control` | Inspect memory, semantic index, entitlement, control, and admin status surfaces. |
 | `graymatter_semantic_search` | `POST /memory/semantic-index/search` | Search the semantic/vector memory index directly. |
-| `graymatter_semantic_reindex` | `POST /memory/semantic-index/reindex` | Request semantic reindexing when RBAC permits it. |
+| `graymatter_semantic_reindex` | `POST /memory/reindex` or `POST /memory/semantic-index/reindex` | Bulk-rebuild current-principal MemoryEntry semantic rows when `sources[]` is omitted, or index explicit source evidence when `sources[]` is provided and RBAC permits it. |
 | `graymatter_object_graph_shape` | `GET /graymatter/object-graph/shape` | Inspect relationship-aware object graph shape. |
 | `graymatter_retrieval_tools` | `GET /graymatter/retrieval-tools` | List server-side retrieval tools and retrieval-context capabilities. |
 | `graymatter_retrieval_context` | `POST /graymatter/retrieval-context` | Build server-side retrieval context for a query. |

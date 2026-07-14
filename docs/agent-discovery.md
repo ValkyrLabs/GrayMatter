@@ -36,9 +36,10 @@ Required tool names:
 
 The current MCP server also exposes richer GrayMatter tools such as retrieval receipts, schema summaries, and graph inspection. Do not rename the portable tools to `store_memory`, `search_memory`, or `compile_context`.
 
-For OmegaRAG-capable hosts, prefer `omega_recall` for a bounded receipt-backed
-ContextPage and `omega_forget` for confirmed scoped deletion; identity and ACL
-scope remain server-derived.
+For OmegaRAG-capable hosts, use `omega_plan`, then `omega_resolve_domains` when
+the agent needs a tenant-local route before a scoped retrieval step. Prefer
+`omega_recall` for a bounded receipt-backed ContextPage and `omega_forget` for
+confirmed scoped deletion; identity and ACL scope remain server-derived.
 
 ## Light mode
 

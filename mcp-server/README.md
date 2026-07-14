@@ -83,6 +83,7 @@ The server also implements `resources/list` and `resources/read` for the Apps SD
 | `memory_health` | `GET /memory/status` | Check the configured GrayMatter memory backend. |
 | `memory_replay_deferred` | Local replay hook | Replay filesystem-deferred memory writes through `scripts/gm-replay-deferred`. |
 | `memory_retrieve_with_receipt` | `POST /graymatter-retrieval-receipts` | Search memory and return a Retrieval Receipt with quality, provenance, policy, and recommended action signals. |
+| `omega_resolve_domains` | `POST /graymatter/omega/domains/resolve` | Resolve the smallest authorized tenant-local domain route for a plan before a scoped retrieval step. |
 | `retrieval_receipt_get` | `GET /graymatter-retrieval-receipts/{receiptId}` | Fetch one persisted Retrieval Receipt for audit/debug workflows. |
 | `retrieval_receipt_query` | `GET /graymatter-retrieval-receipts` | List receipts by trace, agent, workflow, status, or time range. |
 | `graph_get` | `GET /swarm-ops/graph` | Inspect the SwarmOps shared object graph. |

@@ -18,6 +18,7 @@ REQUIRED=(
   docs/agent-discovery.md
   docs/awesome-codex-plugins.md
   docs/graymatter-light.md
+  docs/knowledge-packs.md
   docs/openai-app-directory-submission.md
   docs/privacy-policy.md
   docs/reviewer-test-credentials.md
@@ -43,6 +44,7 @@ REQUIRED=(
   scripts/gm-write
   scripts/gm-record
   scripts/gm-light-smoke
+  scripts/gm-knowledge-pack-import
   scripts/package-graymatter
   scripts/package_graymatter.sh
   scripts/graymatter_api.sh

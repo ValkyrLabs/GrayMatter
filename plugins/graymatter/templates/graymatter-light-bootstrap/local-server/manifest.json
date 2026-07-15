@@ -7,6 +7,7 @@
   "customComponents": [
     "GrayMatterDashboard",
     "MemoryEntryWorkbench",
+    "KnowledgePackImporter",
     "MothershipPromotionBridge",
     "SwarmProtocolBridge",
     "LiveTelemetryPanel"
@@ -20,6 +21,7 @@
     "Principal",
     "UserPreferences",
     "MemoryEntry",
+    "KnowledgePack",
     "Data Workbooks",
     "Mothership Sync",
     "Swarm Protocol",

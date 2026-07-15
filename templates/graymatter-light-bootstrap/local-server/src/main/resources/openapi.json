@@ -2711,10 +2711,178 @@
           }
         }
       }
+    },
+    "/v1/knowledge-packs": {
+      "get": {
+        "tags": ["KnowledgePack"],
+        "summary": "List KnowledgePacks owned by the authenticated principal",
+        "operationId": "listKnowledgePacks",
+        "responses": {
+          "200": {
+            "description": "Owner-scoped KnowledgePack summaries",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {"$ref": "#/components/schemas/KnowledgePackSummary"}
+                }
+              }
+            }
+          },
+          "401": {"description": "Authentication required"}
+        }
+      }
+    },
+    "/v1/knowledge-packs/import": {
+      "post": {
+        "tags": ["KnowledgePack"],
+        "summary": "Verify and import a signed .gmkp archive",
+        "description": "Validates the archive boundary, SHA-256 content digest, Ed25519 manifest signature, counts, and portable authority policy before assigning the imported graph to the authenticated local principal. Source ACL and ownership fields are never transplanted.",
+        "operationId": "importKnowledgePack",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "required": ["file"],
+                "properties": {
+                  "file": {"type": "string", "format": "binary"}
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "KnowledgePack imported or matched idempotently",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/KnowledgePackImportResult"}
+              }
+            }
+          },
+          "400": {"description": "Archive validation failed"},
+          "401": {"description": "Authentication required"},
+          "413": {"description": "Archive exceeds the configured multipart limit"}
+        }
+      }
+    },
+    "/v1/knowledge-packs/{id}": {
+      "get": {
+        "tags": ["KnowledgePack"],
+        "summary": "Get an owner-scoped KnowledgePack summary",
+        "operationId": "getKnowledgePack",
+        "parameters": [{
+          "name": "id",
+          "in": "path",
+          "required": true,
+          "schema": {"type": "string", "format": "uuid"}
+        }],
+        "responses": {
+          "200": {
+            "description": "KnowledgePack summary",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/KnowledgePackSummary"}
+              }
+            }
+          },
+          "401": {"description": "Authentication required"},
+          "404": {"description": "KnowledgePack is absent or owned by another principal"}
+        }
+      }
+    },
+    "/v1/knowledge-packs/{id}/graph": {
+      "get": {
+        "tags": ["KnowledgePack"],
+        "summary": "Read the imported portable object graph",
+        "operationId": "getKnowledgePackGraph",
+        "parameters": [{
+          "name": "id",
+          "in": "path",
+          "required": true,
+          "schema": {"type": "string", "format": "uuid"}
+        }],
+        "responses": {
+          "200": {
+            "description": "Portable objects and edges retained from the verified archive",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/KnowledgePackGraph"}
+              }
+            }
+          },
+          "401": {"description": "Authentication required"},
+          "404": {"description": "KnowledgePack is absent or owned by another principal"}
+        }
+      }
+    },
+    "/v1/knowledge-packs/{id}/archive": {
+      "get": {
+        "tags": ["KnowledgePack"],
+        "summary": "Download the original verified .gmkp archive",
+        "operationId": "downloadKnowledgePackArchive",
+        "parameters": [{
+          "name": "id",
+          "in": "path",
+          "required": true,
+          "schema": {"type": "string", "format": "uuid"}
+        }],
+        "responses": {
+          "200": {
+            "description": "Original KnowledgePack archive",
+            "content": {
+              "application/vnd.valkyrlabs.graymatter-knowledge-pack+zip": {
+                "schema": {"type": "string", "format": "binary"}
+              }
+            }
+          },
+          "401": {"description": "Authentication required"},
+          "404": {"description": "KnowledgePack is absent or owned by another principal"}
+        }
+      }
     }
   },
   "components": {
     "schemas": {
+      "KnowledgePackSummary": {
+        "type": "object",
+        "required": ["id", "sourcePackId", "name", "formatVersion", "contentDigest", "archiveSha256", "trustModel", "identityAssurance", "objectCount", "edgeCount", "blobCount", "memoryEntryCount", "importedAt"],
+        "properties": {
+          "id": {"type": "string", "format": "uuid"},
+          "sourcePackId": {"type": "string", "format": "uuid"},
+          "name": {"type": "string"},
+          "formatVersion": {"type": "string", "example": "1.0"},
+          "contentDigest": {"type": "string", "description": "SHA-256 digest from manifest.json"},
+          "archiveSha256": {"type": "string", "description": "SHA-256 digest of the complete uploaded archive"},
+          "trustModel": {"type": "string", "example": "self-contained-v1"},
+          "identityAssurance": {"type": "string", "example": "unverified-until-publisher-trust-binding"},
+          "objectCount": {"type": "integer", "format": "int32"},
+          "edgeCount": {"type": "integer", "format": "int32"},
+          "blobCount": {"type": "integer", "format": "int32"},
+          "memoryEntryCount": {"type": "integer", "format": "int32"},
+          "importedAt": {"type": "string", "format": "date-time"}
+        }
+      },
+      "KnowledgePackImportResult": {
+        "type": "object",
+        "required": ["knowledgePack", "alreadyImported", "integrityStatus"],
+        "properties": {
+          "knowledgePack": {"$ref": "#/components/schemas/KnowledgePackSummary"},
+          "alreadyImported": {"type": "boolean"},
+          "integrityStatus": {"type": "string", "enum": ["INTEGRITY_VERIFIED"]}
+        }
+      },
+      "KnowledgePackGraph": {
+        "type": "object",
+        "required": ["knowledgePack", "objects", "edges"],
+        "properties": {
+          "knowledgePack": {"$ref": "#/components/schemas/KnowledgePackSummary"},
+          "objects": {"type": "array", "items": {"type": "object", "additionalProperties": true}},
+          "edges": {"type": "array", "items": {"type": "object", "additionalProperties": true}}
+        }
+      },
       "ErrorResponse": {
         "type": "object",
         "properties": {
@@ -35659,6 +35827,7 @@
     "supportedObjects": [
       "MemoryEntry",
       "GrayMatter",
+      "KnowledgePack",
       "SwarmOps",
       "Workbook"
     ]

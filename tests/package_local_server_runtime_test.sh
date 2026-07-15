@@ -52,6 +52,7 @@ if grep -q '^graymatter-local-server/source/target/' "$TMP_DIR/contents.txt"; th
 fi
 
 grep -q '^graymatter-local-server/lib/graymatter-local-server.jar$' "$TMP_DIR/contents.txt"
+grep -q '^graymatter-local-server/KNOWLEDGE_PACKS.md$' "$TMP_DIR/contents.txt"
 
 (
   cd "$TMP_DIR/graymatter-local-server"
@@ -75,6 +76,7 @@ curl -fsS -u "admin:$LOCAL_LOGIN_CODE" "http://localhost:$PORT/v1/api-docs" \
 grep -q '"x-graymatter-mcp-contract"' "$TMP_DIR/api-docs.json"
 grep -q '"/v1/MemoryEntry/query"' "$TMP_DIR/api-docs.json"
 grep -q '"/v1/swarm-ops/graph"' "$TMP_DIR/api-docs.json"
+grep -q '"/v1/knowledge-packs/import"' "$TMP_DIR/api-docs.json"
 
 curl -fsS -u "admin:$LOCAL_LOGIN_CODE" "http://localhost:$PORT/v1/swarm-ops/graph" \
   | grep -q '"protocolVersion":"graymatter-swarm-v0.1"'
@@ -116,6 +118,56 @@ curl -fsS -u "admin:$LOCAL_LOGIN_CODE" \
 
 curl -fsS -u "admin:$LOCAL_LOGIN_CODE" "http://localhost:$PORT/v1/MemoryEntry?q=runtime" \
   | grep -q "Runtime test memory"
+
+PACK_DIR="$TMP_DIR/pack"
+PACK_ARCHIVE="$TMP_DIR/runtime-knowledge.gmkp"
+mkdir -p "$PACK_DIR"
+SOURCE_ID="$(uuidgen | tr '[:upper:]' '[:lower:]')"
+PACK_ID="$(uuidgen | tr '[:upper:]' '[:lower:]')"
+printf '%s\n' \
+  "{\"kind\":\"MemoryEntry\",\"sourceId\":\"$SOURCE_ID\",\"type\":\"decision\",\"text\":\"Packaged runtime knowledge\",\"tags\":[\"runtime-pack\"]}" \
+  >"$PACK_DIR/objects.jsonl"
+printf '%s\n' \
+  "{\"sourceKind\":\"MemoryEntry\",\"sourceId\":\"$SOURCE_ID\",\"relation\":\"project\",\"targetKind\":\"Project\",\"targetId\":\"$(uuidgen | tr '[:upper:]' '[:lower:]')\",\"external\":true}" \
+  >"$PACK_DIR/edges.jsonl"
+CONTENT_DIGEST="$(cat "$PACK_DIR/objects.jsonl" "$PACK_DIR/edges.jsonl" | shasum -a 256 | awk '{print $1}')"
+jq -n \
+  --arg packId "$PACK_ID" \
+  --arg digest "$CONTENT_DIGEST" \
+  '{format:"graymatter.knowledge-pack",formatVersion:"1.0",packId:$packId,name:"Runtime Knowledge",contentDigestAlgorithm:"SHA-256",contentDigest:$digest,aclImportPolicy:"do-not-transplant",embeddingPolicy:"regenerate-on-import",counts:{memoryEntries:1,contentData:0,edges:1,blobs:0,redactions:0}}' \
+  >"$PACK_DIR/manifest.json"
+openssl genpkey -algorithm ED25519 -out "$PACK_DIR/private.pem" >/dev/null 2>&1
+PUBLIC_KEY="$(openssl pkey -in "$PACK_DIR/private.pem" -pubout -outform DER 2>/dev/null | base64 | tr -d '\r\n')"
+PACK_SIGNATURE="$(openssl pkeyutl -sign -inkey "$PACK_DIR/private.pem" -rawin -in "$PACK_DIR/manifest.json" 2>/dev/null | base64 | tr -d '\r\n')"
+jq -n \
+  --arg publicKey "$PUBLIC_KEY" \
+  --arg signature "$PACK_SIGNATURE" \
+  '{algorithm:"Ed25519",signedEntry:"manifest.json",publicKeyFormat:"X.509",publicKey:$publicKey,signature:$signature,trustModel:"self-contained-v1",identityAssurance:"unverified-until-publisher-trust-binding"}' \
+  >"$PACK_DIR/signature.json"
+(
+  cd "$PACK_DIR"
+  zip -q "$PACK_ARCHIVE" manifest.json objects.jsonl edges.jsonl signature.json
+)
+
+GRAYMATTER_LIGHT_PUBLIC_BASE="http://localhost:$PORT" \
+GRAYMATTER_LIGHT_PASSWORD="$LOCAL_LOGIN_CODE" \
+  "$ROOT/scripts/gm-knowledge-pack-import" "$PACK_ARCHIVE" \
+  >"$TMP_DIR/pack-import.json"
+jq -e '.integrityStatus == "INTEGRITY_VERIFIED" and .alreadyImported == false and .knowledgePack.memoryEntryCount == 1' \
+  "$TMP_DIR/pack-import.json" >/dev/null
+PACK_LOCAL_ID="$(jq -r '.knowledgePack.id' "$TMP_DIR/pack-import.json")"
+
+curl -fsS -u "admin:$LOCAL_LOGIN_CODE" \
+  "http://localhost:$PORT/v1/MemoryEntry?q=packaged%20runtime" \
+  | grep -q "Packaged runtime knowledge"
+curl -fsS -u "admin:$LOCAL_LOGIN_CODE" \
+  "http://localhost:$PORT/v1/knowledge-packs/$PACK_LOCAL_ID/graph" \
+  | grep -q '"relation":"project"'
+
+GRAYMATTER_LIGHT_PUBLIC_BASE="http://localhost:$PORT" \
+GRAYMATTER_LIGHT_PASSWORD="$LOCAL_LOGIN_CODE" \
+  "$ROOT/scripts/gm-knowledge-pack-import" "$PACK_ARCHIVE" \
+  | jq -e '.alreadyImported == true' >/dev/null
 
 curl -fsS -u "admin:$LOCAL_LOGIN_CODE" "http://localhost:$PORT/v1/swarm-ops/graph" \
   | grep -q '"protocolVersion":"graymatter-swarm-v0.1"'

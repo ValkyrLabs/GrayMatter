@@ -23,9 +23,12 @@ Include:
 - get by id
 - basic query
 - optional update
+- signed KnowledgePack import in the downloadable Java Local Server
+- owner-scoped H2 retention of the complete portable graph and archive
 
-Do not include in v1:
-- full graph operations
+Do not include in the generated ThorAPI/Docker subset:
+- custom KnowledgePack import (use the downloadable Java Local Server)
+- general-purpose mutable graph operations
 - wide entity surface
 - complex auth
 - production-only integrations
@@ -89,6 +92,7 @@ A developer should be able to:
 This repo now includes:
 - `examples/graymatter-light-thorapi-bundle.yaml` as a minimal local bundle surface
 - `scripts/gm-light-json-smoke` as a JSON-file fallback smoke test for the local payload shape
+- `scripts/gm-knowledge-pack-import` for signed `.gmkp` import into the downloadable Java Local Server
 - `scripts/gm-light-bootstrap` to generate the app-factory bundle and local server source
 - `scripts/gm-light-up` to start the actual ThorAPI-backed Light instance with Docker Compose
 - `scripts/gm-light-env` to point normal GrayMatter skill scripts at the running Light instance
@@ -97,7 +101,34 @@ This repo now includes:
 
 `gm-light-up` creates the api.hbs.yaml template at `.graymatter-light/api.hbs.yaml`, rendered `.graymatter-light/api.yaml`, `docker-compose.yaml`, and `dashboard/index.html`, then runs the ThorAPI image with `THORAPI_TEMPLATE=/app/api.hbs.yaml` and `THORAPI_SPEC=/app/api.yaml`. The default image is `ghcr.io/valkyrlabs/thorapi:latest`; use `--image` or `THORAPI_IMAGE` when running a private, pinned, or locally built ThorAPI image. The generated contract is a subset of the real ValkyrAI api-0 contract: `/v1/MemoryEntry/write`, `/v1/MemoryEntry/query`, `/v1/MemoryEntry/read`, `/v1/MemoryEntry/{id}`, `/v1/memory/status`, `/v1/graymatter/stats`, `/v1/graymatter/activation/bridge`, `/v1/swarm-ops/graph`, and `/v1/api-docs`. The `.graymatter-light/.graymatter-light-env` file sets `VALKYR_API_BASE=http://localhost:8080/v1` and `GRAYMATTER_LIGHT_MODE=true`, so `gm-write`, `gm-query`, lower-level `graymatter_api.sh`, and the standalone MCP server connect to the running local instance instead of hosted api-0.
 
-The generated local server archive remains the downloadable Spring Boot path. It includes local Basic auth, `Principal`, `UserPreferences`, `MemoryEntry`, a minimal `/v1/Workbook` API, a Valkyr Labs-branded dashboard, an activation bridge, and local `/v1/swarm-ops/graph` state. The generated `application-bundle/` records the api-0-compatible Light contract and built-in local assets.
+The generated local server archive remains the downloadable Spring Boot path. It includes local Basic auth, `Principal`, `UserPreferences`, `MemoryEntry`, signed KnowledgePack import and graph retention, a minimal `/v1/Workbook` API, a Valkyr Labs-branded dashboard, an activation bridge, and local `/v1/swarm-ops/graph` state. The generated `application-bundle/` records the api-0-compatible Light contract and built-in local assets.
+
+## KnowledgePack import
+
+Use the downloadable Java Local Server on port `8787` to load a `.gmkp`
+archive produced by the GrayMatter homepage:
+
+```bash
+export GRAYMATTER_LIGHT_PUBLIC_BASE=http://localhost:8787
+export GRAYMATTER_LIGHT_USERNAME=admin
+read -rsp "GrayMatter Light password: " GRAYMATTER_LIGHT_PASSWORD
+export GRAYMATTER_LIGHT_PASSWORD
+scripts/gm-knowledge-pack-import ./my-pack.gmkp
+```
+
+The importer verifies ZIP safety and resource limits, manifest format/counts,
+SHA-256 content integrity, and the Ed25519 manifest signature. It rejects
+portable ownership, principal, tenant, ACL, and permission fields, assigns the
+pack to the authenticated local principal, retains the complete archive and
+graph in H2, and projects imported `MemoryEntry` objects into owner-scoped
+local search. Embeddings are marked `regenerate-on-import`; source ACLs are
+never transplanted.
+
+The self-contained signature proves archive integrity, not a marketplace
+publisher identity. Light therefore exposes `trustModel` and
+`identityAssurance` explicitly. See [KnowledgePacks](knowledge-packs.md) for
+the archive contract, API, trust boundary, limits, lifecycle, and verification
+checklist.
 
 ## Local-to-full bridge
 

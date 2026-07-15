@@ -97,6 +97,10 @@ done
   echo "Codex marketplace plugin GrayMatter Light docs missing" >&2
   exit 1
 }
+[[ -f "$ROOT/plugins/graymatter/docs/knowledge-packs.md" ]] || {
+  echo "Codex marketplace plugin KnowledgePack docs missing" >&2
+  exit 1
+}
 [[ -f "$ROOT/plugins/graymatter/docs/openai-app-directory-submission.md" ]] || {
   echo "Codex marketplace plugin OpenAI app submission docs missing" >&2
   exit 1
@@ -200,6 +204,10 @@ grep -q 'Normalized object writes' "$ROOT/plugins/graymatter/skills/graymatter/S
 }
 [[ -x "$ROOT/plugins/graymatter/scripts/gm-light-smoke" ]] || {
   echo "Codex marketplace plugin Light smoke script missing or not executable" >&2
+  exit 1
+}
+[[ -x "$ROOT/plugins/graymatter/scripts/gm-knowledge-pack-import" ]] || {
+  echo "Codex marketplace plugin KnowledgePack importer missing or not executable" >&2
   exit 1
 }
 [[ -x "$ROOT/plugins/graymatter/scripts/gm-read" ]] || {

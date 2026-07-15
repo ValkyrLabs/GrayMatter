@@ -38,6 +38,13 @@ public class MemoryEntry {
     @Column(length = 2048)
     private String tags = "";
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "knowledge_pack_id")
+    private KnowledgePackRecord knowledgePack;
+
+    @Column(name = "source_object_id", length = 64)
+    private String sourceObjectId;
+
     @Column(nullable = false, updatable = false)
     private Instant createdAt;
 
@@ -48,11 +55,24 @@ public class MemoryEntry {
     }
 
     public MemoryEntry(PrincipalRecord principal, String type, String text, String sourceChannel, String tags) {
+        this(principal, type, text, sourceChannel, tags, null, null);
+    }
+
+    public MemoryEntry(
+        PrincipalRecord principal,
+        String type,
+        String text,
+        String sourceChannel,
+        String tags,
+        KnowledgePackRecord knowledgePack,
+        String sourceObjectId) {
         this.principal = principal;
         this.type = type;
         this.text = text;
         this.sourceChannel = sourceChannel;
         this.tags = tags == null ? "" : tags;
+        this.knowledgePack = knowledgePack;
+        this.sourceObjectId = sourceObjectId;
     }
 
     @PrePersist
@@ -89,6 +109,14 @@ public class MemoryEntry {
 
     public String getTags() {
         return tags;
+    }
+
+    public KnowledgePackRecord getKnowledgePack() {
+        return knowledgePack;
+    }
+
+    public String getSourceObjectId() {
+        return sourceObjectId;
     }
 
     public Instant getCreatedAt() {

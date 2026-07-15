@@ -114,6 +114,7 @@ mkdir -p "$PACKAGE_DIR"
 copytree "$BUNDLE_DIR/local-server" "$PACKAGE_DIR/source"
 cp "$PACKAGE_DIR/source/README.md" "$PACKAGE_DIR/README.md"
 cp "$PACKAGE_DIR/source/manifest.json" "$PACKAGE_DIR/manifest.json"
+cp "$ROOT/docs/knowledge-packs.md" "$PACKAGE_DIR/KNOWLEDGE_PACKS.md"
 copytree "$BUNDLE_DIR/application-bundle" "$PACKAGE_DIR/application-bundle"
 copytree "$PACKAGE_DIR/source/bin" "$PACKAGE_DIR/bin"
 

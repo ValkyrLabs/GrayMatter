@@ -205,6 +205,7 @@ Local/server packaging:
 - `scripts/gm-light-up`
 - `scripts/gm-light-env`
 - `scripts/gm-light-json-smoke`
+- `scripts/gm-knowledge-pack-import` verifies and imports a signed `.gmkp` archive into the downloadable H2-backed GrayMatter Light Local Server
 - `scripts/package-graymatter`
 - `scripts/package-local-server`
 

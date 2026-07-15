@@ -2,6 +2,7 @@ package com.valkyrlabs.graymatter.localserver.controller;
 
 import com.valkyrlabs.graymatter.localserver.model.PrincipalRecord;
 import com.valkyrlabs.graymatter.localserver.repository.MemoryEntryRepository;
+import com.valkyrlabs.graymatter.localserver.repository.KnowledgePackRepository;
 import com.valkyrlabs.graymatter.localserver.repository.PrincipalRecordRepository;
 import com.valkyrlabs.graymatter.localserver.repository.WorkbookRecordRepository;
 import java.nio.charset.StandardCharsets;
@@ -20,14 +21,17 @@ public class SwarmProtocolController {
 
     private final PrincipalRecordRepository principals;
     private final MemoryEntryRepository memoryEntries;
+    private final KnowledgePackRepository knowledgePacks;
     private final WorkbookRecordRepository workbooks;
 
     public SwarmProtocolController(
         PrincipalRecordRepository principals,
         MemoryEntryRepository memoryEntries,
+        KnowledgePackRepository knowledgePacks,
         WorkbookRecordRepository workbooks) {
         this.principals = principals;
         this.memoryEntries = memoryEntries;
+        this.knowledgePacks = knowledgePacks;
         this.workbooks = workbooks;
     }
 
@@ -49,6 +53,8 @@ public class SwarmProtocolController {
                 "state", "prepared"))),
             Map.entry("capabilities", List.of(
                 "local-memory",
+                "knowledge-pack-import",
+                "portable-knowledge-graph",
                 "data-workbooks",
                 "thorapi-febe-bundle",
                 "promotion-sync",
@@ -64,6 +70,8 @@ public class SwarmProtocolController {
                 "/v1/MemoryEntry/query",
                 "/v1/MemoryEntry/read",
                 "/v1/MemoryEntry/write",
+                "/v1/knowledge-packs/import",
+                "/v1/knowledge-packs/{id}/graph",
                 "/v1/Workbook")),
             Map.entry("generatedAt", Instant.now().toString()));
     }
@@ -89,6 +97,7 @@ public class SwarmProtocolController {
             Map.entry("principal", principal.getUsername()),
             Map.entry("bundle", "graymatter-local"),
             Map.entry("memoryEntryCount", memoryEntries.countByPrincipalUsernameIgnoreCase(principal.getUsername())),
+            Map.entry("knowledgePackCount", knowledgePacks.countByOwnerUsernameIgnoreCase(principal.getUsername())),
             Map.entry("workbookCount", workbooks.countByOwnerUsernameIgnoreCase(principal.getUsername())),
             Map.entry("heartbeatTtlSeconds", 60),
             Map.entry("state", "READY"));

@@ -2,6 +2,7 @@ package com.valkyrlabs.graymatter.localserver.controller;
 
 import com.valkyrlabs.graymatter.localserver.model.PrincipalRecord;
 import com.valkyrlabs.graymatter.localserver.repository.MemoryEntryRepository;
+import com.valkyrlabs.graymatter.localserver.repository.KnowledgePackRepository;
 import com.valkyrlabs.graymatter.localserver.repository.PrincipalRecordRepository;
 import com.valkyrlabs.graymatter.localserver.repository.WorkbookRecordRepository;
 import java.security.Principal;
@@ -21,14 +22,17 @@ public class MothershipSyncController {
 
     private final PrincipalRecordRepository principals;
     private final MemoryEntryRepository memoryEntries;
+    private final KnowledgePackRepository knowledgePacks;
     private final WorkbookRecordRepository workbooks;
 
     public MothershipSyncController(
         PrincipalRecordRepository principals,
         MemoryEntryRepository memoryEntries,
+        KnowledgePackRepository knowledgePacks,
         WorkbookRecordRepository workbooks) {
         this.principals = principals;
         this.memoryEntries = memoryEntries;
+        this.knowledgePacks = knowledgePacks;
         this.workbooks = workbooks;
     }
 
@@ -55,6 +59,7 @@ public class MothershipSyncController {
                 "bundle", "graymatter-local",
                 "generationMode", "thorapi-febe",
                 "memoryEntryCount", memoryEntries.countByPrincipalUsernameIgnoreCase(principal.getUsername()),
+                "knowledgePackCount", knowledgePacks.countByOwnerUsernameIgnoreCase(principal.getUsername()),
                 "workbookCount", workbooks.countByOwnerUsernameIgnoreCase(principal.getUsername()),
                 "swarmProtocol", "graymatter-swarm-v0.1")),
             Map.entry("nextSteps", List.of(
@@ -77,6 +82,7 @@ public class MothershipSyncController {
             Map.entry("generationMode", "thorapi-febe"),
             Map.entry("principal", principal.getUsername()),
             Map.entry("memoryEntryCount", memoryEntries.countByPrincipalUsernameIgnoreCase(principal.getUsername())),
+            Map.entry("knowledgePackCount", knowledgePacks.countByOwnerUsernameIgnoreCase(principal.getUsername())),
             Map.entry("workbookCount", workbooks.countByOwnerUsernameIgnoreCase(principal.getUsername())),
             Map.entry("activation", Map.of(
                 "signup", "https://valkyrlabs.com/graymatter/activate?source=graymatter&intent=signup&operation=memory_query",

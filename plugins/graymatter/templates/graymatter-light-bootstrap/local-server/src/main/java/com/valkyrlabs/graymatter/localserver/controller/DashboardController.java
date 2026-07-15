@@ -2,6 +2,7 @@ package com.valkyrlabs.graymatter.localserver.controller;
 
 import com.valkyrlabs.graymatter.localserver.model.PrincipalRecord;
 import com.valkyrlabs.graymatter.localserver.repository.MemoryEntryRepository;
+import com.valkyrlabs.graymatter.localserver.repository.KnowledgePackRepository;
 import com.valkyrlabs.graymatter.localserver.repository.PrincipalRecordRepository;
 import com.valkyrlabs.graymatter.localserver.repository.UserPreferencesRepository;
 import com.valkyrlabs.graymatter.localserver.repository.WorkbookRecordRepository;
@@ -19,16 +20,19 @@ public class DashboardController {
     private final PrincipalRecordRepository principals;
     private final UserPreferencesRepository preferences;
     private final MemoryEntryRepository memoryEntries;
+    private final KnowledgePackRepository knowledgePacks;
     private final WorkbookRecordRepository workbooks;
 
     public DashboardController(
         PrincipalRecordRepository principals,
         UserPreferencesRepository preferences,
         MemoryEntryRepository memoryEntries,
+        KnowledgePackRepository knowledgePacks,
         WorkbookRecordRepository workbooks) {
         this.principals = principals;
         this.preferences = preferences;
         this.memoryEntries = memoryEntries;
+        this.knowledgePacks = knowledgePacks;
         this.workbooks = workbooks;
     }
 
@@ -50,11 +54,13 @@ public class DashboardController {
                 "Principal",
                 "UserPreferences",
                 "MemoryEntry",
+                "KnowledgePack",
                 "Data Workbooks",
                 "GrayMatter Activation Bridge",
                 "SwarmOps",
                 "Live Telemetry")),
             Map.entry("memoryEntryCount", memoryEntries.countByPrincipalUsernameIgnoreCase(principal.getUsername())),
+            Map.entry("knowledgePackCount", knowledgePacks.countByOwnerUsernameIgnoreCase(principal.getUsername())),
             Map.entry("workbookCount", workbooks.countByOwnerUsernameIgnoreCase(principal.getUsername())),
             Map.entry("preferencesReady", preferences.findByPrincipalUsernameIgnoreCase(principal.getUsername()).isPresent()),
             Map.entry("storage", "local H2"),
@@ -62,7 +68,7 @@ public class DashboardController {
                 "id", "graymatter-local",
                 "generationMode", "thorapi-febe",
                 "sourceTemplate", "graymatter-local",
-                "customComponents", List.of("MemoryEntry", "GrayMatter", "SwarmOps"))),
+                "customComponents", List.of("MemoryEntry", "KnowledgePack", "GrayMatter", "SwarmOps"))),
             Map.entry("mothership", Map.of(
                 "target", "https://valkyrlabs.com",
                 "apiBase", "https://api-0.valkyrlabs.com/v1",

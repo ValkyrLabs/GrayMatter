@@ -1,0 +1,89 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ARCHIVE=""
+PUBLIC_BASE="${GRAYMATTER_LIGHT_PUBLIC_BASE:-}"
+USERNAME="${GRAYMATTER_LIGHT_USERNAME:-${GRAYMATTER_ADMIN_USERNAME:-admin}}"
+PASSWORD="${GRAYMATTER_LIGHT_PASSWORD:-${GRAYMATTER_ADMIN_PASSWORD:-}}"
+
+usage() {
+  cat >&2 <<'EOF'
+Usage: gm-knowledge-pack-import FILE.gmkp [--base-url URL] [--username USER]
+
+Verifies and imports a signed KnowledgePack into the downloadable GrayMatter
+Light Local Server. Set GRAYMATTER_LIGHT_PASSWORD or
+GRAYMATTER_ADMIN_PASSWORD, or run interactively to enter the local password.
+
+Defaults:
+  URL       GRAYMATTER_LIGHT_PUBLIC_BASE, the public portion of
+            VALKYR_API_BASE, or http://localhost:8787
+  USER      GRAYMATTER_LIGHT_USERNAME, GRAYMATTER_ADMIN_USERNAME, or admin
+EOF
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --base-url)
+      PUBLIC_BASE="${2:-}"
+      shift 2
+      ;;
+    --username)
+      USERNAME="${2:-}"
+      shift 2
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    --*)
+      echo "Unknown option: $1" >&2
+      usage
+      exit 2
+      ;;
+    *)
+      if [[ -n "$ARCHIVE" ]]; then
+        echo "Only one .gmkp archive may be imported at a time" >&2
+        exit 2
+      fi
+      ARCHIVE="$1"
+      shift
+      ;;
+  esac
+done
+
+[[ -n "$ARCHIVE" ]] || {
+  usage
+  exit 2
+}
+[[ -f "$ARCHIVE" ]] || {
+  echo "KnowledgePack archive not found: $ARCHIVE" >&2
+  exit 2
+}
+case "$ARCHIVE" in
+  *.[gG][mM][kK][pP]) ;;
+  *) echo "KnowledgePack archive must use the .gmkp extension" >&2; exit 2 ;;
+esac
+
+if [[ -z "$PUBLIC_BASE" && -n "${VALKYR_API_BASE:-}" ]]; then
+  PUBLIC_BASE="${VALKYR_API_BASE%/}"
+  PUBLIC_BASE="${PUBLIC_BASE%/v1}"
+fi
+PUBLIC_BASE="${PUBLIC_BASE:-http://localhost:8787}"
+PUBLIC_BASE="${PUBLIC_BASE%/}"
+
+if [[ -z "$PASSWORD" ]]; then
+  if [[ -t 0 ]]; then
+    read -rsp "GrayMatter Light password for ${USERNAME}: " PASSWORD
+    printf '\n' >&2
+  else
+    echo "Set GRAYMATTER_LIGHT_PASSWORD or GRAYMATTER_ADMIN_PASSWORD" >&2
+    exit 2
+  fi
+fi
+
+curl --fail-with-body --silent --show-error \
+  --user "${USERNAME}:${PASSWORD}" \
+  --header 'Accept: application/json' \
+  --form "file=@${ARCHIVE};type=application/vnd.valkyrlabs.graymatter-knowledge-pack+zip" \
+  "${PUBLIC_BASE}/v1/knowledge-packs/import"
+printf '\n'

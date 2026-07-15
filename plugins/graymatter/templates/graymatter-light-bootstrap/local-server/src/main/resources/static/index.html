@@ -459,6 +459,21 @@
         <h2>Recent Memory</h2>
         <div class="entry-list" id="entries"><p>Connect to load memory entries.</p></div>
       </article>
+
+      <article class="panel" style="grid-column:1/-1">
+        <h2>Portable KnowledgePacks</h2>
+        <p>Import a signed <code>.gmkp</code> from GrayMatter Cloud. Light verifies the manifest signature and content digest, rejects authority-bearing fields, assigns imported records to your local principal, and indexes MemoryEntry objects into local search.</p>
+        <div class="form-row">
+          <label for="knowledgePackFile">KnowledgePack archive</label>
+          <input id="knowledgePackFile" type="file" accept=".gmkp,application/vnd.valkyrlabs.graymatter-knowledge-pack+zip">
+        </div>
+        <div class="button-row">
+          <button id="importKnowledgePack" type="button">Verify &amp; Import</button>
+          <button class="secondary" id="refreshKnowledgePacks" type="button">Refresh Packs</button>
+        </div>
+        <p class="session-note" id="knowledgePackStatus">No KnowledgePack selected.</p>
+        <div class="entry-list" id="knowledgePacks"><p>Connect to load imported KnowledgePacks.</p></div>
+      </article>
     </section>
 
     <section class="panel" style="margin-top:18px">
@@ -491,6 +506,9 @@
         telemetryStatus: $("telemetryStatus"),
         telemetryMetrics: $("telemetryMetrics"),
         entries: $("entries"),
+        knowledgePackFile: $("knowledgePackFile"),
+        knowledgePackStatus: $("knowledgePackStatus"),
+        knowledgePacks: $("knowledgePacks"),
         type: $("type"),
         tags: $("tags"),
         text: $("text")
@@ -524,6 +542,7 @@
         `;
         elements.metrics.innerHTML = [
           ["MemoryEntry", data.memoryEntryCount],
+          ["KnowledgePacks", data.knowledgePackCount],
           ["Data Workbooks", data.workbookCount],
           ["RBAC", data.preferencesReady ? "Ready" : "Pending"],
           ["Swarm", data.swarmProtocol.protocolVersion]
@@ -586,6 +605,17 @@
           : "<p>No memory entries yet. Create one to seed the local graph.</p>";
       }
 
+      function renderKnowledgePacks(data) {
+        elements.knowledgePacks.innerHTML = data.length
+          ? data.map((pack) => `
+              <div class="entry">
+                <span>integrity verified · ${escapeHtml(pack.identityAssurance)}</span>
+                <strong>${escapeHtml(pack.name)}</strong>
+                <p>${escapeHtml(pack.objectCount)} objects · ${escapeHtml(pack.edgeCount)} relationships · ${escapeHtml(pack.memoryEntryCount)} searchable memories · v${escapeHtml(pack.formatVersion)}</p>
+              </div>`).join("")
+          : "<p>No KnowledgePacks imported yet.</p>";
+      }
+
       async function loadDashboard() {
         const data = await requestJson("/v1/graymatter/stats", { headers: plainHeaders() });
         document.body.classList.add("authenticated");
@@ -609,11 +639,15 @@
         renderEntries(await requestJson("/v1/MemoryEntry", { headers: plainHeaders() }));
       }
 
+      async function loadKnowledgePacks() {
+        renderKnowledgePacks(await requestJson("/v1/knowledge-packs", { headers: plainHeaders() }));
+      }
+
       async function establishSession() {
         try {
           elements.session.textContent = "Connecting...";
           await loadDashboard();
-          await Promise.all([loadSyncStatus(), loadSwarm(), loadTelemetry(), loadEntries()]);
+          await Promise.all([loadSyncStatus(), loadSwarm(), loadTelemetry(), loadEntries(), loadKnowledgePacks()]);
         } catch (error) {
           document.body.classList.remove("authenticated");
           elements.session.textContent = error.message;
@@ -629,6 +663,9 @@
       $("refreshAll").onclick = establishSession;
       $("refresh").onclick = async () => {
         try { await loadEntries(); } catch (error) { elements.sessionBannerText.textContent = error.message; }
+      };
+      $("refreshKnowledgePacks").onclick = async () => {
+        try { await loadKnowledgePacks(); } catch (error) { elements.knowledgePackStatus.textContent = error.message; }
       };
       $("health").onclick = () => checkHealth(elements.sessionBannerText);
       $("loginHealth").onclick = () => checkHealth(elements.session);
@@ -660,9 +697,31 @@
             })
           });
           await loadDashboard();
-          await Promise.all([loadEntries(), loadSyncStatus(), loadSwarm(), loadTelemetry()]);
+          await Promise.all([loadEntries(), loadSyncStatus(), loadSwarm(), loadTelemetry(), loadKnowledgePacks()]);
         } catch (error) {
           elements.sessionBannerText.textContent = error.message;
+        }
+      };
+
+      $("importKnowledgePack").onclick = async () => {
+        const file = elements.knowledgePackFile.files?.[0];
+        if (!file) {
+          elements.knowledgePackStatus.textContent = "Choose a .gmkp archive first.";
+          return;
+        }
+        try {
+          elements.knowledgePackStatus.textContent = "Verifying signature, digest, limits, and authority policy...";
+          const form = new FormData();
+          form.append("file", file);
+          const result = await requestJson("/v1/knowledge-packs/import", {
+            method: "POST",
+            headers: plainHeaders(),
+            body: form
+          });
+          elements.knowledgePackStatus.textContent = `${result.knowledgePack.name} imported: ${result.integrityStatus}; ${result.knowledgePack.memoryEntryCount} memories indexed${result.alreadyImported ? " (already present)" : ""}.`;
+          await Promise.all([loadDashboard(), loadKnowledgePacks(), loadEntries(), loadSwarm(), loadSyncStatus()]);
+        } catch (error) {
+          elements.knowledgePackStatus.textContent = error.message;
         }
       };
     })();

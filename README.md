@@ -355,6 +355,7 @@ Rule:
 - `docs/privacy-policy.md` — GrayMatter-specific public privacy policy source
 - `docs/reviewer-test-credentials.md` — review demo-account setup and secure credential handoff runbook
 - `docs/prd-context-compaction-reset.md` — PRD for bounded chat compaction and reset flows
+- `docs/prd-graymatter-omegarag.md` — canonical implementation contract for the governed agentic memory, adaptive retrieval, temporal graph, SWARM, and SkillOptics product
 - `docs/thorapi-integration.md` — ThorAPI relationship and bundle direction
 - `docs/graymatter-light.md` — local/offline notes
 - `docs/server-capabilities.md` — live api-0 memory, retrieval, graph, schema, auth, credit, and MCP capability map

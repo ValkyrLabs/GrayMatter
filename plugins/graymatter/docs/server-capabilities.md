@@ -147,8 +147,25 @@ scoped deletion proof, `omega_trajectory_get` for redacted trajectory
 inspection, `omega_evaluate` for durable deterministic evaluation,
 `omega_outcome` for content-free workflow/action/test outcome linkage, and
 `omega_index_job` for estimate/start/inspect/cancel of durable tenant-scoped
-semantic-index jobs. All
+semantic-index jobs. `omega_retrieval_run` starts, inspects, safely cancels,
+or hash-verifiably resumes a tenant-scoped deep retrieval run; raw query text
+is forwarded only for active execution and is never retained in durable run
+state. All
 forward operation inputs only; api-0 derives tenant, principal, owner, ACL,
 and provider scope.
 
 The generic entity tools are intentional: api-0 exposes a large business schema and the agent should operate against the current live schema rather than a stale hard-coded list.
+
+## OmegaRAG Signature Canary
+
+`scripts/graymatter-prod-acceptance.sh` is the release acceptance harness for
+the receipt, context, RBAC-visible graph-shape, and semantic-manifest
+signatures. It uses normal GrayMatter authentication, bounds the synthetic
+context request, and emits a content-free JSON report: it never writes the
+query, response bodies, tenant identifiers, or credentials to that report.
+
+Use `--publish-capability-evidence` only with the administrator authority
+needed to update the exact authentication scope. The harness publishes both
+passes and failures and then verifies that the live capability manifest reports
+`LIVE_VERIFIED` for passed signatures and `DEGRADED` for failed ones. This
+prevents stale success evidence from surviving a failed release probe.

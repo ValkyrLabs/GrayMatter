@@ -38,6 +38,7 @@ REQUIRED=(
   scripts/gm-query
   scripts/gm-read
   scripts/gm-retrieval-receipt
+  scripts/graymatter-prod-acceptance.sh
   scripts/gm-graph
   scripts/gm-write
   scripts/gm-record

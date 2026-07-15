@@ -105,6 +105,10 @@ done < <(
     | sort
 )
 
+# zip records directory entries as well as files. Normalize their timestamps so
+# repeated builds from identical source produce byte-for-byte identical output.
+find "$TMP_DIR/graymatter" -type d -exec touch -t 198001010000 {} +
+
 rm -f "$OUT"
 (cd "$TMP_DIR" && zip -X -q -r "$OUT" graymatter)
 

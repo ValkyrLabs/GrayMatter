@@ -84,6 +84,17 @@ REQUIRED=(
   references/multi-agent-conventions.md
 )
 
+source_path_for() {
+  case "$1" in
+    SUBMISSION_CHECKLIST.md)
+      printf '%s\n' "$ROOT/plugins/graymatter/SUBMISSION_CHECKLIST.md"
+      ;;
+    *)
+      printf '%s\n' "$ROOT/$1"
+      ;;
+  esac
+}
+
 TEMPLATE_FILES=()
 while IFS= read -r rel; do
   TEMPLATE_FILES+=("$rel")
@@ -98,7 +109,7 @@ command -v zip >/dev/null 2>&1 || {
 
 missing=()
 for rel in "${REQUIRED[@]}" "${TEMPLATE_FILES[@]}"; do
-  [[ -f "$ROOT/$rel" ]] || missing+=("$rel")
+  [[ -f "$(source_path_for "$rel")" ]] || missing+=("$rel")
 done
 if [[ ${#missing[@]} -gt 0 ]]; then
   echo "Missing required files:" >&2
@@ -107,7 +118,7 @@ if [[ ${#missing[@]} -gt 0 ]]; then
 fi
 
 for rel in "${REQUIRED[@]}" "${TEMPLATE_FILES[@]}"; do
-  if [[ -L "$ROOT/$rel" ]]; then
+  if [[ -L "$(source_path_for "$rel")" ]]; then
     echo "Symlink not allowed in package: $rel" >&2
     exit 1
   fi
@@ -128,12 +139,16 @@ mkdir -p "$TMP_DIR/graymatter"
 
 for rel in "${REQUIRED[@]}" "${TEMPLATE_FILES[@]}"; do
   mkdir -p "$TMP_DIR/graymatter/$(dirname "$rel")"
-  cp "$ROOT/$rel" "$TMP_DIR/graymatter/$rel"
+  cp "$(source_path_for "$rel")" "$TMP_DIR/graymatter/$rel"
   if [[ "$rel" == scripts/* ]]; then
     chmod 755 "$TMP_DIR/graymatter/$rel"
   fi
   touch -t 198001010000 "$TMP_DIR/graymatter/$rel"
 done
+
+# zip records directory entries as well as files. Normalize their timestamps so
+# repeated builds from identical source produce byte-for-byte identical output.
+find "$TMP_DIR/graymatter" -type d -exec touch -t 198001010000 {} +
 
 rm -f "$OUT"
 (cd "$TMP_DIR" && zip -X -q -r "$OUT" graymatter)

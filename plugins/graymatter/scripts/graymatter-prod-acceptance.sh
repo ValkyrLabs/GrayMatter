@@ -246,7 +246,9 @@ if [[ "$PUBLISH_EVIDENCE" == true ]]; then
         . as $manifest
         | ($manifest.capabilities | type == "array")
         and all($probes[]; . as $probe
-          | ([$manifest.capabilities[] | select(.id == $probe.capabilityId) | .state] | first) as $state
+          | ([$manifest.capabilities[]
+              | select((.capabilityId // .id) == $probe.capabilityId)
+              | .state] | first) as $state
           | $state == (if $probe.passed then "LIVE_VERIFIED" else "DEGRADED" end))
       ' >/dev/null 2>&1 <<<"$RESPONSE"; then
       VERIFY_STATE="PASSED"

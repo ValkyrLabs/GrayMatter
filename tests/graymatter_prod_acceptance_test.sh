@@ -42,7 +42,7 @@ case "$method $path" in
     ;;
   'GET /graymatter/omega/capabilities')
     if [[ "${TEST_SEMANTIC_HEALTH:-healthy}" == "healthy" ]]; then
-      printf '%s\n' '{"capabilities":[{"id":"graymatter.receipt.create","state":"LIVE_VERIFIED"},{"id":"graymatter.context.create","state":"LIVE_VERIFIED"},{"id":"graymatter.graph.shape","state":"LIVE_VERIFIED"},{"id":"graymatter.semantic.manifest","state":"LIVE_VERIFIED"}]}'
+      printf '%s\n' '{"capabilities":[{"id":null,"capabilityId":"graymatter.receipt.create","state":"LIVE_VERIFIED"},{"id":null,"capabilityId":"graymatter.context.create","state":"LIVE_VERIFIED"},{"id":null,"capabilityId":"graymatter.graph.shape","state":"LIVE_VERIFIED"},{"id":null,"capabilityId":"graymatter.semantic.manifest","state":"LIVE_VERIFIED"}]}'
     else
       printf '%s\n' '{"capabilities":[{"id":"graymatter.receipt.create","state":"LIVE_VERIFIED"},{"id":"graymatter.context.create","state":"LIVE_VERIFIED"},{"id":"graymatter.graph.shape","state":"LIVE_VERIFIED"},{"id":"graymatter.semantic.manifest","state":"DEGRADED"}]}'
     fi

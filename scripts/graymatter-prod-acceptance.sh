@@ -235,7 +235,7 @@ PUBLISHED=false
 VERIFY_STATE="NOT_REQUESTED"
 if [[ "$PUBLISH_EVIDENCE" == true ]]; then
   submission="$(jq -s '{probes:.}' "$PROBES_FILE")"
-  invoke POST /graymatter/omega/capabilities/evidence "$submission"
+  invoke POST /graymatter/capabilities/evidence "$submission"
   if [[ "$REQUEST_OK" == true ]] && jq -e --slurpfile probes "$PROBES_FILE" '
       (.acceptedCapabilityIds | type == "array")
       and ((.acceptedCapabilityIds | sort) == ($probes | map(.capabilityId) | sort))

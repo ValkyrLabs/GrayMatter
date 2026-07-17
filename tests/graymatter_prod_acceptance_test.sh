@@ -35,7 +35,7 @@ case "$method $path" in
     health="${TEST_SEMANTIC_HEALTH:-healthy}"
     jq -nc --arg health "$health" '{schemaAvailable:true,rbacFiltered:true,indexLifecycle:{lifecycleDataAvailable:true,manifestVersion:"index-v1",healthStatus:$health}}'
     ;;
-  'POST /graymatter/omega/capabilities/evidence')
+  'POST /graymatter/capabilities/evidence')
     jq -e '.probes | length == 4' >/dev/null <<<"$body"
     jq -e 'all(.probes[]; (.evidenceRef | contains("signature-canary/")) and (.evidenceRef | contains("mock-secret-token") | not))' >/dev/null <<<"$body"
     jq -c '{acceptedCapabilityIds:[.probes[].capabilityId]}' <<<"$body"
@@ -66,7 +66,7 @@ GRAYMATTER_API_COMMAND="$TMP_DIR/graymatter_api.sh" \
   --artifact "$REPORT" >"$TMP_DIR/console.json"
 
 jq -e '.publishRequested == true and .published == true and .verification == "PASSED" and (.probes | length == 4) and all(.probes[]; .passed == true)' "$REPORT" >/dev/null
-grep -q '^POST|/graymatter/omega/capabilities/evidence|' "$TMP_DIR/calls.log"
+grep -q '^POST|/graymatter/capabilities/evidence|' "$TMP_DIR/calls.log"
 ! grep -Fq 'mock-secret-token' "$REPORT"
 ! grep -Fq 'GrayMatter OmegaRAG authenticated signature canary' "$REPORT"
 
@@ -87,6 +87,6 @@ jq -e '
   .published == true and .verification == "PASSED"
   and ([.probes[] | select(.capabilityId == "graymatter.semantic.manifest") | .passed] == [false])
 ' "$FAILED_REPORT" >/dev/null
-grep -q '^POST|/graymatter/omega/capabilities/evidence|' "$TMP_DIR/failed-calls.log"
+grep -q '^POST|/graymatter/capabilities/evidence|' "$TMP_DIR/failed-calls.log"
 
 echo "graymatter_prod_acceptance_test: PASS"

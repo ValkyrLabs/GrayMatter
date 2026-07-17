@@ -73,6 +73,43 @@ unpublished, unverified, relabeled, or extra-field reports, deduplicates exact
 report observations, and caps retained observations using the release policy.
 Promote the `.next.json` artifact through the normal reviewed artifact flow.
 
+## Admit a public OmegaBench corpus package
+
+Before running a publishable benchmark, retain the exact public source and license artifacts and
+create the content-free `omegabench-corpus-package/v1` object supplied as
+`specification.corpusPackage`:
+
+```bash
+scripts/gm-omegabench-corpus \
+  --corpus-id omega-public-memory \
+  --corpus-version 2026.07 \
+  --corpus-license Apache-2.0 \
+  --source corpora/omega-public-memory-2026.07.jsonl \
+  --source-uri https://benchmarks.example/omega-public-memory/2026.07/source.jsonl \
+  --source-revision refs/tags/2026.07 \
+  --license corpora/LICENSE-APACHE-2.0 \
+  --license-uri https://www.apache.org/licenses/LICENSE-2.0.txt \
+  --case-count 120 \
+  --case-set-checksum 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef \
+  --confirm-public-only \
+  --confirm-no-tenant-data \
+  --out artifacts/omega-public-memory-2026.07.package.json
+
+scripts/gm-omegabench-corpus \
+  --validate artifacts/omega-public-memory-2026.07.package.json \
+  --source corpora/omega-public-memory-2026.07.jsonl \
+  --license corpora/LICENSE-APACHE-2.0
+```
+
+The confirmations are explicit operator assertions; they do not infer privacy from filenames or
+content. The tool rejects moving revisions such as `main` or `latest`, non-HTTPS provenance,
+unsupported licenses, mismatched retained artifacts, extra/private fields, concatenated JSON, and
+output collisions. It hashes source and license bytes without copying them into the package.
+api-0 independently recomputes the package hash and binds it to the exact pre-default case checksum
+and case count; both the portable tool and runtime cap a corpus slice at 2,048 cases. Only a server
+result containing an `ADMITTED`, failure-free
+`omegabench-corpus-admission/v1` receipt can enter release evidence.
+
 ## Collect OmegaBench reproducibility evidence
 
 Run the authenticated ValkyrAI benchmark endpoint and retain its complete
@@ -94,13 +131,15 @@ coherent production result for every combination of the `MEMORY`,
 `BUSINESS_GRAPH`, `ISOLATION`, `CONTEXT`, and `ECONOMICS` tracks with the six
 mandatory reproducible baselines: lexical, vector, fixed hybrid, fixed
 one-hop graph, fixed three-hop graph, and the current planner. Within each
-track, corpus identity, version, checksum, and seed must remain identical so
+track, corpus identity, version, checksum, seed, and server admission hash must remain identical so
 the baseline comparison is meaningful.
 
 Every accepted manifest must be `REPRODUCIBLE`, licensed for public use,
 non-holdout, checksum-verified, SLO-measured and passing,
 confidence-measured, free of missing evidence and release failures, and marked
-`publicReleaseEligible`. The matrix must use one production scope and stable
+`publicReleaseEligible`. Its corpus admission must be `PUBLIC`, explicitly exclude tenant data,
+match the manifest identity/count/checksum, and contain only HTTPS, pinned, SHA-256-bound
+provenance. The matrix must use one production scope and stable
 runtime, schema, policy, index-manifest, planner, and graph-policy versions.
 Freshness is calculated from api-0's hash-bound `runtimeEvidence.observedAt`,
 never the collector clock or a caller-supplied timestamp.

@@ -33,7 +33,11 @@
   "omegaBench": {
     "evidenceSetSchemaVersion": "omegabench-evidence-set/v1",
     "manifestVersion": "omegabench-reproducibility/v1",
-    "metadataAuthority": "corpus_metadata_authenticated_caller_declared_runtime_evidence_server_observed",
+    "metadataAuthority": "corpus_package_server_validated_runtime_evidence_server_observed",
+    "corpusPackageSchemaVersion": "omegabench-corpus-package/v1",
+    "corpusAdmissionSchemaVersion": "omegabench-corpus-admission/v1",
+    "requiredCorpusAdmissionState": "ADMITTED",
+    "requiredPrivacyClassification": "PUBLIC",
     "requiredEnvironment": "production",
     "requiredTracks": [
       "MEMORY",

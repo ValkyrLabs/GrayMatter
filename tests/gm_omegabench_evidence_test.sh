@@ -26,6 +26,7 @@ first_manifest=""
 while IFS= read -r track; do
   track_index="$(jq -r --arg track "$track" '.omegaBench.requiredTracks | index($track)' "$POLICY")"
   corpus_hash="$(printf '%064x' "$((track_index + 100))")"
+  admission_hash="$(printf '%064x' "$((track_index + 500))")"
   while IFS= read -r baseline; do
     manifest_counter=$((manifest_counter + 1))
     evidence_hash="$(printf '%064x' "$manifest_counter")"
@@ -37,6 +38,7 @@ while IFS= read -r track; do
       --arg evidenceHash "$evidence_hash" \
       --arg caseHash "$case_hash" \
       --arg corpusHash "$corpus_hash" \
+      --arg admissionHash "$admission_hash" \
       --arg scopeHash "$scope_hash" \
       --argjson now "$now_epoch" \
       --argjson policy "$(jq -c '.omegaBench' "$POLICY")" '
@@ -57,6 +59,25 @@ while IFS= read -r track; do
             seed:42,
             hiddenHoldout:false,
             referenceImplementationVersion:null,
+            corpusAdmission:{
+              schemaVersion:$policy.corpusAdmissionSchemaVersion,
+              admissionHash:$admissionHash,
+              state:$policy.requiredCorpusAdmissionState,
+              corpusId:("public-" + ($track | ascii_downcase)),
+              corpusVersion:"2026.07",
+              corpusLicense:"Apache-2.0",
+              sourceUri:("https://benchmarks.valkyrlabs.com/" + ($track | ascii_downcase) + "/2026.07/source.jsonl"),
+              sourceRevision:"refs/tags/2026.07",
+              sourceSha256:("b" * 64),
+              licenseUri:"https://www.apache.org/licenses/LICENSE-2.0.txt",
+              licenseSha256:("c" * 64),
+              packageEvidenceSha256:("d" * 64),
+              privacyClassification:$policy.requiredPrivacyClassification,
+              tenantDataExcluded:true,
+              caseCount:1,
+              caseSetChecksum:$corpusHash,
+              failures:[]
+            },
             caseCount:1,
             caseRefs:[$caseRef],
             failingCaseRefs:[],
@@ -116,6 +137,7 @@ jq -e '
   and .manifestCount == 30
   and .totalCaseCount == 30
   and .scopeHash == ("a" * 64)
+  and (.corpusAdmissionHashes | length) == 5
   and ([.coverage[] | select(.present == false)] | length == 0)
   and ([.corpusComparability[] | select(.comparable == false)] | length == 0)
 ' "$projection" >/dev/null || fail "complete matrix did not satisfy the release projection"
@@ -184,6 +206,22 @@ drifted_projection="$TMP_DIR/drifted-projection.json"
 "$SCRIPT" --validate "$drifted_evidence" --format projection >"$drifted_projection"
 jq -e '.complete == false and .scopeHash == null' "$drifted_projection" >/dev/null \
   || fail "scope drift did not fail matrix coherence"
+
+admission_drift_evidence="$TMP_DIR/admission-drift.json"
+jq '.entries[0].manifest.corpusAdmission.admissionHash = ("e" * 64)' \
+  "$complete_evidence" >"$admission_drift_evidence"
+admission_drift_projection="$TMP_DIR/admission-drift-projection.json"
+"$SCRIPT" --validate "$admission_drift_evidence" --format projection >"$admission_drift_projection"
+jq -e '.complete == false and ([.corpusComparability[] | select(.comparable == false)] | length) == 1' \
+  "$admission_drift_projection" >/dev/null \
+  || fail "mixed corpus admission receipts did not fail per-track comparability"
+
+missing_admission="$TMP_DIR/missing-admission.json"
+jq 'del(.corpusAdmission)' "$first_manifest" >"$missing_admission"
+if "$SCRIPT" --manifest "$missing_admission" --runtime-revision "$runtime_revision" \
+  --out "$TMP_DIR/missing-admission-evidence.json" >/dev/null 2>&1; then
+  fail "collector accepted a manifest without a corpus admission receipt"
+fi
 
 stale_evidence="$TMP_DIR/stale.json"
 jq --argjson now "$now_epoch" '

@@ -55,6 +55,7 @@ REQUIRED=(
   scripts/gm-agent-smoke-matrix
   scripts/gm-release-evidence
   scripts/gm-signature-history
+  scripts/gm-omegabench-corpus
   scripts/gm-omegabench-evidence
   scripts/gm-objective-evidence
   scripts/gm-self-update

@@ -133,7 +133,7 @@ validate_json() {
           and ($manifest | only_keys([
             "manifestVersion","evidenceHash","state","metadataAuthority","corpusId","corpusVersion",
             "corpusLicense","declaredCorpusChecksum","computedCorpusChecksum","corpusChecksumVerified",
-            "track","baseline","seed","hiddenHoldout","referenceImplementationVersion","caseCount",
+            "track","baseline","seed","hiddenHoldout","referenceImplementationVersion","corpusAdmission","caseCount",
             "caseRefs","failingCaseRefs","trackCoverage","baselineCoverage","budgets","sloObjective",
             "sloAssessment","totalEstimatedCredits","passRateConfidenceInterval","environment",
             "runtimeEvidence","observedProviderIds","missingEvidence","releaseGateFailures",
@@ -156,6 +156,33 @@ validate_json() {
           and (if $manifest.baseline == "REFERENCE_IMPLEMENTATION"
             then ($manifest.referenceImplementationVersion | bounded_string(256))
             else $manifest.referenceImplementationVersion == null end)
+          and ($manifest.corpusAdmission | . as $admission
+            | type == "object"
+            and only_keys([
+              "schemaVersion","admissionHash","state","corpusId","corpusVersion","corpusLicense",
+              "sourceUri","sourceRevision","sourceSha256","licenseUri","licenseSha256",
+              "packageEvidenceSha256","privacyClassification","tenantDataExcluded","caseCount",
+              "caseSetChecksum","failures"
+            ])
+            and .schemaVersion == $policy.corpusAdmissionSchemaVersion
+            and (.admissionHash | type == "string" and test("^[0-9a-f]{64}$"))
+            and .state == $policy.requiredCorpusAdmissionState
+            and .corpusId == $manifest.corpusId
+            and .corpusVersion == $manifest.corpusVersion
+            and .corpusLicense == $manifest.corpusLicense
+            and (.sourceUri | bounded_string(256) and test("^https://[^/@#?[:space:]]+(/[^#?[:space:]]*)?$"))
+            and (.sourceRevision | bounded_string(256)
+              and (ascii_downcase | startswith("refs/heads/") | not)
+              and (ascii_downcase | IN("latest","main","master","head","current","trunk","develop","development") | not))
+            and (.sourceSha256 | type == "string" and test("^[0-9a-f]{64}$"))
+            and (.licenseUri | bounded_string(256) and test("^https://[^/@#?[:space:]]+(/[^#?[:space:]]*)?$"))
+            and (.licenseSha256 | type == "string" and test("^[0-9a-f]{64}$"))
+            and (.packageEvidenceSha256 | type == "string" and test("^[0-9a-f]{64}$"))
+            and .privacyClassification == $policy.requiredPrivacyClassification
+            and .tenantDataExcluded == true
+            and .caseCount == $manifest.caseCount
+            and .caseSetChecksum == $manifest.computedCorpusChecksum
+            and (.failures | type == "array" and length == 0))
           and ($manifest.caseCount | integer_between(1; $policy.maxCasesPerManifest))
           and ($manifest.caseRefs | type == "array" and length == $manifest.caseCount
             and all(.[]; case_ref) and (unique | length) == length)
@@ -262,11 +289,13 @@ project_json() {
     | ([$set.entries[].manifest.runtimeEvidence.indexManifestVersion] | unique) as $indexManifestVersions
     | ([$set.entries[].manifest.runtimeEvidence.plannerVersion] | unique) as $plannerVersions
     | ([$set.entries[].manifest.runtimeEvidence.graphPolicyVersion] | unique) as $graphPolicyVersions
+    | ([$set.entries[].manifest.corpusAdmission.admissionHash] | unique | sort) as $corpusAdmissionHashes
     | ([ $policy.requiredTracks[] as $track
         | {track:$track,
             comparable:(([$set.entries[]
               | select(.manifest.track == $track)
-              | [.manifest.corpusId,.manifest.corpusVersion,.manifest.computedCorpusChecksum,(.manifest.seed | tostring)]
+              | [.manifest.corpusId,.manifest.corpusVersion,.manifest.computedCorpusChecksum,
+                  .manifest.corpusAdmission.admissionHash,(.manifest.seed | tostring)]
               | join("|")] | unique | length) == 1)} ]) as $corpusComparability
     | (($now - $earliest) <= ($policy.maxEvidenceAgeHours * 3600)) as $fresh
     | (($coverage | all(.present))
@@ -295,6 +324,7 @@ project_json() {
         indexManifestVersion:(if ($indexManifestVersions | length) == 1 then $indexManifestVersions[0] else null end),
         plannerVersion:(if ($plannerVersions | length) == 1 then $plannerVersions[0] else null end),
         graphPolicyVersion:(if ($graphPolicyVersions | length) == 1 then $graphPolicyVersions[0] else null end),
+        corpusAdmissionHashes:$corpusAdmissionHashes,
         requiredTracks:$policy.requiredTracks,
         requiredBaselines:$policy.requiredBaselines,
         coverage:$coverage,

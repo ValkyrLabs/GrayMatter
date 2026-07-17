@@ -122,6 +122,10 @@ jq -e '
     and (.omegaBench | type == "object")
     and (.omegaBench.evidenceSetSchemaVersion == "omegabench-evidence-set/v1")
     and (.omegaBench.manifestVersion == "omegabench-reproducibility/v1")
+    and (.omegaBench.corpusPackageSchemaVersion == "omegabench-corpus-package/v1")
+    and (.omegaBench.corpusAdmissionSchemaVersion == "omegabench-corpus-admission/v1")
+    and (.omegaBench.requiredCorpusAdmissionState == "ADMITTED")
+    and (.omegaBench.requiredPrivacyClassification == "PUBLIC")
     and (.omegaBench.requiredTracks | type == "array" and length >= 4)
     and (.omegaBench.requiredBaselines | type == "array" and length >= 6)
     and (.omegaBench.maxManifests | type == "number" and . >= 30)
@@ -297,6 +301,7 @@ if [[ -f "$ROOT/plugins/graymatter/scripts/gm-release-evidence" ]]; then
   for relative in \
     scripts/gm-release-evidence \
     scripts/gm-signature-history \
+    scripts/gm-omegabench-corpus \
     scripts/gm-omegabench-evidence \
     scripts/gm-objective-evidence \
     scripts/graymatter-prod-acceptance.sh \
@@ -312,12 +317,13 @@ if [[ -f "$ROOT/plugins/graymatter/scripts/gm-release-evidence" ]]; then
     parity_details="$(jq -cn \
       --arg scriptSha256 "$(sha256_file "$ROOT/scripts/gm-release-evidence")" \
       --arg historyCollectorSha256 "$(sha256_file "$ROOT/scripts/gm-signature-history")" \
+      --arg omegaBenchCorpusSha256 "$(sha256_file "$ROOT/scripts/gm-omegabench-corpus")" \
       --arg omegaBenchCollectorSha256 "$(sha256_file "$ROOT/scripts/gm-omegabench-evidence")" \
       --arg objectiveCollectorSha256 "$(sha256_file "$ROOT/scripts/gm-objective-evidence")" \
       --arg acceptanceCanarySha256 "$(sha256_file "$ROOT/scripts/graymatter-prod-acceptance.sh")" \
       --arg policySha256 "$(sha256_file "$POLICY")" \
       --arg docsSha256 "$(sha256_file "$ROOT/docs/omegarag-release-evidence.md")" \
-      '{scriptSha256:$scriptSha256,historyCollectorSha256:$historyCollectorSha256,omegaBenchCollectorSha256:$omegaBenchCollectorSha256,objectiveCollectorSha256:$objectiveCollectorSha256,acceptanceCanarySha256:$acceptanceCanarySha256,policySha256:$policySha256,docsSha256:$docsSha256}')"
+      '{scriptSha256:$scriptSha256,historyCollectorSha256:$historyCollectorSha256,omegaBenchCorpusSha256:$omegaBenchCorpusSha256,omegaBenchCollectorSha256:$omegaBenchCollectorSha256,objectiveCollectorSha256:$objectiveCollectorSha256,acceptanceCanarySha256:$acceptanceCanarySha256,policySha256:$policySha256,docsSha256:$docsSha256}')"
     add_check "marketplace-release-parity" "PASS" "Release evidence script, policy, and docs match the marketplace surface." "$parity_details"
   else
     add_check "marketplace-release-parity" "FAIL" "Marketplace release evidence surfaces differ from the root package." \
@@ -670,10 +676,10 @@ if [[ -n "$BENCHMARK_EVIDENCE" && -f "$BENCHMARK_EVIDENCE" ]]; then
     ' <<<"$raw_benchmark_projection")"
     if jq -e '.complete == true' <<<"$benchmark_projection" >/dev/null; then
       benchmark_status="COMPLETE"
-      benchmark_reason="The production OmegaBench matrix is complete, coherent, fresh, and bound to the current capability scope."
+      benchmark_reason="The production OmegaBench matrix is complete, corpus-admitted, coherent, fresh, and bound to the current capability scope."
     else
       benchmark_status="INCOMPLETE"
-      benchmark_reason="The OmegaBench evidence set does not establish the policy-required production baseline matrix and capability binding."
+      benchmark_reason="The OmegaBench evidence set does not establish the policy-required admitted-corpus production baseline matrix and capability binding."
     fi
   else
     benchmark_status="INVALID"

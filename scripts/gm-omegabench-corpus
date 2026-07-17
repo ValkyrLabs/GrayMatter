@@ -1,0 +1,261 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCHEMA_VERSION="omegabench-corpus-package/v1"
+CORPUS_ID=""
+CORPUS_VERSION=""
+CORPUS_LICENSE=""
+SOURCE=""
+SOURCE_URI=""
+SOURCE_REVISION=""
+LICENSE_FILE=""
+LICENSE_URI=""
+CASE_COUNT=""
+CASE_SET_CHECKSUM=""
+OUT=""
+VALIDATE=""
+CONFIRM_PUBLIC_ONLY=false
+CONFIRM_NO_TENANT_DATA=false
+
+usage() {
+  cat <<'EOF'
+Usage:
+  scripts/gm-omegabench-corpus --corpus-id ID --corpus-version VERSION \
+    --corpus-license SPDX_ID --source PATH --source-uri HTTPS_URI \
+    --source-revision PINNED_REVISION --license PATH --license-uri HTTPS_URI \
+    --case-count COUNT --case-set-checksum SHA256 --confirm-public-only \
+    --confirm-no-tenant-data --out PATH
+  scripts/gm-omegabench-corpus --validate PATH [--source PATH --license PATH]
+
+Create or validate the content-free package provenance required for a public
+OmegaBench run. Source and license bytes are hashed but are never copied into
+the output. The authenticated benchmark runtime independently recomputes the
+package evidence hash and binds it to the exact compiled case checksum.
+EOF
+}
+
+fail() {
+  printf 'gm-omegabench-corpus failed: %s\n' "$*" >&2
+  exit 1
+}
+
+canonical_output_path() {
+  local path="$1"
+  local parent
+  parent="$(dirname "$path")"
+  mkdir -p "$parent"
+  parent="$(cd "$parent" && pwd -P)"
+  printf '%s/%s\n' "$parent" "$(basename "$path")"
+}
+
+canonical_existing_path() {
+  local path="$1"
+  local parent
+  parent="$(cd "$(dirname "$path")" && pwd -P)"
+  printf '%s/%s\n' "$parent" "$(basename "$path")"
+}
+
+sha256_file() {
+  shasum -a 256 "$1" | awk '{print $1}'
+}
+
+sha256_text() {
+  printf '%s' "$1" | shasum -a 256 | awk '{print $1}'
+}
+
+read_one_object() {
+  jq -cse '
+    if length == 1 and (.[0] | type == "object") then .[0]
+    else error("expected exactly one JSON object") end
+  ' "$1" 2>/dev/null
+}
+
+validate_structure() {
+  local json="$1"
+  jq -e --arg schema "$SCHEMA_VERSION" '
+    def only_keys($allowed): ((keys_unsorted - $allowed) | length) == 0;
+    def bounded:
+      type == "string" and length > 0 and length <= 256
+      and (test("[[:cntrl:]]") | not);
+    def sha256: type == "string" and test("^[0-9a-f]{64}$");
+    def public_license:
+      ascii_upcase | gsub("_"; "-")
+      | . == "MIT"
+        or startswith("APACHE-2.0")
+        or startswith("BSD-2-CLAUSE")
+        or startswith("BSD-3-CLAUSE")
+        or startswith("CC0-")
+        or startswith("CC-BY-")
+        or startswith("MPL-")
+        or startswith("EPL-")
+        or startswith("GPL-")
+        or startswith("LGPL-")
+        or startswith("AGPL-")
+        or startswith("ODC-")
+        or startswith("PDDL-")
+        or startswith("CDLA-")
+        or . == "UNLICENSE"
+        or contains("PUBLIC DOMAIN")
+        or contains("PUBLIC-DOMAIN")
+        or contains("OPEN DATA COMMONS");
+    type == "object"
+    and only_keys([
+      "schemaVersion","corpusId","corpusVersion","corpusLicense","sourceUri",
+      "sourceRevision","sourceSha256","licenseUri","licenseSha256",
+      "packageEvidenceSha256","privacyClassification","tenantDataExcluded",
+      "caseCount","caseSetChecksum"
+    ])
+    and .schemaVersion == $schema
+    and (.corpusId | bounded)
+    and (.corpusVersion | bounded)
+    and (.corpusLicense | bounded and public_license)
+    and (.sourceUri | bounded and test("^https://[^/@#?[:space:]]+(/[^#?[:space:]]*)?$"))
+    and (.sourceRevision | bounded
+      and (ascii_downcase | startswith("refs/heads/") | not)
+      and (ascii_downcase | IN("latest","main","master","head","current","trunk","develop","development") | not))
+    and (.sourceSha256 | sha256)
+    and (.licenseUri | bounded and test("^https://[^/@#?[:space:]]+(/[^#?[:space:]]*)?$"))
+    and (.licenseSha256 | sha256)
+    and (.packageEvidenceSha256 | sha256)
+    and .privacyClassification == "PUBLIC"
+    and .tenantDataExcluded == true
+    and (.caseCount | type == "number" and floor == . and . >= 1 and . <= 2048)
+    and (.caseSetChecksum | sha256)
+  ' <<<"$json" >/dev/null 2>&1
+}
+
+canonical_package_text() {
+  local json="$1"
+  jq -r '
+    [
+      "omegabench-corpus-package/v1",
+      "schemaVersion=" + .schemaVersion,
+      "corpusId=" + .corpusId,
+      "corpusVersion=" + .corpusVersion,
+      "corpusLicense=" + .corpusLicense,
+      "sourceUri=" + .sourceUri,
+      "sourceRevision=" + .sourceRevision,
+      "sourceSha256=" + .sourceSha256,
+      "licenseUri=" + .licenseUri,
+      "licenseSha256=" + .licenseSha256,
+      "privacyClassification=" + .privacyClassification,
+      "tenantDataExcluded=" + (.tenantDataExcluded | tostring),
+      "caseCount=" + (.caseCount | tostring),
+      "caseSetChecksum=" + .caseSetChecksum
+    ] | join("\n")
+  ' <<<"$json"
+}
+
+validate_package() {
+  local json="$1"
+  validate_structure "$json" || fail "corpus package is structurally invalid"
+  local expected_hash
+  expected_hash="$(sha256_text "$(canonical_package_text "$json")")"
+  [[ "$(jq -r '.packageEvidenceSha256' <<<"$json")" == "$expected_hash" ]] \
+    || fail "package evidence hash does not match the canonical package fields"
+  if [[ -n "$SOURCE" ]]; then
+    [[ -f "$SOURCE" ]] || fail "source artifact does not exist: $SOURCE"
+    [[ "$(jq -r '.sourceSha256' <<<"$json")" == "$(sha256_file "$SOURCE")" ]] \
+      || fail "source artifact hash does not match the package"
+  fi
+  if [[ -n "$LICENSE_FILE" ]]; then
+    [[ -f "$LICENSE_FILE" ]] || fail "license artifact does not exist: $LICENSE_FILE"
+    [[ "$(jq -r '.licenseSha256' <<<"$json")" == "$(sha256_file "$LICENSE_FILE")" ]] \
+      || fail "license artifact hash does not match the package"
+  fi
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --corpus-id) shift; CORPUS_ID="${1:-}" ;;
+    --corpus-version) shift; CORPUS_VERSION="${1:-}" ;;
+    --corpus-license) shift; CORPUS_LICENSE="${1:-}" ;;
+    --source) shift; SOURCE="${1:-}" ;;
+    --source-uri) shift; SOURCE_URI="${1:-}" ;;
+    --source-revision) shift; SOURCE_REVISION="${1:-}" ;;
+    --license) shift; LICENSE_FILE="${1:-}" ;;
+    --license-uri) shift; LICENSE_URI="${1:-}" ;;
+    --case-count) shift; CASE_COUNT="${1:-}" ;;
+    --case-set-checksum) shift; CASE_SET_CHECKSUM="${1:-}" ;;
+    --confirm-public-only) CONFIRM_PUBLIC_ONLY=true ;;
+    --confirm-no-tenant-data) CONFIRM_NO_TENANT_DATA=true ;;
+    --out) shift; OUT="${1:-}" ;;
+    --validate) shift; VALIDATE="${1:-}" ;;
+    --help|-h) usage; exit 0 ;;
+    *) fail "unknown option: $1" ;;
+  esac
+  shift
+done
+
+command -v jq >/dev/null 2>&1 || fail "missing required command: jq"
+command -v shasum >/dev/null 2>&1 || fail "missing required command: shasum"
+
+if [[ -n "$VALIDATE" ]]; then
+  [[ -z "$CORPUS_ID$CORPUS_VERSION$CORPUS_LICENSE$SOURCE_URI$SOURCE_REVISION$LICENSE_URI$CASE_COUNT$CASE_SET_CHECKSUM$OUT" ]] \
+    || fail "--validate cannot be combined with collection metadata or --out"
+  [[ "$CONFIRM_PUBLIC_ONLY" == false && "$CONFIRM_NO_TENANT_DATA" == false ]] \
+    || fail "--validate cannot be combined with confirmation flags"
+  [[ -f "$VALIDATE" ]] || fail "corpus package does not exist: $VALIDATE"
+  [[ -z "$SOURCE" || -n "$LICENSE_FILE" ]] || fail "--source and --license must be supplied together in validation mode"
+  [[ -z "$LICENSE_FILE" || -n "$SOURCE" ]] || fail "--source and --license must be supplied together in validation mode"
+  json="$(read_one_object "$VALIDATE")" || fail "corpus package is not exactly one JSON object"
+  validate_package "$json"
+  exit 0
+fi
+
+[[ -n "$CORPUS_ID" ]] || fail "--corpus-id is required"
+[[ -n "$CORPUS_VERSION" ]] || fail "--corpus-version is required"
+[[ -n "$CORPUS_LICENSE" ]] || fail "--corpus-license is required"
+[[ -f "$SOURCE" ]] || fail "--source must name an existing file"
+[[ -n "$SOURCE_URI" ]] || fail "--source-uri is required"
+[[ -n "$SOURCE_REVISION" ]] || fail "--source-revision is required"
+[[ -f "$LICENSE_FILE" ]] || fail "--license must name an existing file"
+[[ -n "$LICENSE_URI" ]] || fail "--license-uri is required"
+[[ "$CASE_COUNT" =~ ^[0-9]+$ && "$CASE_COUNT" -gt 0 ]] || fail "--case-count must be a positive integer"
+[[ "$CASE_COUNT" -le 2048 ]] || fail "--case-count cannot exceed the runtime maximum of 2048"
+[[ "$CASE_SET_CHECKSUM" =~ ^[0-9a-f]{64}$ ]] || fail "--case-set-checksum must be a lowercase SHA-256 hash"
+[[ "$CONFIRM_PUBLIC_ONLY" == true ]] || fail "--confirm-public-only is required"
+[[ "$CONFIRM_NO_TENANT_DATA" == true ]] || fail "--confirm-no-tenant-data is required"
+[[ -n "$OUT" ]] || fail "--out is required"
+
+OUT="$(canonical_output_path "$OUT")"
+[[ "$OUT" != "$(canonical_existing_path "$SOURCE")" ]] || fail "--out must not overwrite the source artifact"
+[[ "$OUT" != "$(canonical_existing_path "$LICENSE_FILE")" ]] || fail "--out must not overwrite the license artifact"
+
+draft="$(jq -cn \
+  --arg schemaVersion "$SCHEMA_VERSION" \
+  --arg corpusId "$CORPUS_ID" \
+  --arg corpusVersion "$CORPUS_VERSION" \
+  --arg corpusLicense "$CORPUS_LICENSE" \
+  --arg sourceUri "$SOURCE_URI" \
+  --arg sourceRevision "$SOURCE_REVISION" \
+  --arg sourceSha256 "$(sha256_file "$SOURCE")" \
+  --arg licenseUri "$LICENSE_URI" \
+  --arg licenseSha256 "$(sha256_file "$LICENSE_FILE")" \
+  --argjson caseCount "$CASE_COUNT" \
+  --arg caseSetChecksum "$CASE_SET_CHECKSUM" '
+    {
+      schemaVersion:$schemaVersion,
+      corpusId:$corpusId,
+      corpusVersion:$corpusVersion,
+      corpusLicense:$corpusLicense,
+      sourceUri:$sourceUri,
+      sourceRevision:$sourceRevision,
+      sourceSha256:$sourceSha256,
+      licenseUri:$licenseUri,
+      licenseSha256:$licenseSha256,
+      packageEvidenceSha256:("0" * 64),
+      privacyClassification:"PUBLIC",
+      tenantDataExcluded:true,
+      caseCount:$caseCount,
+      caseSetChecksum:$caseSetChecksum
+    }
+  ')"
+package_hash="$(sha256_text "$(canonical_package_text "$draft")")"
+result="$(jq -c --arg packageEvidenceSha256 "$package_hash" \
+  '.packageEvidenceSha256 = $packageEvidenceSha256' <<<"$draft")"
+validate_package "$result"
+
+output_tmp="$(mktemp "$(dirname "$OUT")/.gm-omegabench-corpus.XXXXXX")"
+printf '%s\n' "$result" >"$output_tmp"
+mv "$output_tmp" "$OUT"

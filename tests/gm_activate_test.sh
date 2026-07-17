@@ -267,7 +267,7 @@ test_activate_surfaces_degraded_capabilities() {
   output="$(printf '%s\n' "${result}" | tail -n +3)"
 
   [[ "${status}" == "0" ]] || fail "gm-activate should remain usable with explicit degraded capability discovery"
-  assert_contains "${output}" "ready with capability limits" "gm-activate should surface degraded capability discovery"
+  assert_contains "${output}" "ready with capability or semantic-index limits" "gm-activate should surface degraded startup discovery"
   if [[ "${output}" == *"GrayMatter activation complete"* ]]; then
     fail "gm-activate must not report fully complete when capability discovery is degraded"
   fi

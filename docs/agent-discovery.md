@@ -88,15 +88,17 @@ VALKYR_API_BASE=https://api-0.valkyrlabs.com/v1
 scripts/gm-activate
 ```
 
-Activation writes `graymatter-startup-preflight/v1` after it has run all three
+Activation writes `graymatter-startup-preflight/v1` after it has run all four
 required startup checks: scoped invariant retrieval, authenticated
-`/graymatter/omega/capabilities` discovery, and a fresh live OpenAPI validation
-that includes the canonical capability and MemoryEntry query paths. Set
+`/graymatter/omega/capabilities` discovery, RBAC-filtered semantic-index
+compatibility, and a fresh live OpenAPI validation that includes the canonical
+capability, semantic-manifest, and MemoryEntry query paths. Set
 `GRAYMATTER_WORKSPACE_KEY` to the current workspace before activation. The
-artifact projects capability states, limits, Light/Cloud differences, scope
-hashes, and schema hashes without tenant names, private content, tokens,
-balances, or provider responses. Degraded capabilities stay visible and never
-become proof that a feature is available.
+artifact projects capability states, limits, Light/Cloud differences,
+semantic-index compatibility, scope hashes, and schema hashes without row
+counts, tenant names, private content, tokens, balances, or provider responses.
+Degraded capabilities and incompatible indexes stay visible and never become
+proof that a feature is available.
 
 Activation and signup:
 

@@ -51,7 +51,7 @@ On startup or first use in a workspace that depends on GrayMatter:
 1. Ensure auth is available
 2. Confirm install readiness
 3. Register the OpenClaw instance as an Agent record for itself in api-0
-4. Run `scripts/gm-startup-preflight --workspace-key <current-workspace>` to bind mandatory invariant retrieval, authenticated capability discovery, and live OpenAPI freshness into one content-free artifact
+4. Run `scripts/gm-startup-preflight --workspace-key <current-workspace>` to bind mandatory invariant retrieval, authenticated capability discovery, semantic-index compatibility, and live OpenAPI freshness into one content-free artifact
 5. Treat capability states and limits as operational truth; degraded or unavailable capabilities are never proof of availability
 6. Treat `/v1/api-docs` as the source of truth for the environment's available business objects and actions
 7. Replay any deferred local memory records, confirm durable sync, and remove the synchronized local copies

@@ -104,7 +104,7 @@ if [[ $SMOKE_DEGRADED -eq 1 ]]; then
   echo "GrayMatter activation degraded: auth ready, agent registered, startup preflight completed with memory limits; pester state written to ${DEGRADED_STATE_FILE}" >&2
 elif [[ "$STARTUP_STATUS" == "DEGRADED" ]]; then
   clear_degraded_activation
-  echo "GrayMatter activation ready with capability limits: inspect ${STARTUP_PREFLIGHT_FILE} before selecting unavailable operations." >&2
+  echo "GrayMatter activation ready with capability or semantic-index limits: inspect ${STARTUP_PREFLIGHT_FILE} before selecting unavailable operations." >&2
 elif [[ "$STARTUP_STATUS" == "READY_WITH_LIMITS" ]]; then
   clear_degraded_activation
   echo "GrayMatter activation ready with unverified or planned capability limits recorded in ${STARTUP_PREFLIGHT_FILE}." >&2

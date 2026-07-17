@@ -7,6 +7,7 @@ STATE_DIR="${GRAYMATTER_STATE_DIR:-${HOME:-$ROOT}/.graymatter}"
 WORKSPACE_KEY="${GRAYMATTER_WORKSPACE_KEY:-GrayMatter}"
 OPENAPI_CACHE="${GRAYMATTER_OPENAPI_CACHE:-$ROOT/tmp/api-docs.json}"
 CAPABILITY_CACHE="${GRAYMATTER_CAPABILITY_CACHE:-$STATE_DIR/capability-summary.json}"
+INDEX_MANIFEST_CACHE="${GRAYMATTER_INDEX_MANIFEST_CACHE:-$STATE_DIR/semantic-index-summary.json}"
 MAX_SCHEMA_AGE_SECONDS="${GRAYMATTER_SCHEMA_MAX_AGE_SECONDS:-300}"
 INVARIANT_LIMIT="${GRAYMATTER_INVARIANT_PREFLIGHT_LIMIT:-20}"
 ALLOW_MEMORY_DEGRADED=false
@@ -22,13 +23,16 @@ Options:
   --workspace-key KEY       Scope invariant retrieval to the current workspace.
   --openapi-cache PATH      Write and validate the authenticated live OpenAPI.
   --capability-cache PATH   Write the content-free capability projection.
+  --index-manifest-cache PATH
+                            Write the content-free semantic-index compatibility projection.
   --max-schema-age SECONDS  Maximum accepted OpenAPI cache age after live sync.
   --allow-memory-degraded   Record unavailable invariant retrieval as degraded.
   --format brief|json       Select stdout format (default: brief).
   --out PATH                Write the combined machine-readable result.
 
-Runs the OmegaRAG OMR-SURF-001 startup contract: invariant retrieval,
-authenticated capability discovery, and explicit live-schema freshness.
+Runs the OmegaRAG OMR-SURF-001 and OMR-IDX-001 startup contracts: invariant
+retrieval, authenticated capability discovery, semantic-index compatibility,
+and explicit live-schema freshness.
 Degraded or unavailable capabilities remain visible and never become proof of
 availability. Invalid, unscoped, expired, or stale control-plane evidence fails.
 EOF
@@ -70,6 +74,11 @@ while [[ $# -gt 0 ]]; do
       shift
       CAPABILITY_CACHE="${1:-}"
       [[ -n "$CAPABILITY_CACHE" ]] || fail "--capability-cache requires a path"
+      ;;
+    --index-manifest-cache)
+      shift
+      INDEX_MANIFEST_CACHE="${1:-}"
+      [[ -n "$INDEX_MANIFEST_CACHE" ]] || fail "--index-manifest-cache requires a path"
       ;;
     --max-schema-age)
       shift
@@ -257,6 +266,113 @@ capability_projection="$(jq -c '
 mkdir -p "$(dirname "$CAPABILITY_CACHE")"
 printf '%s\n' "$capability_projection" >"$CAPABILITY_CACHE"
 
+index_manifest_raw="$tmp_dir/semantic-index-manifest.json"
+if ! "$SCRIPT_DIR/graymatter_api.sh" GET /graymatter/semantic-index/manifest \
+  >"$index_manifest_raw" 2>"$tmp_dir/semantic-index-manifest.err"; then
+  fail "authenticated semantic-index manifest discovery failed"
+fi
+if ! jq -e '
+    def bounded_status:
+      type == "string" and length > 0 and length <= 160 and test("^[A-Za-z0-9._:/-]+$");
+    def bounded_warning:
+      type == "string" and length > 0 and length <= 240 and test("^[A-Za-z0-9._:/ -]+$");
+    def dimension:
+      (type == "number" and . > 0 and . == floor)
+      or (type == "string" and test("^[0-9]{1,5}$"));
+    type == "object"
+    and (.mode | bounded_status)
+    and (.schemaAvailable | type == "boolean")
+    and .rbacFiltered == true
+    and (.indexLifecycle | type == "object")
+    and (.indexLifecycle.lifecycleDataAvailable | type == "boolean")
+    and (.indexLifecycle.healthStatus | bounded_status)
+    and (.indexLifecycle.qualityState | bounded_status)
+    and (.indexLifecycle.freshnessStatus | bounded_status)
+    and (.indexLifecycle.indexMigrationRequired | type == "boolean")
+    and (.indexLifecycle.providerMigrationRequired | type == "boolean")
+    and (.indexLifecycle.chunkerVersionMismatch | type == "boolean")
+    and (.indexLifecycle.readOnly | type == "boolean")
+    and (.indexLifecycle.containsIndexedContent | type == "boolean")
+    and (.indexLifecycle.manifestTruncated | type == "boolean")
+    and (.indexLifecycle.manifestVersion | bounded_status)
+    and (.indexLifecycle.indexVersion | bounded_status)
+    and (.indexLifecycle.chunkerVersion | bounded_status)
+    and (.indexLifecycle.aclStrategy | bounded_status)
+    and (.indexLifecycle.activeDimensions | type == "array" and length <= 16)
+    and all(.indexLifecycle.activeDimensions[]; dimension)
+    and ((.indexLifecycle.recommendedAction == null) or (.indexLifecycle.recommendedAction | bounded_status))
+    and (.indexLifecycle.warnings | type == "array" and length <= 32)
+    and all(.indexLifecycle.warnings[]; bounded_warning)
+    and ((.indexPolicy // {}) | type == "object")
+    and (((.indexPolicy // {}).schemaVersion == null)
+      or ((.indexPolicy // {}).schemaVersion | type == "string" and test("^sha256:[0-9a-f]{64}$")))
+    and (((.indexPolicy // {}).effectivePolicyVersion == null)
+      or ((.indexPolicy // {}).effectivePolicyVersion | type == "string" and test("^sha256:[0-9a-f]{64}$")))
+    and (((.indexPolicy // {}).snapshotVersion == null) or ((.indexPolicy // {}).snapshotVersion | bounded_status))
+    and (((.indexPolicy // {}).reviewedOverridesRequired == null)
+      or ((.indexPolicy // {}).reviewedOverridesRequired | type == "boolean"))
+    and (((.indexPolicy // {}).staleOverridesRejected == null)
+      or ((.indexPolicy // {}).staleOverridesRejected | type == "boolean"))
+    and (((.indexPolicy // {}).warnings // []) | type == "array" and length <= 32)
+    and all((((.indexPolicy // {}).warnings // [])[]); bounded_warning)
+  ' "$index_manifest_raw" >/dev/null 2>&1; then
+  fail "semantic-index manifest is invalid, unscoped, or missing compatibility evidence"
+fi
+
+index_manifest_projection="$(jq -c '
+  def supported_dimension: tostring | IN("256","384","1536","3072");
+  def bounded_strings:
+    if type == "array" then map(select(type == "string") | .[0:240])[:32] else [] end;
+  (.indexLifecycle) as $lifecycle
+  | (((.schemaAvailable == true)
+      and $lifecycle.lifecycleDataAvailable == true
+      and ([$lifecycle.activeDimensions[] | supported_dimension] | all)
+      and ($lifecycle.healthStatus | IN("healthy","ready","current","empty"))
+      and $lifecycle.freshnessStatus == "current"
+      and $lifecycle.indexMigrationRequired == false
+      and $lifecycle.providerMigrationRequired == false
+      and $lifecycle.chunkerVersionMismatch == false)) as $compatible
+  | {
+      status:(
+        if $compatible == false then "DEGRADED"
+        elif ($lifecycle.manifestTruncated
+          or (($lifecycle.warnings // []) | length) > 0
+          or (((.indexPolicy // {}).warnings // []) | length) > 0) then "READY_WITH_LIMITS"
+        else "READY" end),
+      mode,
+      schemaAvailable,
+      rbacFiltered,
+      lifecycle:{
+        manifestVersion:$lifecycle.manifestVersion,
+        indexVersion:$lifecycle.indexVersion,
+        chunkerVersion:$lifecycle.chunkerVersion,
+        aclStrategy:$lifecycle.aclStrategy,
+        healthStatus:$lifecycle.healthStatus,
+        qualityState:$lifecycle.qualityState,
+        freshnessStatus:$lifecycle.freshnessStatus,
+        activeDimensions:([$lifecycle.activeDimensions[] | tostring] | unique | sort_by(tonumber)),
+        indexMigrationRequired:$lifecycle.indexMigrationRequired,
+        providerMigrationRequired:$lifecycle.providerMigrationRequired,
+        chunkerVersionMismatch:$lifecycle.chunkerVersionMismatch,
+        readOnly:$lifecycle.readOnly,
+        containsIndexedContent:$lifecycle.containsIndexedContent,
+        manifestTruncated:$lifecycle.manifestTruncated,
+        recommendedAction:($lifecycle.recommendedAction // null),
+        warnings:($lifecycle.warnings | bounded_strings)
+      },
+      policy:{
+        schemaVersion:((.indexPolicy // {}).schemaVersion // null),
+        effectivePolicyVersion:((.indexPolicy // {}).effectivePolicyVersion // null),
+        snapshotVersion:((.indexPolicy // {}).snapshotVersion // null),
+        reviewedOverridesRequired:((.indexPolicy // {}).reviewedOverridesRequired // null),
+        staleOverridesRejected:((.indexPolicy // {}).staleOverridesRejected // null),
+        warnings:(((.indexPolicy // {}).warnings // []) | bounded_strings)
+      }
+    }
+' "$index_manifest_raw")"
+mkdir -p "$(dirname "$INDEX_MANIFEST_CACHE")"
+printf '%s\n' "$index_manifest_projection" >"$INDEX_MANIFEST_CACHE"
+
 mkdir -p "$(dirname "$OPENAPI_CACHE")"
 if ! "$SCRIPT_DIR/gm-openapi-sync" "$OPENAPI_CACHE" >"$tmp_dir/openapi-sync.out" 2>"$tmp_dir/openapi-sync.err"; then
   fail "authenticated live OpenAPI sync failed"
@@ -267,6 +383,7 @@ if ! jq -e '
     and (.openapi | type == "string" and startswith("3."))
     and (.paths | type == "object" and length > 0)
     and ((.paths["/v1/graymatter/omega/capabilities"] // .paths["/graymatter/omega/capabilities"]) | type == "object")
+    and ((.paths["/v1/graymatter/semantic-index/manifest"] // .paths["/graymatter/semantic-index/manifest"]) | type == "object")
     and ((.paths["/v1/MemoryEntry/query"] // .paths["/MemoryEntry/query"]) | type == "object")
   ' "$OPENAPI_CACHE" >/dev/null 2>&1; then
   fail "live schema is invalid or missing required GrayMatter startup paths"
@@ -295,16 +412,19 @@ schema_projection="$(jq -c \
       maxAgeSeconds:$maxAgeSeconds,
       requiredPaths:{
         capabilityDiscovery:true,
+        semanticIndexManifest:true,
         memoryQuery:true
       }
     }
   ' "$OPENAPI_CACHE")"
 
 capability_status="$(jq -r '.status' <<<"$capability_projection")"
+index_manifest_status="$(jq -r '.status' <<<"$index_manifest_projection")"
 overall_status="READY"
-if [[ "$invariant_status" == "DEGRADED" || "$capability_status" == "DEGRADED" ]]; then
+if [[ "$invariant_status" == "DEGRADED" || "$capability_status" == "DEGRADED" \
+  || "$index_manifest_status" == "DEGRADED" ]]; then
   overall_status="DEGRADED"
-elif [[ "$capability_status" == "READY_WITH_LIMITS" ]]; then
+elif [[ "$capability_status" == "READY_WITH_LIMITS" || "$index_manifest_status" == "READY_WITH_LIMITS" ]]; then
   overall_status="READY_WITH_LIMITS"
 fi
 
@@ -314,6 +434,7 @@ result="$(jq -n \
   --arg status "$overall_status" \
   --argjson invariant "$invariant_projection" \
   --argjson capabilities "$capability_projection" \
+  --argjson semanticIndex "$index_manifest_projection" \
   --argjson schema "$schema_projection" '
     {
       schemaVersion:$schemaVersion,
@@ -321,6 +442,7 @@ result="$(jq -n \
       status:$status,
       invariantPreflight:$invariant,
       capabilityDiscovery:$capabilities,
+      semanticIndexCompatibility:$semanticIndex,
       schemaFreshness:$schema,
       authorizations:{
         mergeAuthorized:false,
@@ -345,6 +467,9 @@ else
     "capabilityStatus=" + .capabilityDiscovery.status,
     "capabilities=" + ((.capabilityDiscovery.stateCounts | to_entries | map(.key + ":" + (.value | tostring)) | join(","))),
     "subsystems=" + ((.capabilityDiscovery.subsystemStateCounts | to_entries | map(.key + ":" + (.value | tostring)) | join(","))),
+    "semanticIndexStatus=" + .semanticIndexCompatibility.status,
+    "semanticIndexHealth=" + .semanticIndexCompatibility.lifecycle.healthStatus,
+    "semanticIndexDimensions=" + (.semanticIndexCompatibility.lifecycle.activeDimensions | join(",")),
     "schemaStatus=" + .schemaFreshness.status,
     "schemaVersion=" + (.schemaFreshness.apiVersion // "unknown"),
     "schemaAgeSeconds=" + (.schemaFreshness.ageSeconds | tostring)

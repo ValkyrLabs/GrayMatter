@@ -433,16 +433,24 @@ const tools = [
   defineTool({
     name: 'omega_index_job',
     title: 'Manage OmegaRAG index job',
-    description: 'Estimate, start, inspect, or cancel a durable tenant-scoped OmegaRAG semantic-index job. The server derives owner, tenant, ACL scope, credits, and idempotency; memory content and caller identity are never sent by this adapter.',
+    description: 'Estimate, start, inspect, cancel, activate, or roll back a durable tenant-scoped OmegaRAG semantic-index job. Dimension migration is staged and profile-hash verified; activation and rollback are destructive operator effects that require explicit human approval. The server derives owner, tenant, ACL scope, credits, and idempotency; memory content and caller identity are never sent by this adapter.',
     inputSchema: {
       type: 'object',
       properties: {
-        operation: { type: 'string', enum: ['estimate', 'start', 'get', 'cancel'] },
-        mode: { type: 'string', enum: ['estimate', 'full', 'incremental', 'cleanup', 'tombstone'] },
+        operation: { type: 'string', enum: ['estimate', 'start', 'get', 'cancel', 'activate', 'rollback'] },
+        mode: { type: 'string', enum: ['estimate', 'full', 'incremental', 'cleanup', 'tombstone', 'dimension_migration'] },
         dryRun: { type: 'boolean' },
         idempotencyKey: { type: 'string', minLength: 1, maxLength: 200, pattern: '^[A-Za-z0-9._:-]+$' },
         targetTypes: { type: 'array', maxItems: 20, items: { type: 'string', maxLength: 128 } },
-        jobId: { type: 'string', minLength: 1, maxLength: 128 }
+        targetEmbeddingDimensions: { type: 'string', enum: ['256', '384', '1536', '3072'] },
+        expectedSourceEmbeddingDimensions: {
+          type: 'array',
+          maxItems: 4,
+          uniqueItems: true,
+          items: { type: 'string', enum: ['256', '384', '1536', '3072'] }
+        },
+        jobId: { type: 'string', minLength: 1, maxLength: 128 },
+        expectedProfileHash: { type: 'string', pattern: '^[0-9a-f]{64}$' }
       },
       required: ['operation'],
       additionalProperties: false
@@ -1711,23 +1719,59 @@ async function callTool(params, context) {
       assertNoPrincipalOverrides(args);
       requireString(args.operation, 'operation');
       const operation = args.operation;
-      if (!['estimate', 'start', 'get', 'cancel'].includes(operation)) {
-        throw new Error('operation must be one of estimate, start, get, or cancel');
+      if (!['estimate', 'start', 'get', 'cancel', 'activate', 'rollback'].includes(operation)) {
+        throw new Error('operation must be one of estimate, start, get, cancel, activate, or rollback');
       }
-      if (operation === 'get' || operation === 'cancel') {
+      if (['get', 'cancel', 'activate', 'rollback'].includes(operation)) {
         requireString(args.jobId, 'jobId');
-        const suffix = operation === 'get' ? '' : '/cancel';
+        if (operation === 'activate' || operation === 'rollback') {
+          requireString(args.expectedProfileHash, 'expectedProfileHash');
+          if (!/^[0-9a-f]{64}$/.test(args.expectedProfileHash)) {
+            throw new Error('expectedProfileHash must be a lowercase 64-character SHA-256 hash');
+          }
+        }
+        const suffix = operation === 'get' ? '' : `/${operation}`;
         return execute('omega_index_job', () => apiRequest(
           context,
           operation === 'get' ? 'GET' : 'POST',
-          `graymatter/omega/index-jobs/${encodeURIComponent(args.jobId)}${suffix}`
+          `graymatter/omega/index-jobs/${encodeURIComponent(args.jobId)}${suffix}`,
+          operation === 'activate' || operation === 'rollback'
+            ? { expectedProfileHash: args.expectedProfileHash }
+            : undefined
         ));
       }
+      if (operation === 'start') {
+        requireString(args.mode, 'mode');
+      }
+      const mode = operation === 'estimate' ? (args.mode || 'estimate') : args.mode;
+      const allowedModes = ['estimate', 'full', 'incremental', 'cleanup', 'tombstone', 'dimension_migration'];
+      if (!allowedModes.includes(mode) || (operation === 'start' && mode === 'estimate')) {
+        throw new Error('mode must be one of full, incremental, cleanup, tombstone, or dimension_migration; estimate is read-only');
+      }
+      const allowedDimensions = ['256', '384', '1536', '3072'];
+      if (mode === 'dimension_migration') {
+        requireString(args.targetEmbeddingDimensions, 'targetEmbeddingDimensions');
+        if (!allowedDimensions.includes(args.targetEmbeddingDimensions)) {
+          throw new Error('targetEmbeddingDimensions must be one of 256, 384, 1536, or 3072');
+        }
+        if (args.expectedSourceEmbeddingDimensions !== undefined) {
+          if (!Array.isArray(args.expectedSourceEmbeddingDimensions)
+            || args.expectedSourceEmbeddingDimensions.length > allowedDimensions.length
+            || new Set(args.expectedSourceEmbeddingDimensions).size !== args.expectedSourceEmbeddingDimensions.length
+            || args.expectedSourceEmbeddingDimensions.some((dimension) => !allowedDimensions.includes(dimension))) {
+            throw new Error('expectedSourceEmbeddingDimensions must contain unique supported dimension strings');
+          }
+        }
+      } else if (args.targetEmbeddingDimensions !== undefined || args.expectedSourceEmbeddingDimensions !== undefined) {
+        throw new Error('embedding dimension fields are accepted only for dimension_migration mode');
+      }
       return execute('omega_index_job', () => apiRequest(context, 'POST', 'graymatter/omega/index-jobs', pickDefined({
-        mode: operation === 'estimate' ? 'estimate' : args.mode,
+        mode,
         dryRun: operation === 'estimate' ? true : args.dryRun,
         idempotencyKey: args.idempotencyKey,
-        targetTypes: args.targetTypes
+        targetTypes: args.targetTypes,
+        targetEmbeddingDimensions: args.targetEmbeddingDimensions,
+        expectedSourceEmbeddingDimensions: args.expectedSourceEmbeddingDimensions
       })));
     }
     case 'omega_retrieval_run': {

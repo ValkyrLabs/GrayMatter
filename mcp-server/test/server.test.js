@@ -461,6 +461,12 @@ test('tools/list exposes the GrayMatter tool surface', async () => {
         'schema_summary'
       ]
     );
+    const indexJobTool = result.body.result.tools.find((tool) => tool.name === 'omega_index_job');
+    assert.deepEqual(indexJobTool.inputSchema.properties.operation.enum,
+      ['estimate', 'start', 'get', 'cancel', 'activate', 'rollback']);
+    assert.ok(indexJobTool.inputSchema.properties.mode.enum.includes('dimension_migration'));
+    assert.equal(indexJobTool.annotations.destructiveHint, true);
+    assert.match(indexJobTool.description, /require explicit human approval/);
   } finally {
     server.close();
   }
@@ -594,6 +600,15 @@ test('OmegaRAG MCP tools use governed plan, recall, index jobs, forget, trajecto
       if (record.body.mode === 'estimate') {
         assert.equal(record.body.dryRun, true);
         res.end(JSON.stringify({ jobId: 'job-est', state: 'ESTIMATED', replayed: false }));
+      } else if (record.body.mode === 'dimension_migration') {
+        assert.equal(record.body.targetEmbeddingDimensions, '3072');
+        assert.deepEqual(record.body.expectedSourceEmbeddingDimensions, ['1536']);
+        if (record.body.dryRun) {
+          res.end(JSON.stringify({ jobId: 'job-migration-est', state: 'ESTIMATED', replayed: false }));
+        } else {
+          assert.equal(record.body.idempotencyKey, 'dimension-migration-1');
+          res.end(JSON.stringify({ jobId: 'job-migration-1', state: 'AWAITING_ACTIVATION', replayed: false }));
+        }
       } else {
         assert.equal(record.body.mode, 'full');
         assert.equal(record.body.idempotencyKey, 'index-1');
@@ -607,6 +622,16 @@ test('OmegaRAG MCP tools use governed plan, recall, index jobs, forget, trajecto
     }
     if (record.path === '/v1/graymatter/omega/index-jobs/job-1/cancel' && record.method === 'POST') {
       res.end(JSON.stringify({ jobId: 'job-1', state: 'CANCELED', replayed: false }));
+      return;
+    }
+    if (record.path === '/v1/graymatter/omega/index-jobs/job-migration-1/activate' && record.method === 'POST') {
+      assert.deepEqual(record.body, { expectedProfileHash: 'a'.repeat(64) });
+      res.end(JSON.stringify({ jobId: 'job-migration-1', state: 'COMPLETED', replayed: false }));
+      return;
+    }
+    if (record.path === '/v1/graymatter/omega/index-jobs/job-migration-1/rollback' && record.method === 'POST') {
+      assert.deepEqual(record.body, { expectedProfileHash: 'a'.repeat(64) });
+      res.end(JSON.stringify({ jobId: 'job-migration-1', state: 'ROLLED_BACK', replayed: false }));
       return;
     }
     if (record.path === '/v1/graymatter/omega/runs' && record.method === 'POST') {
@@ -750,6 +775,62 @@ test('OmegaRAG MCP tools use governed plan, recall, index jobs, forget, trajecto
       method: 'tools/call',
       params: { name: 'omega_index_job', arguments: { operation: 'cancel', jobId: 'job-1' } }
     });
+    const migrationEstimate = await postRpc(baseUrl, {
+      jsonrpc: '2.0',
+      id: 'omega-index-migration-estimate',
+      method: 'tools/call',
+      params: {
+        name: 'omega_index_job',
+        arguments: {
+          operation: 'estimate',
+          mode: 'dimension_migration',
+          targetEmbeddingDimensions: '3072',
+          expectedSourceEmbeddingDimensions: ['1536']
+        }
+      }
+    });
+    const migrationStart = await postRpc(baseUrl, {
+      jsonrpc: '2.0',
+      id: 'omega-index-migration-start',
+      method: 'tools/call',
+      params: {
+        name: 'omega_index_job',
+        arguments: {
+          operation: 'start',
+          mode: 'dimension_migration',
+          dryRun: false,
+          idempotencyKey: 'dimension-migration-1',
+          targetEmbeddingDimensions: '3072',
+          expectedSourceEmbeddingDimensions: ['1536']
+        }
+      }
+    });
+    const activate = await postRpc(baseUrl, {
+      jsonrpc: '2.0',
+      id: 'omega-index-migration-activate',
+      method: 'tools/call',
+      params: {
+        name: 'omega_index_job',
+        arguments: {
+          operation: 'activate',
+          jobId: 'job-migration-1',
+          expectedProfileHash: 'a'.repeat(64)
+        }
+      }
+    });
+    const rollback = await postRpc(baseUrl, {
+      jsonrpc: '2.0',
+      id: 'omega-index-migration-rollback',
+      method: 'tools/call',
+      params: {
+        name: 'omega_index_job',
+        arguments: {
+          operation: 'rollback',
+          jobId: 'job-migration-1',
+          expectedProfileHash: 'a'.repeat(64)
+        }
+      }
+    });
     const runStart = await postRpc(baseUrl, {
       jsonrpc: '2.0', id: 'omega-run-start', method: 'tools/call',
       params: { name: 'omega_retrieval_run', arguments: {
@@ -816,6 +897,18 @@ test('OmegaRAG MCP tools use governed plan, recall, index jobs, forget, trajecto
     assert.deepEqual(JSON.parse(cancel.body.result.content[0].text), {
       jobId: 'job-1', state: 'CANCELED', replayed: false
     });
+    assert.deepEqual(JSON.parse(migrationEstimate.body.result.content[0].text), {
+      jobId: 'job-migration-est', state: 'ESTIMATED', replayed: false
+    });
+    assert.deepEqual(JSON.parse(migrationStart.body.result.content[0].text), {
+      jobId: 'job-migration-1', state: 'AWAITING_ACTIVATION', replayed: false
+    });
+    assert.deepEqual(JSON.parse(activate.body.result.content[0].text), {
+      jobId: 'job-migration-1', state: 'COMPLETED', replayed: false
+    });
+    assert.deepEqual(JSON.parse(rollback.body.result.content[0].text), {
+      jobId: 'job-migration-1', state: 'ROLLED_BACK', replayed: false
+    });
     assert.deepEqual(JSON.parse(runStart.body.result.content[0].text), {
       run: { runId: 'run-1', state: 'QUEUED' }, replayed: false
     });
@@ -828,7 +921,32 @@ test('OmegaRAG MCP tools use governed plan, recall, index jobs, forget, trajecto
     assert.deepEqual(JSON.parse(runResume.body.result.content[0].text), {
       run: { runId: 'run-1', state: 'QUEUED' }, replayed: false
     });
-    assert.equal(fakeApi.requests.length, 16);
+    const requestCount = fakeApi.requests.length;
+    assert.equal(requestCount, 20);
+    const missingProfileHash = await postRpc(baseUrl, {
+      jsonrpc: '2.0', id: 'omega-index-missing-hash', method: 'tools/call',
+      params: { name: 'omega_index_job', arguments: { operation: 'activate', jobId: 'job-migration-1' } }
+    });
+    assert.match(missingProfileHash.body.error.message, /expectedProfileHash must be a non-empty string/);
+    const missingTargetDimensions = await postRpc(baseUrl, {
+      jsonrpc: '2.0', id: 'omega-index-missing-target', method: 'tools/call',
+      params: { name: 'omega_index_job', arguments: { operation: 'start', mode: 'dimension_migration' } }
+    });
+    assert.match(missingTargetDimensions.body.error.message, /targetEmbeddingDimensions must be a non-empty string/);
+    const duplicateSourceDimensions = await postRpc(baseUrl, {
+      jsonrpc: '2.0', id: 'omega-index-duplicate-source', method: 'tools/call',
+      params: {
+        name: 'omega_index_job',
+        arguments: {
+          operation: 'estimate',
+          mode: 'dimension_migration',
+          targetEmbeddingDimensions: '3072',
+          expectedSourceEmbeddingDimensions: ['1536', '1536']
+        }
+      }
+    });
+    assert.match(duplicateSourceDimensions.body.error.message, /unique supported dimension strings/);
+    assert.equal(fakeApi.requests.length, requestCount);
   } finally {
     server.close();
     fakeApi.server.close();

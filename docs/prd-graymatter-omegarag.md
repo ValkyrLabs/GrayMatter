@@ -555,7 +555,10 @@ The final paths follow existing ValkyrAI naming and generated-controller convent
 | `/v1/graymatter/omega/remember` | Form and persist scoped memory | Memory refs, formation decisions, receipt |
 | `/v1/graymatter/omega/forget` | Execute scoped forgetting/deletion | Deletion receipt and residual-state proof |
 | `/v1/graymatter/omega/domains` | Manage authorized retrieval domains | Generated domain objects |
-| `/v1/graymatter/omega/index-jobs` | Estimate/start/inspect/cancel index work | `IndexJob` and credit receipt |
+| `/v1/graymatter/omega/index-jobs` | Estimate or start bounded, resumable index work | `IndexJob` and credit receipt |
+| `/v1/graymatter/omega/index-jobs/{id}` | Inspect authorized index work | Redacted `IndexJob` and current state |
+| `/v1/graymatter/omega/index-jobs/{id}/cancel` | Idempotently cancel queued index work | Redacted `IndexJob` and terminal state |
+| `/v1/graymatter/omega/index-jobs/{id}/activate` or `/rollback` | Human-approved, profile-hash-verified dimension migration cutover or reversal | Fail-closed migration result and audit state |
 | `/v1/graymatter/omega/conflicts` | List/inspect/resolve memory conflicts | Conflict objects and resolution receipt |
 
 Existing MemoryEntry, semantic-index, retrieval-receipt, graph, ContextPage, SkillOpt, SWARM, and workflow APIs remain supported. Omega composes them; it does not break clients or duplicate their persistence.

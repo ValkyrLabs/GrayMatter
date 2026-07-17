@@ -6,6 +6,15 @@ contract="references/contracts/mcp/graymatter_mcp_tools_v1.json"
 jq -e '.version == "v1"' "$contract" >/dev/null
 jq -e '.tools | length >= 10' "$contract" >/dev/null
 jq -e '.tools | map(.name) | sort == ["memory_get","memory_health","memory_link","memory_put","memory_put_batch","memory_query","memory_replay_deferred","memory_retrieve_with_receipt","omega_evaluate","omega_forget","omega_index_job","omega_outcome","omega_plan","omega_recall","omega_remember","omega_resolve_domains","omega_trajectory_get","retrieval_receipt_get","retrieval_receipt_query"]' "$contract" >/dev/null
+jq -e '
+  .tools[] | select(.name == "omega_index_job")
+  | .inputSchema.additionalProperties == false
+    and (.inputSchema.properties.operation.enum | sort == ["activate", "cancel", "estimate", "get", "rollback", "start"])
+    and (.inputSchema.properties.mode.enum | index("dimension_migration") != null)
+    and (.inputSchema.properties.targetEmbeddingDimensions.enum == ["256", "384", "1536", "3072"])
+    and (.inputSchema.properties.expectedSourceEmbeddingDimensions.maxItems == 4)
+    and (.inputSchema.properties.expectedProfileHash.pattern == "^[0-9a-f]{64}$")
+' "$contract" >/dev/null
 jq -e '.tools[] | .errors | length >= 1' "$contract" >/dev/null
 jq -e '.tools[] | .errors[] | has("code") and has("retryable")' "$contract" >/dev/null
 jq -e '

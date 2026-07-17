@@ -17,6 +17,15 @@ for t in memory_query memory_retrieve_with_receipt omega_remember omega_plan ome
   jq -e --arg t "$t" '.tools[] | select(.name==$t)' "$PORTABLE_CONTRACT" >/dev/null
 done
 jq -e '
+  .tools[] | select(.name == "omega_index_job")
+  | .inputSchema.additionalProperties == false
+    and (.inputSchema.properties.operation.enum | sort == ["activate", "cancel", "estimate", "get", "rollback", "start"])
+    and (.inputSchema.properties.mode.enum | index("dimension_migration") != null)
+    and (.inputSchema.properties.targetEmbeddingDimensions.enum == ["256", "384", "1536", "3072"])
+    and (.inputSchema.properties.expectedSourceEmbeddingDimensions.uniqueItems == true)
+    and (.inputSchema.properties.expectedProfileHash.pattern == "^[0-9a-f]{64}$")
+' "$PORTABLE_CONTRACT" >/dev/null
+jq -e '
   .tools[]
   | select(.name == "memory_retrieve_with_receipt" or .name == "retrieval_receipt_get")
   | .outputSchema.required | index("graymatterPolicy")
@@ -42,6 +51,7 @@ jq -e '
 ' "$PORTABLE_CONTRACT" >/dev/null
 
 jq -e '.tools | map(.name) | sort == ["memory_get","memory_health","memory_link","memory_put","memory_put_batch","memory_query","memory_replay_deferred","memory_retrieve_with_receipt","omega_evaluate","omega_forget","omega_index_job","omega_outcome","omega_plan","omega_recall","omega_remember","omega_resolve_domains","omega_trajectory_get","retrieval_receipt_get","retrieval_receipt_query"]' < <("${ROOT}/scripts/gm-mcp-contract") >/dev/null
+jq -e '.tools[] | select(.name == "omega_index_job") | .inputSchema.properties.operation.enum | index("activate") and index("rollback")' < <("${ROOT}/scripts/gm-mcp-contract") >/dev/null
 jq -e '.tools[] | select(.name == "memory_retrieve_with_receipt") | .outputSchema.required | index("graymatterPolicy")' < <("${ROOT}/scripts/gm-mcp-contract") >/dev/null
 jq -e '.tools | length > 0' < <("${ROOT}/scripts/gm-mcp-contract" --mode=portable --validate) >/dev/null
 jq -e '.name == "graymatter_omegarag_agent_abi" and (.tools | length == 14)' < <("${ROOT}/scripts/gm-mcp-contract" --mode=omega --validate) >/dev/null
@@ -51,6 +61,13 @@ jq -e '.errors.AUTH_REQUIRED and .errors.UPSTREAM_UNAVAILABLE' < <("${ROOT}/scri
 cmp -s "$PORTABLE_CONTRACT" "$PLUGIN_PORTABLE_CONTRACT"
 cmp -s "$OMEGA_AGENT_ABI_CONTRACT" "$PLUGIN_OMEGA_AGENT_ABI_CONTRACT"
 cmp -s "$LEGACY_CONTRACT" "$PLUGIN_LEGACY_CONTRACT"
+cmp -s "$ROOT/mcp-server/index.js" <(unzip -p "$ROOT/graymatter.skill" graymatter/mcp-server/index.js)
+cmp -s "$PORTABLE_CONTRACT" <(unzip -p "$ROOT/graymatter.skill" graymatter/references/contracts/mcp/graymatter_mcp_tools_v1.json)
+jq -e '
+  .tools[] | select(.name == "omega_index_job")
+  | (.inputSchema.properties.operation.enum | index("activate") != null and index("rollback") != null)
+    and (.inputSchema.properties.mode.enum | index("dimension_migration") != null)
+' < <(unzip -p "$ROOT/graymatter.skill" graymatter/references/contracts/mcp/graymatter_mcp_tools_v1.json) >/dev/null
 jq -e '.tools[] | select(.name == "memory_retrieve_with_receipt") | .outputSchema.required | index("graymatterPolicy")' < <("${ROOT}/plugins/graymatter/scripts/gm-mcp-contract") >/dev/null
 jq -e '.tools | length > 0' < <("${ROOT}/plugins/graymatter/scripts/gm-mcp-contract" --mode=portable --validate) >/dev/null
 jq -e '.name == "graymatter_omegarag_agent_abi" and (.tools | length == 14)' < <("${ROOT}/plugins/graymatter/scripts/gm-mcp-contract" --mode=omega --validate) >/dev/null

@@ -101,6 +101,7 @@ Default agents receive `graymatter_remember`, `graymatter_recall`, `graymatter_o
 | `memory_replay_deferred` | Local replay hook | Replay filesystem-deferred memory writes through `scripts/gm-replay-deferred`. |
 | `memory_retrieve_with_receipt` | `POST /graymatter-retrieval-receipts` | Search memory and return a Retrieval Receipt with quality, provenance, policy, and recommended action signals. |
 | `omega_resolve_domains` | `POST /graymatter/omega/domains/resolve` | Resolve the smallest authorized tenant-local domain route for a plan before a scoped retrieval step. |
+| `omega_index_job` | `POST /graymatter/omega/index-jobs`, `GET /graymatter/omega/index-jobs/{id}`, and bounded action paths | Estimate or start full, incremental, cleanup, tombstone, and dimension-migration jobs; inspect/cancel them; and profile-hash verify staged activation or rollback. Activation and rollback are destructive operator effects and require explicit human approval. |
 | `retrieval_receipt_get` | `GET /graymatter-retrieval-receipts/{receiptId}` | Fetch one persisted Retrieval Receipt for audit/debug workflows. |
 | `retrieval_receipt_query` | `GET /graymatter-retrieval-receipts` | List receipts by trace, agent, workflow, status, or time range. |
 | `graph_get` | `GET /swarm-ops/graph` | Inspect the SwarmOps shared object graph. |

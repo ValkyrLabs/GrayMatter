@@ -300,6 +300,10 @@ if [[ -n "$CAPABILITY_MANIFEST" && -f "$CAPABILITY_MANIFEST" ]]; then
     ' "$CAPABILITY_MANIFEST" 2>/dev/null)"; then
     now_epoch="$(date -u +%s)"
     if jq -e --argjson now "$now_epoch" '
+        def utc_epoch:
+          sub("\\+00:00$"; "Z")
+          | sub("\\.[0-9]+Z$"; "Z")
+          | fromdateiso8601;
         def evidence_tier:
           IN("AUTHENTICATED_LIVE_READ","AUTHENTICATED_SIGNATURE_CANARY","RUNTIME_COMPONENT_REGISTRATION","CONTRACT_DECLARATION","NONE");
         def evidence_state:
@@ -309,27 +313,27 @@ if [[ -n "$CAPABILITY_MANIFEST" && -f "$CAPABILITY_MANIFEST" ]]; then
         .manifestVersion == "omegarag-capability-manifest/v1"
         and (.scopeHash | type == "string" and test("^[0-9a-f]{64}$"))
         and (.authorityHash | type == "string" and test("^[0-9a-f]{64}$"))
-        and (.checkedAt | type == "string" and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T.*Z$") and fromdateiso8601 <= ($now + 300))
-        and (.expiresAt | type == "string" and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T.*Z$") and fromdateiso8601 > $now)
+        and (.checkedAt | type == "string" and utc_epoch <= ($now + 300))
+        and (.expiresAt | type == "string" and utc_epoch > $now)
         and (.ttlSeconds | type == "number" and . > 0)
         and (.capabilities | type == "array" and length > 0)
         and (all(.capabilities[];
-          (.id | type == "string" and length > 0 and length <= 160)
+          ((.capabilityId // .id) | type == "string" and length > 0 and length <= 160)
           and (.state | evidence_state)
           and (.evidenceTier | evidence_tier)
           and (.invocable | type == "boolean")
           and (.liveVerified | type == "boolean")
           and (if .state == "LIVE_VERIFIED" then
             .liveVerified == true
-            and (.evidenceExpiresAt | type == "string" and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T.*Z$") and fromdateiso8601 > $now)
+            and (.evidenceExpiresAt | type == "string" and utc_epoch > $now)
           else .liveVerified == false end)
           and ((.lastCheckedAt == null) or (.lastCheckedAt | type == "string" and length <= 64))
           and ((.degradedReason == null) or (.degradedReason | type == "string" and length <= 240))
           and ((.safeNextAction == null) or (.safeNextAction | type == "string" and length <= 240))))
-        and (([.capabilities[].id] | unique | length) == (.capabilities | length))
+        and (([.capabilities[] | .capabilityId // .id] | unique | length) == (.capabilities | length))
         and ((.subsystems // []) | type == "array")
         and (all((.subsystems // [])[];
-          (.id | type == "string" and length > 0 and length <= 160)
+          ((.subsystemId // .id) | type == "string" and length > 0 and length <= 160)
           and (.state | evidence_state)
           and (.evidenceTier | evidence_tier)
           and ((.reason == null) or (.reason | type == "string" and length <= 240))
@@ -365,7 +369,7 @@ if [[ -n "$CAPABILITY_MANIFEST" && -f "$CAPABILITY_MANIFEST" ]]; then
           ttlSeconds,
           stateCounts:([.capabilities[].state] | state_counts),
           capabilities:[.capabilities[] | {
-            id:(.id[0:160]),
+            id:((.capabilityId // .id)[0:160]),
             state,
             evidenceTier,
             invocable,
@@ -376,7 +380,7 @@ if [[ -n "$CAPABILITY_MANIFEST" && -f "$CAPABILITY_MANIFEST" ]]; then
             safeNextAction:(.safeNextAction // "" | tostring | .[0:240] | if length > 0 then . else null end)
           }],
           subsystems:[(.subsystems // [])[] | {
-            id:(.id // "" | tostring | .[0:160]),
+            id:(.subsystemId // .id // "" | tostring | .[0:160]),
             state,
             evidenceTier,
             lastCheckedAt,

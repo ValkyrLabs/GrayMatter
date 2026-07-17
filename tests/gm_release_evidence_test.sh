@@ -136,6 +136,35 @@ if jq -e '.. | strings | select(startswith("/private/") or startswith("/Users/")
   fail "release evidence leaked an absolute local path"
 fi
 
+generated_manifest="$TMP_DIR/generated-shape.json"
+jq --argjson now "$now_epoch" '
+  def fractional_utc($epoch):
+    ($epoch | strftime("%Y-%m-%dT%H:%M:%SZ") | sub("Z$"; ".123456789Z"));
+  .checkedAt = fractional_utc($now - 30)
+  | .expiresAt = fractional_utc($now + 300)
+  | .capabilities |= map(
+      .capabilityId = .id
+      | .id = null
+      | if .state == "LIVE_VERIFIED" then .evidenceExpiresAt = fractional_utc($now + 300) else . end)
+  | .subsystems = [{
+      id:null,
+      subsystemId:"graymatter.receipt",
+      state:"IMPLEMENTED_UNVERIFIED",
+      evidenceTier:"RUNTIME_COMPONENT_REGISTRATION",
+      reason:"registered",
+      safeNextAction:"run_content_free_canary"
+    }]
+' "$valid_manifest" >"$generated_manifest"
+generated_out="$TMP_DIR/generated-shape-evidence.json"
+"$SCRIPT" --capability-manifest "$generated_manifest" --out "$generated_out"
+assert_jq "$generated_out" '
+  .decision == "ELIGIBLE_FOR_HUMAN_REVIEW"
+  and (.checks[] | select(.id == "capability-manifest")
+    | .details.manifest.capabilities[0].id == "graymatter.memory.query")
+  and (.checks[] | select(.id == "capability-manifest")
+    | .details.manifest.subsystems[0].id == "graymatter.receipt")
+'
+
 expired_manifest="$TMP_DIR/expired.json"
 jq --argjson now "$now_epoch" \
   '.checkedAt = ($now - 120 | strftime("%Y-%m-%dT%H:%M:%SZ"))

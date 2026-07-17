@@ -31,6 +31,7 @@ assert_jq "$missing_out" '
   and .decision == "HOLD"
   and ([.checks[] | select(.id == "capability-manifest" and .status == "FAIL")] | length == 1)
   and ([.checks[] | select(.id == "sustained-signature-canaries" and .status == "FAIL")] | length == 1)
+  and ([.checks[] | select(.id == "omegabench-baseline" and .status == "FAIL")] | length == 1)
   and ([.authorizations[]] | all(. == false))
 '
 
@@ -142,6 +143,71 @@ jq -n --argjson now "$now_epoch" '
   }
 ' >"$valid_history"
 
+valid_benchmark="$TMP_DIR/omegabench-evidence.json"
+jq -n \
+  --argjson now "$now_epoch" \
+  --argjson policy "$(jq -c '.omegaBench' "$ROOT/references/contracts/release/graymatter_omegarag_release_policy_v1.json")" '
+  def hex_id($number):
+    ($number | tostring) as $text | ("0" * (64 - ($text | length))) + $text;
+  {
+    schemaVersion:$policy.evidenceSetSchemaVersion,
+    generatedAt:($now - 10 | strftime("%Y-%m-%dT%H:%M:%SZ")),
+    runtimeRevision:("f" * 40),
+    entries:[
+      $policy.requiredTracks | to_entries[] as $trackEntry
+      | $policy.requiredBaselines | to_entries[] as $baselineEntry
+      | (($trackEntry.key * ($policy.requiredBaselines | length)) + $baselineEntry.key + 1) as $index
+      | (hex_id(100 + $trackEntry.key)) as $corpusHash
+      | ("case:sha256:" + hex_id(1000 + $index)) as $caseRef
+      | {
+          observedAt:($now - 20 | strftime("%Y-%m-%dT%H:%M:%SZ")),
+          artifactHash:hex_id(3000 + $index),
+          manifest:{
+            manifestVersion:$policy.manifestVersion,
+            evidenceHash:hex_id($index),
+            state:"REPRODUCIBLE",
+            metadataAuthority:$policy.metadataAuthority,
+            corpusId:("public-" + ($trackEntry.value | ascii_downcase)),
+            corpusVersion:"2026.07",
+            corpusLicense:"Apache-2.0",
+            declaredCorpusChecksum:$corpusHash,
+            computedCorpusChecksum:$corpusHash,
+            corpusChecksumVerified:true,
+            track:$trackEntry.value,
+            baseline:$baselineEntry.value,
+            seed:42,
+            hiddenHoldout:false,
+            referenceImplementationVersion:null,
+            caseCount:1,
+            caseRefs:[$caseRef],
+            failingCaseRefs:[],
+            trackCoverage:[$policy.allTracks[] | {id:.,status:(if . == $trackEntry.value then "MEASURED" else "NOT_MEASURED" end)}],
+            baselineCoverage:[$policy.allBaselines[] | {id:.,status:(if . == $baselineEntry.value then "MEASURED" else "NOT_MEASURED" end)}],
+            budgets:[{caseRef:$caseRef,retrievalMode:"HYBRID",topK:10,maxLatencyMs:3000,maxEstimatedCredits:20,evaluatorRequired:true}],
+            sloObjective:{maxP50LatencyMs:1200,maxP95LatencyMs:3000,maxP99LatencyMs:5000},
+            sloAssessment:{measured:true,passed:true,maxP50LatencyMs:1200,maxP95LatencyMs:3000,maxP99LatencyMs:5000,violations:[]},
+            totalEstimatedCredits:10,
+            passRateConfidenceInterval:{measured:true,lowerBound:0.2,upperBound:1},
+            environment:{environment:"production",runtimeVersion:"runtime-2026.07",javaVersion:"21",javaVm:"OpenJDK",osName:"Linux",osArch:"amd64",availableProcessors:8,maxHeapMiB:4096},
+            runtimeEvidence:{
+              schemaVersion:"schema-v1",policyVersion:"policy-v1",indexManifestVersion:"index-manifest-v1",
+              indexVersion:"index-v1",scopeHash:("a" * 64),
+              observedAt:($now - 30 | strftime("%Y-%m-%dT%H:%M:%SZ")),healthStatus:"ready",
+              activeProviders:["postgres-fts-v1","pgvector-v1"],
+              activeModels:(if $baselineEntry.value | IN("VECTOR_ONLY","FIXED_HYBRID","CURRENT_PLANNER") then ["embedding-v1"] else [] end),
+              activeDimensions:(if $baselineEntry.value | IN("VECTOR_ONLY","FIXED_HYBRID","CURRENT_PLANNER") then [1536] else [] end),
+              activeChunkerVersions:["chunker-v1"],plannerVersion:"planner-v1",graphPolicyVersion:"graph-v1"
+            },
+            observedProviderIds:["postgres-fts-v1"],
+            missingEvidence:[],
+            releaseGateFailures:[],
+            publicReleaseEligible:true
+          }
+        }
+    ]
+  }
+' >"$valid_benchmark"
+
 if "$SCRIPT" --capability-manifest "$valid_manifest" --out "$valid_manifest" >/dev/null 2>&1; then
   fail "generator accepted an output path that overwrites its capability input"
 fi
@@ -149,9 +215,14 @@ if "$SCRIPT" --capability-manifest "$valid_manifest" --signature-history "$valid
   --out "$valid_history" >/dev/null 2>&1; then
   fail "generator accepted an output path that overwrites its signature-history input"
 fi
+if "$SCRIPT" --capability-manifest "$valid_manifest" --signature-history "$valid_history" \
+  --benchmark-evidence "$valid_benchmark" --out "$valid_benchmark" >/dev/null 2>&1; then
+  fail "generator accepted an output path that overwrites its OmegaBench input"
+fi
 
 valid_out="$TMP_DIR/valid-evidence.json"
-"$SCRIPT" --capability-manifest "$valid_manifest" --signature-history "$valid_history" --out "$valid_out"
+"$SCRIPT" --capability-manifest "$valid_manifest" --signature-history "$valid_history" \
+  --benchmark-evidence "$valid_benchmark" --out "$valid_out"
 assert_jq "$valid_out" '
   .decision == "ELIGIBLE_FOR_HUMAN_REVIEW"
   and ([.checks[] | select(.status == "FAIL")] | length == 0)
@@ -166,6 +237,12 @@ assert_jq "$valid_out" '
       and .details.history.observationCount == 56
       and .details.history.productionManifestBound == true
       and ([.details.history.environments[].completeDays] | all(. == 7)))
+  and (.checks[] | select(.id == "omegabench-baseline")
+    | .details.evidence.complete == true
+      and .details.evidence.matrixComplete == true
+      and .details.evidence.productionCapabilityBound == true
+      and .details.evidence.manifestCount == 30
+      and .details.evidence.totalCaseCount == 30)
   and (.knownLimitations | map(.distribution) | index("light") != null)
   and (.knownLimitations | map(.distribution) | index("cloud") != null)
 '
@@ -197,7 +274,7 @@ jq --argjson now "$now_epoch" '
     }]
 ' "$valid_manifest" >"$generated_manifest"
 generated_out="$TMP_DIR/generated-shape-evidence.json"
-"$SCRIPT" --capability-manifest "$generated_manifest" --signature-history "$valid_history" --out "$generated_out"
+"$SCRIPT" --capability-manifest "$generated_manifest" --signature-history "$valid_history" --benchmark-evidence "$valid_benchmark" --out "$generated_out"
 assert_jq "$generated_out" '
   .decision == "ELIGIBLE_FOR_HUMAN_REVIEW"
   and (.checks[] | select(.id == "capability-manifest")
@@ -212,7 +289,7 @@ jq --argjson now "$now_epoch" \
    | .expiresAt = ($now - 60 | strftime("%Y-%m-%dT%H:%M:%SZ"))' \
   "$valid_manifest" >"$expired_manifest"
 expired_out="$TMP_DIR/expired-evidence.json"
-"$SCRIPT" --capability-manifest "$expired_manifest" --signature-history "$valid_history" --out "$expired_out"
+"$SCRIPT" --capability-manifest "$expired_manifest" --signature-history "$valid_history" --benchmark-evidence "$valid_benchmark" --out "$expired_out"
 assert_jq "$expired_out" '
   .decision == "HOLD"
   and (.checks[] | select(.id == "capability-manifest") | .details.status == "INVALID_OR_EXPIRED")
@@ -223,7 +300,7 @@ jq --argjson now "$now_epoch" \
   '.capabilities[0].evidenceExpiresAt = ($now - 1 | strftime("%Y-%m-%dT%H:%M:%SZ"))' \
   "$valid_manifest" >"$stale_live_manifest"
 stale_live_out="$TMP_DIR/stale-live-evidence.json"
-"$SCRIPT" --capability-manifest "$stale_live_manifest" --signature-history "$valid_history" --out "$stale_live_out"
+"$SCRIPT" --capability-manifest "$stale_live_manifest" --signature-history "$valid_history" --benchmark-evidence "$valid_benchmark" --out "$stale_live_out"
 assert_jq "$stale_live_out" '
   .decision == "HOLD"
   and (.checks[] | select(.id == "capability-manifest") | .details.status == "INVALID_OR_EXPIRED")
@@ -232,7 +309,7 @@ assert_jq "$stale_live_out" '
 missing_cloud_manifest="$TMP_DIR/missing-cloud.json"
 jq 'del(.distributions.cloud)' "$valid_manifest" >"$missing_cloud_manifest"
 missing_cloud_out="$TMP_DIR/missing-cloud-evidence.json"
-"$SCRIPT" --capability-manifest "$missing_cloud_manifest" --signature-history "$valid_history" --out "$missing_cloud_out"
+"$SCRIPT" --capability-manifest "$missing_cloud_manifest" --signature-history "$valid_history" --benchmark-evidence "$valid_benchmark" --out "$missing_cloud_out"
 assert_jq "$missing_cloud_out" '
   .decision == "HOLD"
   and (.checks[] | select(.id == "capability-manifest") | .details.status == "INVALID_OR_EXPIRED")
@@ -243,7 +320,7 @@ for blocked_state in DEGRADED UNAVAILABLE; do
   blocked_out="$TMP_DIR/${blocked_state}-evidence.json"
   jq --arg state "$blocked_state" '.capabilities[0].state = $state | .capabilities[0].liveVerified = false' \
     "$valid_manifest" >"$blocked_manifest"
-  "$SCRIPT" --capability-manifest "$blocked_manifest" --signature-history "$valid_history" --out "$blocked_out"
+  "$SCRIPT" --capability-manifest "$blocked_manifest" --signature-history "$valid_history" --benchmark-evidence "$valid_benchmark" --out "$blocked_out"
   assert_jq "$blocked_out" '
     .decision == "HOLD"
     and (.checks[] | select(.id == "capability-manifest") | .details.status == "BLOCKED")
@@ -254,7 +331,7 @@ multiple_manifest="$TMP_DIR/multiple.json"
 jq -c . "$valid_manifest" >"$multiple_manifest"
 jq -c . "$valid_manifest" >>"$multiple_manifest"
 multiple_out="$TMP_DIR/multiple-evidence.json"
-"$SCRIPT" --capability-manifest "$multiple_manifest" --signature-history "$valid_history" --out "$multiple_out"
+"$SCRIPT" --capability-manifest "$multiple_manifest" --signature-history "$valid_history" --benchmark-evidence "$valid_benchmark" --out "$multiple_out"
 assert_jq "$multiple_out" '
   .decision == "HOLD"
   and (.checks[] | select(.id == "capability-manifest") | .details.status == "INVALID_OR_EXPIRED")
@@ -263,7 +340,7 @@ assert_jq "$multiple_out" '
 nonproduction_manifest="$TMP_DIR/nonproduction.json"
 jq '.environment = "staging"' "$valid_manifest" >"$nonproduction_manifest"
 nonproduction_out="$TMP_DIR/nonproduction-evidence.json"
-"$SCRIPT" --capability-manifest "$nonproduction_manifest" --signature-history "$valid_history" --out "$nonproduction_out"
+"$SCRIPT" --capability-manifest "$nonproduction_manifest" --signature-history "$valid_history" --benchmark-evidence "$valid_benchmark" --out "$nonproduction_out"
 assert_jq "$nonproduction_out" '
   .decision == "HOLD"
   and (.checks[] | select(.id == "capability-manifest") | .details.status == "INVALID_OR_EXPIRED")
@@ -280,7 +357,7 @@ jq '.observations |= map(select(
         | .[1:])[]
     ]' "$valid_history" "$valid_history" >"$missing_cell_history"
 missing_cell_out="$TMP_DIR/missing-cell-evidence.json"
-"$SCRIPT" --capability-manifest "$valid_manifest" --signature-history "$missing_cell_history" --out "$missing_cell_out"
+"$SCRIPT" --capability-manifest "$valid_manifest" --signature-history "$missing_cell_history" --benchmark-evidence "$valid_benchmark" --out "$missing_cell_out"
 assert_jq "$missing_cell_out" '
   .decision == "HOLD"
   and (.checks[] | select(.id == "sustained-signature-canaries")
@@ -292,7 +369,7 @@ failed_history="$TMP_DIR/failed-history.json"
 jq '.observations[0].passed = false | .observations[0].httpStatus = 503' \
   "$valid_history" >"$failed_history"
 failed_history_out="$TMP_DIR/failed-history-evidence.json"
-"$SCRIPT" --capability-manifest "$valid_manifest" --signature-history "$failed_history" --out "$failed_history_out"
+"$SCRIPT" --capability-manifest "$valid_manifest" --signature-history "$failed_history" --benchmark-evidence "$valid_benchmark" --out "$failed_history_out"
 assert_jq "$failed_history_out" '
   .decision == "HOLD"
   and (.checks[] | select(.id == "sustained-signature-canaries") | .details.status == "INCOMPLETE")
@@ -301,7 +378,7 @@ assert_jq "$failed_history_out" '
 drift_history="$TMP_DIR/drift-history.json"
 jq '.observations[0].scopeHash = ("f" * 64)' "$valid_history" >"$drift_history"
 drift_history_out="$TMP_DIR/drift-history-evidence.json"
-"$SCRIPT" --capability-manifest "$valid_manifest" --signature-history "$drift_history" --out "$drift_history_out"
+"$SCRIPT" --capability-manifest "$valid_manifest" --signature-history "$drift_history" --benchmark-evidence "$valid_benchmark" --out "$drift_history_out"
 assert_jq "$drift_history_out" '
   .decision == "HOLD"
   and (.checks[] | select(.id == "sustained-signature-canaries")
@@ -312,10 +389,48 @@ assert_jq "$drift_history_out" '
 private_history="$TMP_DIR/private-history.json"
 jq '.observations[0].tenantId = "must-not-be-accepted"' "$valid_history" >"$private_history"
 private_history_out="$TMP_DIR/private-history-evidence.json"
-"$SCRIPT" --capability-manifest "$valid_manifest" --signature-history "$private_history" --out "$private_history_out"
+"$SCRIPT" --capability-manifest "$valid_manifest" --signature-history "$private_history" --benchmark-evidence "$valid_benchmark" --out "$private_history_out"
 assert_jq "$private_history_out" '
   .decision == "HOLD"
   and (.checks[] | select(.id == "sustained-signature-canaries") | .details.status == "INVALID")
+'
+
+incomplete_benchmark="$TMP_DIR/incomplete-benchmark.json"
+jq 'del(.entries[-1])' "$valid_benchmark" >"$incomplete_benchmark"
+incomplete_benchmark_out="$TMP_DIR/incomplete-benchmark-evidence.json"
+"$SCRIPT" --capability-manifest "$valid_manifest" --signature-history "$valid_history" \
+  --benchmark-evidence "$incomplete_benchmark" --out "$incomplete_benchmark_out"
+assert_jq "$incomplete_benchmark_out" '
+  .decision == "HOLD"
+  and (.checks[] | select(.id == "omegabench-baseline")
+    | .details.status == "INCOMPLETE"
+      and .details.evidence.matrixComplete == false
+      and ([.details.evidence.coverage[] | select(.present == false)] | length == 1))
+'
+
+wrong_scope_benchmark="$TMP_DIR/wrong-scope-benchmark.json"
+jq '.entries[].manifest.runtimeEvidence.scopeHash = ("b" * 64)' \
+  "$valid_benchmark" >"$wrong_scope_benchmark"
+wrong_scope_benchmark_out="$TMP_DIR/wrong-scope-benchmark-evidence.json"
+"$SCRIPT" --capability-manifest "$valid_manifest" --signature-history "$valid_history" \
+  --benchmark-evidence "$wrong_scope_benchmark" --out "$wrong_scope_benchmark_out"
+assert_jq "$wrong_scope_benchmark_out" '
+  .decision == "HOLD"
+  and (.checks[] | select(.id == "omegabench-baseline")
+    | .details.status == "INCOMPLETE"
+      and .details.evidence.matrixComplete == true
+      and .details.evidence.productionCapabilityBound == false)
+'
+
+private_benchmark="$TMP_DIR/private-benchmark.json"
+jq '.entries[0].manifest.tenantId = "must-not-be-accepted"' \
+  "$valid_benchmark" >"$private_benchmark"
+private_benchmark_out="$TMP_DIR/private-benchmark-evidence.json"
+"$SCRIPT" --capability-manifest "$valid_manifest" --signature-history "$valid_history" \
+  --benchmark-evidence "$private_benchmark" --out "$private_benchmark_out"
+assert_jq "$private_benchmark_out" '
+  .decision == "HOLD"
+  and (.checks[] | select(.id == "omegabench-baseline") | .details.status == "INVALID")
 '
 
 plugin_archive="$TMP_DIR/graymatter-plugin.skill"
@@ -328,9 +443,9 @@ printf '%s\n' "$(git -C "$ROOT" rev-parse HEAD)" >"$installed_root/graymatter/.g
 installed_out_one="$TMP_DIR/installed-one.json"
 installed_out_two="$TMP_DIR/installed-two.json"
 "$installed_root/graymatter/scripts/gm-release-evidence" \
-  --capability-manifest "$valid_manifest" --signature-history "$valid_history" --out "$installed_out_one"
+  --capability-manifest "$valid_manifest" --signature-history "$valid_history" --benchmark-evidence "$valid_benchmark" --out "$installed_out_one"
 "$installed_root/graymatter/scripts/gm-release-evidence" \
-  --capability-manifest "$valid_manifest" --signature-history "$valid_history" --out "$installed_out_two"
+  --capability-manifest "$valid_manifest" --signature-history "$valid_history" --benchmark-evidence "$valid_benchmark" --out "$installed_out_two"
 assert_jq "$installed_out_one" '
   .decision == "ELIGIBLE_FOR_HUMAN_REVIEW"
   and .source.revisionSource == "installed-source-marker"

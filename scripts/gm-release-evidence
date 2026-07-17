@@ -4,12 +4,13 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CAPABILITY_MANIFEST=""
 SIGNATURE_HISTORY=""
+BENCHMARK_EVIDENCE=""
 OUT=""
 
 usage() {
   cat <<'EOF'
 Usage:
-  scripts/gm-release-evidence [--capability-manifest PATH] [--signature-history PATH] [--out PATH]
+  scripts/gm-release-evidence [--capability-manifest PATH] [--signature-history PATH] [--benchmark-evidence PATH] [--out PATH]
 
 Builds a content-free OmegaRAG source-to-installed release evidence bundle.
 The strongest possible decision is ELIGIBLE_FOR_HUMAN_REVIEW; this tool never
@@ -51,6 +52,11 @@ while [[ $# -gt 0 ]]; do
       SIGNATURE_HISTORY="${1:-}"
       [[ -n "$SIGNATURE_HISTORY" ]] || fail "--signature-history requires a path"
       ;;
+    --benchmark-evidence)
+      shift
+      BENCHMARK_EVIDENCE="${1:-}"
+      [[ -n "$BENCHMARK_EVIDENCE" ]] || fail "--benchmark-evidence requires a path"
+      ;;
     --out)
       shift
       OUT="${1:-}"
@@ -83,6 +89,11 @@ if [[ -n "$SIGNATURE_HISTORY" && -n "$OUT" && -e "$SIGNATURE_HISTORY" ]]; then
   signature_path="$signature_parent/$(basename "$SIGNATURE_HISTORY")"
   [[ "$OUT" != "$signature_path" ]] || fail "--out must not overwrite the signature history"
 fi
+if [[ -n "$BENCHMARK_EVIDENCE" && -n "$OUT" && -e "$BENCHMARK_EVIDENCE" ]]; then
+  benchmark_parent="$(cd "$(dirname "$BENCHMARK_EVIDENCE")" && pwd -P)"
+  benchmark_path="$benchmark_parent/$(basename "$BENCHMARK_EVIDENCE")"
+  [[ "$OUT" != "$benchmark_path" ]] || fail "--out must not overwrite the OmegaBench evidence set"
+fi
 
 POLICY="$ROOT/references/contracts/release/graymatter_omegarag_release_policy_v1.json"
 [[ -f "$POLICY" ]] || fail "release policy is missing"
@@ -97,6 +108,12 @@ jq -e '
     and (.sustainedSignatureCanary.requiredConsecutiveUtcDays | type == "number" and . >= 7)
     and (.sustainedSignatureCanary.maxLatestObservationAgeHours | type == "number" and . > 0)
     and (.sustainedSignatureCanary.maxObservations | type == "number" and . >= 56)
+    and (.omegaBench | type == "object")
+    and (.omegaBench.evidenceSetSchemaVersion == "omegabench-evidence-set/v1")
+    and (.omegaBench.manifestVersion == "omegabench-reproducibility/v1")
+    and (.omegaBench.requiredTracks | type == "array" and length >= 4)
+    and (.omegaBench.requiredBaselines | type == "array" and length >= 6)
+    and (.omegaBench.maxManifests | type == "number" and . >= 30)
   ' "$POLICY" >/dev/null \
   || fail "release policy is invalid"
 
@@ -265,6 +282,7 @@ if [[ -f "$ROOT/plugins/graymatter/scripts/gm-release-evidence" ]]; then
   for relative in \
     scripts/gm-release-evidence \
     scripts/gm-signature-history \
+    scripts/gm-omegabench-evidence \
     scripts/graymatter-prod-acceptance.sh \
     references/contracts/release/graymatter_omegarag_release_policy_v1.json \
     docs/omegarag-release-evidence.md; do
@@ -278,10 +296,11 @@ if [[ -f "$ROOT/plugins/graymatter/scripts/gm-release-evidence" ]]; then
     parity_details="$(jq -cn \
       --arg scriptSha256 "$(sha256_file "$ROOT/scripts/gm-release-evidence")" \
       --arg historyCollectorSha256 "$(sha256_file "$ROOT/scripts/gm-signature-history")" \
+      --arg omegaBenchCollectorSha256 "$(sha256_file "$ROOT/scripts/gm-omegabench-evidence")" \
       --arg acceptanceCanarySha256 "$(sha256_file "$ROOT/scripts/graymatter-prod-acceptance.sh")" \
       --arg policySha256 "$(sha256_file "$POLICY")" \
       --arg docsSha256 "$(sha256_file "$ROOT/docs/omegarag-release-evidence.md")" \
-      '{scriptSha256:$scriptSha256,historyCollectorSha256:$historyCollectorSha256,acceptanceCanarySha256:$acceptanceCanarySha256,policySha256:$policySha256,docsSha256:$docsSha256}')"
+      '{scriptSha256:$scriptSha256,historyCollectorSha256:$historyCollectorSha256,omegaBenchCollectorSha256:$omegaBenchCollectorSha256,acceptanceCanarySha256:$acceptanceCanarySha256,policySha256:$policySha256,docsSha256:$docsSha256}')"
     add_check "marketplace-release-parity" "PASS" "Release evidence script, policy, and docs match the marketplace surface." "$parity_details"
   else
     add_check "marketplace-release-parity" "FAIL" "Marketplace release evidence surfaces differ from the root package." \
@@ -609,6 +628,52 @@ if [[ "$signature_status" == "COMPLETE" ]]; then
   add_check "sustained-signature-canaries" "PASS" "$signature_reason" "$signature_details"
 else
   add_check "sustained-signature-canaries" "FAIL" "$signature_reason" "$signature_details"
+fi
+
+benchmark_status="MISSING"
+benchmark_reason="No OmegaBench evidence set was supplied."
+benchmark_projection='null'
+benchmark_validator="$ROOT/scripts/gm-omegabench-evidence"
+if [[ -n "$BENCHMARK_EVIDENCE" && -f "$BENCHMARK_EVIDENCE" ]]; then
+  raw_benchmark_projection=""
+  if [[ -x "$benchmark_validator" ]] \
+    && raw_benchmark_projection="$($benchmark_validator --validate "$BENCHMARK_EVIDENCE" --format projection 2>/dev/null)" \
+    && jq -e 'type == "object"' <<<"$raw_benchmark_projection" >/dev/null 2>&1; then
+    benchmark_projection="$(jq -c --argjson capability "$capability_projection" '
+      . as $projection
+      | ($capability != null
+          and $capability.environment == "production"
+          and $projection.scopeHash != null
+          and $projection.scopeHash == $capability.scopeHash) as $capabilityBound
+      | $projection + {
+          matrixComplete:$projection.complete,
+          productionCapabilityBound:$capabilityBound,
+          complete:($projection.complete and $capabilityBound)
+        }
+    ' <<<"$raw_benchmark_projection")"
+    if jq -e '.complete == true' <<<"$benchmark_projection" >/dev/null; then
+      benchmark_status="COMPLETE"
+      benchmark_reason="The production OmegaBench matrix is complete, coherent, fresh, and bound to the current capability scope."
+    else
+      benchmark_status="INCOMPLETE"
+      benchmark_reason="The OmegaBench evidence set does not establish the policy-required production baseline matrix and capability binding."
+    fi
+  else
+    benchmark_status="INVALID"
+    benchmark_reason="The OmegaBench evidence set is malformed, unsupported, unsafe, or contains non-contract fields."
+  fi
+elif [[ -n "$BENCHMARK_EVIDENCE" ]]; then
+  benchmark_status="INVALID"
+  benchmark_reason="The requested OmegaBench evidence set does not exist."
+fi
+
+benchmark_details="$(jq -cn --arg status "$benchmark_status" --arg reason "$benchmark_reason" \
+  --arg file "$(basename "${BENCHMARK_EVIDENCE:-not-supplied}")" \
+  --argjson evidence "$benchmark_projection" '{status:$status,reason:$reason,file:$file,evidence:$evidence}')"
+if [[ "$benchmark_status" == "COMPLETE" ]]; then
+  add_check "omegabench-baseline" "PASS" "$benchmark_reason" "$benchmark_details"
+else
+  add_check "omegabench-baseline" "FAIL" "$benchmark_reason" "$benchmark_details"
 fi
 
 decision="HOLD"

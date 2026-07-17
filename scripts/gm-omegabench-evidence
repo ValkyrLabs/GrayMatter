@@ -1,0 +1,404 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+POLICY="$ROOT/references/contracts/release/graymatter_omegarag_release_policy_v1.json"
+EVIDENCE=""
+VALIDATE=""
+RUNTIME_REVISION=""
+OUT=""
+FORMAT="quiet"
+MANIFESTS=()
+
+usage() {
+  cat <<'EOF'
+Usage:
+  scripts/gm-omegabench-evidence --manifest PATH [--manifest PATH ...] [--evidence PATH] --runtime-revision SHA --out PATH
+  scripts/gm-omegabench-evidence --validate PATH [--format quiet|projection]
+
+Collect or validate the bounded, content-free OmegaBench reproducibility
+evidence set required by the OmegaRAG release policy. A manifest input may be
+either a raw `omegabench-reproducibility/v1` object or a full benchmark report
+containing `.reproducibilityManifest`.
+EOF
+}
+
+fail() {
+  printf 'gm-omegabench-evidence failed: %s\n' "$*" >&2
+  exit 1
+}
+
+canonical_path() {
+  local path="$1"
+  local parent
+  parent="$(dirname "$path")"
+  mkdir -p "$parent"
+  parent="$(cd "$parent" && pwd -P)"
+  printf '%s/%s\n' "$parent" "$(basename "$path")"
+}
+
+sha256_file() {
+  shasum -a 256 "$1" | awk '{print $1}'
+}
+
+read_one_object() {
+  jq -cse '
+    if length == 1 and (.[0] | type == "object") then .[0]
+    else error("expected exactly one JSON object") end
+  ' "$1" 2>/dev/null
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --manifest)
+      shift
+      [[ -n "${1:-}" ]] || fail "--manifest requires a path"
+      MANIFESTS+=("$1")
+      ;;
+    --evidence)
+      shift
+      EVIDENCE="${1:-}"
+      [[ -n "$EVIDENCE" ]] || fail "--evidence requires a path"
+      ;;
+    --runtime-revision)
+      shift
+      RUNTIME_REVISION="${1:-}"
+      [[ -n "$RUNTIME_REVISION" ]] || fail "--runtime-revision requires a SHA"
+      ;;
+    --out)
+      shift
+      OUT="${1:-}"
+      [[ -n "$OUT" ]] || fail "--out requires a path"
+      ;;
+    --validate)
+      shift
+      VALIDATE="${1:-}"
+      [[ -n "$VALIDATE" ]] || fail "--validate requires a path"
+      ;;
+    --format)
+      shift
+      FORMAT="${1:-}"
+      [[ -n "$FORMAT" ]] || fail "--format requires quiet or projection"
+      ;;
+    --help|-h)
+      usage
+      exit 0
+      ;;
+    *) fail "unknown option: $1" ;;
+  esac
+  shift
+done
+
+command -v jq >/dev/null 2>&1 || fail "missing required command: jq"
+command -v shasum >/dev/null 2>&1 || fail "missing required command: shasum"
+[[ -f "$POLICY" ]] || fail "release policy is missing"
+bench_policy="$(jq -ce '.omegaBench | select(.evidenceSetSchemaVersion == "omegabench-evidence-set/v1")' "$POLICY")" \
+  || fail "OmegaBench release policy is invalid"
+now_epoch="$(date -u +%s)"
+
+validate_json() {
+  local json="$1"
+  jq -e --argjson now "$now_epoch" --argjson policy "$bench_policy" '
+    def utc_epoch:
+      sub("\\+00:00$"; "Z")
+      | sub("\\.[0-9]+Z$"; "Z")
+      | fromdateiso8601;
+    def only_keys($allowed): ((keys_unsorted - $allowed) | length) == 0;
+    def bounded_string($maximum): type == "string" and length > 0 and length <= $maximum;
+    def bounded_strings($maximum_count; $maximum_length):
+      type == "array" and length <= $maximum_count
+      and all(.[]; bounded_string($maximum_length));
+    def case_ref: type == "string" and test("^case:sha256:[0-9a-f]{64}$");
+    def integer_between($minimum; $maximum):
+      type == "number" and floor == . and . >= $minimum and . <= $maximum;
+    try (
+      . as $set
+      | type == "object"
+      and ($set | only_keys(["schemaVersion","generatedAt","runtimeRevision","entries"]))
+      and $set.schemaVersion == $policy.evidenceSetSchemaVersion
+      and ($set.generatedAt | type == "string" and utc_epoch <= ($now + 300))
+      and ($set.runtimeRevision | type == "string" and test("^[0-9a-f]{40,64}$"))
+      and ($set.entries | type == "array" and length > 0 and length <= $policy.maxManifests)
+      and (([$set.entries[].manifest.evidenceHash] | unique | length) == ($set.entries | length))
+      and (([$set.entries[] | [.manifest.track,.manifest.baseline] | join("|")] | unique | length)
+        == ($set.entries | length))
+      and all($set.entries[];
+        . as $entry
+        | type == "object"
+        and ($entry | only_keys(["observedAt","artifactHash","manifest"]))
+        and ($entry.observedAt | type == "string" and utc_epoch <= ($now + 300))
+        and ($entry.artifactHash | type == "string" and test("^[0-9a-f]{64}$"))
+        and ($entry.manifest as $manifest
+          | type == "object"
+          and ($manifest | only_keys([
+            "manifestVersion","evidenceHash","state","metadataAuthority","corpusId","corpusVersion",
+            "corpusLicense","declaredCorpusChecksum","computedCorpusChecksum","corpusChecksumVerified",
+            "track","baseline","seed","hiddenHoldout","referenceImplementationVersion","caseCount",
+            "caseRefs","failingCaseRefs","trackCoverage","baselineCoverage","budgets","sloObjective",
+            "sloAssessment","totalEstimatedCredits","passRateConfidenceInterval","environment",
+            "runtimeEvidence","observedProviderIds","missingEvidence","releaseGateFailures",
+            "publicReleaseEligible"
+          ]))
+          and $manifest.manifestVersion == $policy.manifestVersion
+          and ($manifest.evidenceHash | type == "string" and test("^[0-9a-f]{64}$"))
+          and $manifest.state == "REPRODUCIBLE"
+          and $manifest.metadataAuthority == $policy.metadataAuthority
+          and ($manifest.corpusId | bounded_string(256))
+          and ($manifest.corpusVersion | bounded_string(256))
+          and ($manifest.corpusLicense | bounded_string(256))
+          and ($manifest.declaredCorpusChecksum | type == "string" and test("^[0-9a-f]{64}$"))
+          and $manifest.computedCorpusChecksum == $manifest.declaredCorpusChecksum
+          and $manifest.corpusChecksumVerified == true
+          and (($policy.allTracks | index($manifest.track)) != null)
+          and (($policy.allBaselines | index($manifest.baseline)) != null)
+          and ($manifest.seed | integer_between(0; 9223372036854775807))
+          and $manifest.hiddenHoldout == false
+          and (if $manifest.baseline == "REFERENCE_IMPLEMENTATION"
+            then ($manifest.referenceImplementationVersion | bounded_string(256))
+            else $manifest.referenceImplementationVersion == null end)
+          and ($manifest.caseCount | integer_between(1; $policy.maxCasesPerManifest))
+          and ($manifest.caseRefs | type == "array" and length == $manifest.caseCount
+            and all(.[]; case_ref) and (unique | length) == length)
+          and ($manifest.failingCaseRefs | type == "array" and length == 0)
+          and ($manifest.trackCoverage | type == "array"
+            and length == ($policy.allTracks | length)
+            and (([.[].id] | sort) == ($policy.allTracks | sort))
+            and all(.[]; type == "object" and only_keys(["id","status"])
+              and (.status == "MEASURED" or .status == "NOT_MEASURED"))
+            and ([.[] | select(.status == "MEASURED") | .id] == [$manifest.track]))
+          and ($manifest.baselineCoverage | type == "array"
+            and length == ($policy.allBaselines | length)
+            and (([.[].id] | sort) == ($policy.allBaselines | sort))
+            and all(.[]; type == "object" and only_keys(["id","status"])
+              and (.status == "MEASURED" or .status == "NOT_MEASURED"))
+            and ([.[] | select(.status == "MEASURED") | .id] == [$manifest.baseline]))
+          and ($manifest.budgets | type == "array" and length == $manifest.caseCount
+            and all(.[];
+              . as $budget
+              | type == "object"
+              and only_keys(["caseRef","retrievalMode","topK","maxLatencyMs","maxEstimatedCredits","evaluatorRequired"])
+              and ($budget.caseRef | case_ref) and (($manifest.caseRefs | index($budget.caseRef)) != null)
+              and ($budget.retrievalMode | IN("KEYWORD","SEMANTIC","HYBRID","GRAPH","AUTO"))
+              and ($budget.topK | integer_between(1; 1000))
+              and ($budget.maxLatencyMs | integer_between(1; 86400000))
+              and ($budget.maxEstimatedCredits | type == "number" and . >= 0 and . <= 1000000000)
+              and ($budget.evaluatorRequired | type == "boolean")))
+          and ($manifest.sloObjective | type == "object"
+            and only_keys(["maxP50LatencyMs","maxP95LatencyMs","maxP99LatencyMs"])
+            and (.maxP50LatencyMs | integer_between(1; 86400000))
+            and (.maxP95LatencyMs | integer_between(1; 86400000))
+            and (.maxP99LatencyMs | integer_between(1; 86400000)))
+          and ($manifest.sloAssessment | type == "object"
+            and only_keys(["measured","passed","maxP50LatencyMs","maxP95LatencyMs","maxP99LatencyMs","violations"])
+            and .measured == true and .passed == true and (.violations | type == "array" and length == 0)
+            and .maxP50LatencyMs == $manifest.sloObjective.maxP50LatencyMs
+            and .maxP95LatencyMs == $manifest.sloObjective.maxP95LatencyMs
+            and .maxP99LatencyMs == $manifest.sloObjective.maxP99LatencyMs)
+          and ($manifest.totalEstimatedCredits | type == "number" and . >= 0 and . <= 1000000000000)
+          and ($manifest.passRateConfidenceInterval | . as $interval
+            | type == "object"
+            and only_keys(["measured","lowerBound","upperBound"])
+            and $interval.measured == true
+            and ($interval.lowerBound | type == "number" and . >= 0 and . <= 1)
+            and ($interval.upperBound | type == "number" and . >= $interval.lowerBound and . <= 1))
+          and ($manifest.environment | type == "object"
+            and only_keys(["environment","runtimeVersion","javaVersion","javaVm","osName","osArch","availableProcessors","maxHeapMiB"])
+            and .environment == $policy.requiredEnvironment
+            and (.runtimeVersion | bounded_string(256))
+            and (.javaVersion | bounded_string(256))
+            and (.javaVm | bounded_string(256))
+            and (.osName | bounded_string(256))
+            and (.osArch | bounded_string(256))
+            and (.availableProcessors | integer_between(1; 4096))
+            and (.maxHeapMiB | integer_between(1; 1073741824)))
+          and ($manifest.runtimeEvidence | type == "object"
+            and only_keys(["schemaVersion","policyVersion","indexManifestVersion","indexVersion","scopeHash","observedAt",
+              "healthStatus","activeProviders","activeModels","activeDimensions","activeChunkerVersions",
+              "plannerVersion","graphPolicyVersion"])
+            and (.schemaVersion | bounded_string(256))
+            and (.policyVersion | bounded_string(256))
+            and (.indexManifestVersion | bounded_string(256))
+            and (.indexVersion | bounded_string(256))
+            and (.scopeHash | type == "string" and test("^[0-9a-f]{64}$"))
+            and (.observedAt | type == "string" and utc_epoch <= ($now + 300))
+            and ((.healthStatus | ascii_downcase) == "ready")
+            and (.activeProviders | bounded_strings($policy.maxProvidersPerManifest; 256) and length > 0)
+            and (.activeModels | bounded_strings($policy.maxProvidersPerManifest; 256))
+            and (.activeDimensions | type == "array" and length <= $policy.maxProvidersPerManifest
+              and all(.[]; integer_between(1; 65536)))
+            and (.activeChunkerVersions | bounded_strings($policy.maxProvidersPerManifest; 256) and length > 0)
+            and (.plannerVersion | bounded_string(256))
+            and (.graphPolicyVersion | bounded_string(256))
+            and (if $manifest.baseline | IN("VECTOR_ONLY","FIXED_HYBRID","CURRENT_PLANNER","REFERENCE_IMPLEMENTATION")
+              then (.activeModels | length > 0) and (.activeDimensions | length > 0) else true end))
+          and ($manifest.observedProviderIds | bounded_strings($policy.maxProvidersPerManifest; 256) and length > 0)
+          and ($manifest.missingEvidence | type == "array" and length == 0)
+          and ($manifest.releaseGateFailures | type == "array" and length == 0)
+          and $manifest.publicReleaseEligible == true)
+      )
+    ) catch false
+  ' <<<"$json" >/dev/null 2>&1
+}
+
+project_json() {
+  local json="$1"
+  jq -c --argjson now "$now_epoch" --argjson policy "$bench_policy" '
+    def utc_epoch:
+      sub("\\+00:00$"; "Z")
+      | sub("\\.[0-9]+Z$"; "Z")
+      | fromdateiso8601;
+    . as $set
+    | ([$set.entries[].manifest.runtimeEvidence.observedAt | utc_epoch] | min) as $earliest
+    | ([$set.entries[].manifest.runtimeEvidence.observedAt | utc_epoch] | max) as $latest
+    | ([$set.entries[].observedAt | utc_epoch] | max) as $latestCollected
+    | [$policy.requiredTracks[] as $track
+        | $policy.requiredBaselines[] as $baseline
+        | {track:$track,baseline:$baseline,
+            present:any($set.entries[]; .manifest.track == $track and .manifest.baseline == $baseline)}] as $coverage
+    | ([$set.entries[].manifest.runtimeEvidence.scopeHash] | unique) as $scopeHashes
+    | ([$set.entries[].manifest.environment.runtimeVersion] | unique) as $runtimeVersions
+    | ([$set.entries[].manifest.runtimeEvidence.schemaVersion] | unique) as $schemaVersions
+    | ([$set.entries[].manifest.runtimeEvidence.policyVersion] | unique) as $policyVersions
+    | ([$set.entries[].manifest.runtimeEvidence.indexManifestVersion] | unique) as $indexManifestVersions
+    | ([$set.entries[].manifest.runtimeEvidence.plannerVersion] | unique) as $plannerVersions
+    | ([$set.entries[].manifest.runtimeEvidence.graphPolicyVersion] | unique) as $graphPolicyVersions
+    | ([ $policy.requiredTracks[] as $track
+        | {track:$track,
+            comparable:(([$set.entries[]
+              | select(.manifest.track == $track)
+              | [.manifest.corpusId,.manifest.corpusVersion,.manifest.computedCorpusChecksum,(.manifest.seed | tostring)]
+              | join("|")] | unique | length) == 1)} ]) as $corpusComparability
+    | (($now - $earliest) <= ($policy.maxEvidenceAgeHours * 3600)) as $fresh
+    | (($coverage | all(.present))
+        and ($scopeHashes | length) == 1
+        and ($runtimeVersions | length) == 1
+        and ($schemaVersions | length) == 1
+        and ($policyVersions | length) == 1
+        and ($indexManifestVersions | length) == 1
+        and ($plannerVersions | length) == 1
+        and ($graphPolicyVersions | length) == 1
+        and ($corpusComparability | all(.comparable))) as $coherent
+    | {
+        schemaVersion:$set.schemaVersion,
+        generatedAt:$set.generatedAt,
+        runtimeRevision:$set.runtimeRevision,
+        earliestObservedAt:($earliest | strftime("%Y-%m-%dT%H:%M:%SZ")),
+        latestObservedAt:($latest | strftime("%Y-%m-%dT%H:%M:%SZ")),
+        latestCollectedAt:($latestCollected | strftime("%Y-%m-%dT%H:%M:%SZ")),
+        fresh:$fresh,
+        manifestCount:($set.entries | length),
+        totalCaseCount:([$set.entries[].manifest.caseCount] | add),
+        scopeHash:(if ($scopeHashes | length) == 1 then $scopeHashes[0] else null end),
+        runtimeVersion:(if ($runtimeVersions | length) == 1 then $runtimeVersions[0] else null end),
+        schemaVersionObserved:(if ($schemaVersions | length) == 1 then $schemaVersions[0] else null end),
+        policyVersionObserved:(if ($policyVersions | length) == 1 then $policyVersions[0] else null end),
+        indexManifestVersion:(if ($indexManifestVersions | length) == 1 then $indexManifestVersions[0] else null end),
+        plannerVersion:(if ($plannerVersions | length) == 1 then $plannerVersions[0] else null end),
+        graphPolicyVersion:(if ($graphPolicyVersions | length) == 1 then $graphPolicyVersions[0] else null end),
+        requiredTracks:$policy.requiredTracks,
+        requiredBaselines:$policy.requiredBaselines,
+        coverage:$coverage,
+        corpusComparability:$corpusComparability,
+        evidenceHashes:([$set.entries[].manifest.evidenceHash] | sort),
+        complete:($fresh and $coherent)
+      }
+  ' <<<"$json"
+}
+
+case "$FORMAT" in
+  quiet|projection) ;;
+  *) fail "--format must be quiet or projection" ;;
+esac
+
+if [[ -n "$VALIDATE" ]]; then
+  [[ ${#MANIFESTS[@]} -eq 0 && -z "$EVIDENCE" && -z "$OUT" && -z "$RUNTIME_REVISION" ]] \
+    || fail "--validate cannot be combined with collection options"
+  [[ -f "$VALIDATE" ]] || fail "evidence set does not exist: $VALIDATE"
+  validate_input="$(read_one_object "$VALIDATE")" || fail "evidence set is not exactly one JSON object"
+  validate_json "$validate_input" || fail "evidence set is structurally invalid"
+  if [[ "$FORMAT" == "projection" ]]; then
+    project_json "$validate_input"
+  fi
+  exit 0
+fi
+
+[[ ${#MANIFESTS[@]} -gt 0 ]] || fail "at least one --manifest is required"
+[[ ${#MANIFESTS[@]} -le 64 ]] || fail "no more than 64 manifests may be collected at once"
+[[ -n "$OUT" ]] || fail "--out is required"
+[[ -n "$RUNTIME_REVISION" ]] || fail "--runtime-revision is required"
+[[ "$RUNTIME_REVISION" =~ ^[0-9a-f]{40,64}$ ]] || fail "--runtime-revision must be a full lowercase commit SHA"
+
+OUT="$(canonical_path "$OUT")"
+for manifest_path in "${MANIFESTS[@]}"; do
+  [[ -f "$manifest_path" ]] || fail "manifest does not exist: $manifest_path"
+  manifest_parent="$(cd "$(dirname "$manifest_path")" && pwd -P)"
+  [[ "$OUT" != "$manifest_parent/$(basename "$manifest_path")" ]] \
+    || fail "--out must not overwrite a manifest input"
+done
+
+tmp_dir="$(mktemp -d "${TMPDIR:-/tmp}/gm-omegabench-evidence.XXXXXX")"
+trap 'rm -rf "$tmp_dir"' EXIT
+existing_entries_file="$tmp_dir/existing-entries.jsonl"
+new_entries_file="$tmp_dir/new-entries.jsonl"
+: >"$existing_entries_file"
+: >"$new_entries_file"
+
+if [[ -n "$EVIDENCE" ]]; then
+  [[ -f "$EVIDENCE" ]] || fail "existing evidence set does not exist: $EVIDENCE"
+  existing_json="$(read_one_object "$EVIDENCE")" || fail "existing evidence is not exactly one JSON object"
+  validate_json "$existing_json" || fail "existing evidence set is structurally invalid"
+  [[ "$(jq -r '.runtimeRevision' <<<"$existing_json")" == "$RUNTIME_REVISION" ]] \
+    || fail "existing evidence runtime revision does not match --runtime-revision"
+  jq -c '.entries[]' <<<"$existing_json" >>"$existing_entries_file"
+fi
+
+observed_at="$(date -u +%FT%TZ)"
+for manifest_path in "${MANIFESTS[@]}"; do
+  input_json="$(read_one_object "$manifest_path")" || fail "manifest input is not exactly one JSON object: $manifest_path"
+  manifest_json="$(jq -ce 'if .reproducibilityManifest then .reproducibilityManifest else . end' <<<"$input_json")" \
+    || fail "manifest input has no reproducibility manifest: $manifest_path"
+  entry="$(jq -cn \
+    --arg observedAt "$observed_at" \
+    --arg artifactHash "$(sha256_file "$manifest_path")" \
+    --argjson manifest "$manifest_json" \
+    '{observedAt:$observedAt,artifactHash:$artifactHash,manifest:$manifest}')"
+  candidate="$(jq -cn \
+    --arg schemaVersion "$(jq -r '.evidenceSetSchemaVersion' <<<"$bench_policy")" \
+    --arg generatedAt "$observed_at" \
+    --arg runtimeRevision "$RUNTIME_REVISION" \
+    --argjson entry "$entry" \
+    '{schemaVersion:$schemaVersion,generatedAt:$generatedAt,runtimeRevision:$runtimeRevision,entries:[$entry]}')"
+  validate_json "$candidate" || fail "manifest is invalid or not public-release-eligible: $manifest_path"
+  printf '%s\n' "$entry" >>"$new_entries_file"
+done
+
+jq -se '
+  group_by([.manifest.track,.manifest.baseline])
+  | all(.[]; ([.[].manifest.evidenceHash] | unique | length) == 1)
+' "$new_entries_file" >/dev/null \
+  || fail "one collection cannot contain conflicting manifests for the same track and baseline"
+
+generated_at="$(date -u +%FT%TZ)"
+result="$(jq -sc \
+  --slurpfile replacements "$new_entries_file" \
+  --arg schemaVersion "$(jq -r '.evidenceSetSchemaVersion' <<<"$bench_policy")" \
+  --arg generatedAt "$generated_at" \
+  --arg runtimeRevision "$RUNTIME_REVISION" \
+  --argjson maximum "$(jq -r '.maxManifests' <<<"$bench_policy")" '
+    ([$replacements[] | (.manifest.track + "|" + .manifest.baseline)] | unique) as $replacementKeys
+    | map(select((.manifest.track + "|" + .manifest.baseline) as $key
+        | ($replacementKeys | index($key)) == null))
+    | . + $replacements
+    | unique_by(.manifest.evidenceHash)
+    | reverse | .[:$maximum]
+    | sort_by(.observedAt,.manifest.track,.manifest.baseline,.manifest.evidenceHash)
+    | {schemaVersion:$schemaVersion,generatedAt:$generatedAt,runtimeRevision:$runtimeRevision,entries:.}
+  ' "$existing_entries_file")"
+validate_json "$result" || fail "collected evidence set is structurally invalid"
+
+output_tmp="$(mktemp "$(dirname "$OUT")/.gm-omegabench-evidence.XXXXXX")"
+printf '%s\n' "$result" >"$output_tmp"
+mv "$output_tmp" "$OUT"
+if [[ "$FORMAT" == "projection" ]]; then
+  project_json "$result"
+fi

@@ -43,6 +43,7 @@ REQUIRED=(
   scripts/gm-agent-smoke-matrix
   scripts/gm-release-evidence
   scripts/gm-signature-history
+  scripts/gm-omegabench-evidence
   scripts/graymatter-prod-acceptance.sh
   scripts/gm-status
   scripts/smoke-test-public-mcp.sh

@@ -55,6 +55,7 @@ REQUIRED=(
   scripts/gm-agent-smoke-matrix
   scripts/gm-release-evidence
   scripts/gm-signature-history
+  scripts/gm-omegabench-evidence
   scripts/gm-self-update
   scripts/gm-openapi-sync
   scripts/gm-openapi-summary

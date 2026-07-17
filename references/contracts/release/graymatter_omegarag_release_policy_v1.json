@@ -30,6 +30,54 @@
     "maxLatestObservationAgeHours": 36,
     "maxObservations": 1024
   },
+  "omegaBench": {
+    "evidenceSetSchemaVersion": "omegabench-evidence-set/v1",
+    "manifestVersion": "omegabench-reproducibility/v1",
+    "metadataAuthority": "corpus_metadata_authenticated_caller_declared_runtime_evidence_server_observed",
+    "requiredEnvironment": "production",
+    "requiredTracks": [
+      "MEMORY",
+      "BUSINESS_GRAPH",
+      "ISOLATION",
+      "CONTEXT",
+      "ECONOMICS"
+    ],
+    "requiredBaselines": [
+      "LEXICAL_ONLY",
+      "VECTOR_ONLY",
+      "FIXED_HYBRID",
+      "FIXED_ONE_HOP_GRAPH",
+      "FIXED_THREE_HOP_GRAPH",
+      "CURRENT_PLANNER"
+    ],
+    "allTracks": [
+      "MEMORY",
+      "BUSINESS_GRAPH",
+      "TEMPORAL",
+      "ISOLATION",
+      "AGENTIC",
+      "FEDERATION",
+      "CONTEXT",
+      "SWARM",
+      "WORKFLOW",
+      "SCHEMA_CHANGE",
+      "ECONOMICS"
+    ],
+    "allBaselines": [
+      "LEXICAL_ONLY",
+      "VECTOR_ONLY",
+      "FIXED_HYBRID",
+      "FIXED_ONE_HOP_GRAPH",
+      "FIXED_THREE_HOP_GRAPH",
+      "CURRENT_PLANNER",
+      "REFERENCE_IMPLEMENTATION"
+    ],
+    "requireCompleteCrossProduct": true,
+    "maxEvidenceAgeHours": 168,
+    "maxManifests": 128,
+    "maxCasesPerManifest": 2048,
+    "maxProvidersPerManifest": 32
+  },
   "requiredContracts": [
     {
       "id": "portable-mcp",

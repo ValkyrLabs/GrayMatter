@@ -13,9 +13,10 @@ The generator derives its result from the current package rather than accepting 
 - the local, non-mutating agent smoke matrix;
 - an unexpired, authenticated production `omegarag-capability-manifest/v1`, projected without tenant names, content, balances, credentials, or provider responses;
 - a policy-bound `omegarag-signature-history/v1` proving seven consecutive UTC days of the four Phase 0 signatures in staging and production;
+- a production `omegabench-evidence-set/v1` containing public-release-eligible, content-free `omegabench-reproducibility/v1` manifests;
 - explicit Light, Cloud, and plugin limitations from the versioned release policy.
 
-Without both a current production capability manifest and complete signature history, the decision is `HOLD`. A valid manifest with any `DEGRADED` or `UNAVAILABLE` capability also remains `HOLD`. The strongest result is `ELIGIBLE_FOR_HUMAN_REVIEW`; `releaseAuthorized`, `claimPromotionAuthorized`, `mergeAuthorized`, and `productionDeploymentAuthorized` always remain false.
+Without a current production capability manifest, complete signature history, and a complete OmegaBench baseline matrix, the decision is `HOLD`. A valid capability manifest with any `DEGRADED` or `UNAVAILABLE` capability also remains `HOLD`. The strongest result is `ELIGIBLE_FOR_HUMAN_REVIEW`; `releaseAuthorized`, `claimPromotionAuthorized`, `mergeAuthorized`, and `productionDeploymentAuthorized` always remain false.
 
 ## Run from source or an installed cache
 
@@ -23,6 +24,7 @@ Without both a current production capability manifest and complete signature his
 scripts/gm-release-evidence \
   --capability-manifest artifacts/omegarag-capabilities.json \
   --signature-history artifacts/omegarag-signature-history.json \
+  --benchmark-evidence artifacts/omegabench-evidence.json \
   --out artifacts/graymatter-omegarag-release-evidence.json
 ```
 
@@ -68,6 +70,41 @@ The collector accepts at most 64 reports per invocation, rejects stale,
 unpublished, unverified, relabeled, or extra-field reports, deduplicates exact
 report observations, and caps retained observations using the release policy.
 Promote the `.next.json` artifact through the normal reviewed artifact flow.
+
+## Collect OmegaBench reproducibility evidence
+
+Run the authenticated ValkyrAI benchmark endpoint and retain its complete
+response with the matching licensed corpus package. The GrayMatter collector
+accepts either that full report or an extracted `.reproducibilityManifest`; it
+copies only the content-free manifest and records a hash of the source artifact.
+
+```bash
+scripts/gm-omegabench-evidence \
+  --manifest artifacts/omegabench-memory-fixed-hybrid.json \
+  --evidence artifacts/omegabench-evidence.json \
+  --runtime-revision 0123456789abcdef0123456789abcdef01234567 \
+  --out artifacts/omegabench-evidence.next.json \
+  --format projection
+```
+
+Omit `--evidence` for the first manifest. The release policy requires one
+coherent production result for every combination of the `MEMORY`,
+`BUSINESS_GRAPH`, `ISOLATION`, `CONTEXT`, and `ECONOMICS` tracks with the six
+mandatory reproducible baselines: lexical, vector, fixed hybrid, fixed
+one-hop graph, fixed three-hop graph, and the current planner. Within each
+track, corpus identity, version, checksum, and seed must remain identical so
+the baseline comparison is meaningful.
+
+Every accepted manifest must be `REPRODUCIBLE`, licensed for public use,
+non-holdout, checksum-verified, SLO-measured and passing,
+confidence-measured, free of missing evidence and release failures, and marked
+`publicReleaseEligible`. The matrix must use one production scope and stable
+runtime, schema, policy, index-manifest, planner, and graph-policy versions.
+Freshness is calculated from api-0's hash-bound `runtimeEvidence.observedAt`,
+never the collector clock or a caller-supplied timestamp.
+The release generator additionally binds its scope hash to the current
+production capability manifest. Missing cells or version/scope drift remain
+`HOLD`; callers cannot weaken the matrix through flags.
 
 Run the deterministic contract with:
 

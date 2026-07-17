@@ -207,6 +207,10 @@ grep -q 'Normalized object writes' "$ROOT/plugins/graymatter/skills/graymatter/S
   echo "Codex marketplace plugin invariant preflight missing or not executable" >&2
   exit 1
 }
+[[ -x "$ROOT/plugins/graymatter/scripts/gm-startup-preflight" ]] || {
+  echo "Codex marketplace plugin startup preflight missing or not executable" >&2
+  exit 1
+}
 [[ -x "$ROOT/plugins/graymatter/scripts/gm-agent-smoke-matrix" ]] || {
   echo "Codex marketplace plugin agent smoke matrix missing or not executable" >&2
   exit 1
@@ -261,6 +265,10 @@ grep -q 'Normalized object writes' "$ROOT/plugins/graymatter/skills/graymatter/S
 }
 [[ -x "$ROOT/scripts/gm-invariant-preflight" ]] || {
   echo "invariant preflight missing or not executable" >&2
+  exit 1
+}
+[[ -x "$ROOT/scripts/gm-startup-preflight" ]] || {
+  echo "startup preflight missing or not executable" >&2
   exit 1
 }
 [[ -x "$ROOT/scripts/gm-release-evidence" ]] || {
@@ -424,6 +432,10 @@ grep -q "gm-invariant-preflight" "$ROOT/scripts/package-graymatter" || {
   echo "package manifest missing invariant preflight" >&2
   exit 1
 }
+grep -q "gm-startup-preflight" "$ROOT/scripts/package-graymatter" || {
+  echo "package manifest missing startup preflight" >&2
+  exit 1
+}
 grep -q "gm-read" "$ROOT/scripts/package-graymatter" || {
   echo "package manifest missing memory read script" >&2
   exit 1
@@ -446,6 +458,10 @@ grep -q "scripts/package_graymatter.sh" "$ROOT/scripts/package-graymatter" || {
 }
 grep -q "gm-invariant-preflight" "$ROOT/plugins/graymatter/scripts/package-graymatter" || {
   echo "plugin package manifest missing invariant preflight" >&2
+  exit 1
+}
+grep -q "gm-startup-preflight" "$ROOT/plugins/graymatter/scripts/package-graymatter" || {
+  echo "plugin package manifest missing startup preflight" >&2
   exit 1
 }
 grep -q "gm-read" "$ROOT/plugins/graymatter/scripts/package-graymatter" || {
@@ -573,6 +589,7 @@ grep -q '^graymatter/examples/graymatter-light-memoryentry.yaml$' "$ZIP_LIST"
 grep -q '^graymatter/scripts/gm-activate$' "$ZIP_LIST"
 grep -q '^graymatter/scripts/gm-activation-fastlane$' "$ZIP_LIST"
 grep -q '^graymatter/scripts/gm-invariant-preflight$' "$ZIP_LIST"
+grep -q '^graymatter/scripts/gm-startup-preflight$' "$ZIP_LIST"
 grep -q '^graymatter/scripts/gm-client$' "$ZIP_LIST"
 grep -q '^graymatter/scripts/gm-read$' "$ZIP_LIST"
 grep -q '^graymatter/scripts/gm-record$' "$ZIP_LIST"
@@ -624,6 +641,7 @@ grep -q '^graymatter/clawhub.json$' "$PLUGIN_ZIP_LIST"
 grep -q '^graymatter/scripts/package-graymatter$' "$PLUGIN_ZIP_LIST"
 grep -q '^graymatter/scripts/package_graymatter.sh$' "$PLUGIN_ZIP_LIST"
 grep -q '^graymatter/scripts/gm-release-evidence$' "$PLUGIN_ZIP_LIST"
+grep -q '^graymatter/scripts/gm-startup-preflight$' "$PLUGIN_ZIP_LIST"
 grep -q '^graymatter/mcp-server/index.js$' "$PLUGIN_ZIP_LIST"
 grep -q '^graymatter/.mcp.json$' "$PLUGIN_ZIP_LIST"
 grep -q '^graymatter/references/contracts/mcp/graymatter_omegarag_agent_abi_v1.json$' "$PLUGIN_ZIP_LIST"

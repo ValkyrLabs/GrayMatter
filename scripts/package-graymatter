@@ -36,6 +36,7 @@ REQUIRED=(
   clawhub.json
   scripts/gm-activation-fastlane
   scripts/gm-invariant-preflight
+  scripts/gm-startup-preflight
   scripts/gm-client
   scripts/gm-query
   scripts/gm-read

@@ -1,0 +1,352 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+STATE_DIR="${GRAYMATTER_STATE_DIR:-${HOME:-$ROOT}/.graymatter}"
+WORKSPACE_KEY="${GRAYMATTER_WORKSPACE_KEY:-GrayMatter}"
+OPENAPI_CACHE="${GRAYMATTER_OPENAPI_CACHE:-$ROOT/tmp/api-docs.json}"
+CAPABILITY_CACHE="${GRAYMATTER_CAPABILITY_CACHE:-$STATE_DIR/capability-summary.json}"
+MAX_SCHEMA_AGE_SECONDS="${GRAYMATTER_SCHEMA_MAX_AGE_SECONDS:-300}"
+INVARIANT_LIMIT="${GRAYMATTER_INVARIANT_PREFLIGHT_LIMIT:-20}"
+ALLOW_MEMORY_DEGRADED=false
+FORMAT="brief"
+OUT=""
+
+usage() {
+  cat <<'EOF'
+Usage:
+  gm-startup-preflight [options]
+
+Options:
+  --workspace-key KEY       Scope invariant retrieval to the current workspace.
+  --openapi-cache PATH      Write and validate the authenticated live OpenAPI.
+  --capability-cache PATH   Write the content-free capability projection.
+  --max-schema-age SECONDS  Maximum accepted OpenAPI cache age after live sync.
+  --allow-memory-degraded   Record unavailable invariant retrieval as degraded.
+  --format brief|json       Select stdout format (default: brief).
+  --out PATH                Write the combined machine-readable result.
+
+Runs the OmegaRAG OMR-SURF-001 startup contract: invariant retrieval,
+authenticated capability discovery, and explicit live-schema freshness.
+Degraded or unavailable capabilities remain visible and never become proof of
+availability. Invalid, unscoped, expired, or stale control-plane evidence fails.
+EOF
+}
+
+fail() {
+  printf 'gm-startup-preflight failed: %s\n' "$*" >&2
+  exit 1
+}
+
+require_command() {
+  command -v "$1" >/dev/null 2>&1 || fail "missing required command: $1"
+}
+
+file_mtime() {
+  local path="$1"
+  if stat -f '%m' "$path" >/dev/null 2>&1; then
+    stat -f '%m' "$path"
+  elif stat -c '%Y' "$path" >/dev/null 2>&1; then
+    stat -c '%Y' "$path"
+  else
+    return 1
+  fi
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --workspace-key)
+      shift
+      WORKSPACE_KEY="${1:-}"
+      [[ -n "$WORKSPACE_KEY" ]] || fail "--workspace-key requires a value"
+      ;;
+    --openapi-cache)
+      shift
+      OPENAPI_CACHE="${1:-}"
+      [[ -n "$OPENAPI_CACHE" ]] || fail "--openapi-cache requires a path"
+      ;;
+    --capability-cache)
+      shift
+      CAPABILITY_CACHE="${1:-}"
+      [[ -n "$CAPABILITY_CACHE" ]] || fail "--capability-cache requires a path"
+      ;;
+    --max-schema-age)
+      shift
+      MAX_SCHEMA_AGE_SECONDS="${1:-}"
+      ;;
+    --allow-memory-degraded)
+      ALLOW_MEMORY_DEGRADED=true
+      ;;
+    --format)
+      shift
+      FORMAT="${1:-}"
+      ;;
+    --out)
+      shift
+      OUT="${1:-}"
+      [[ -n "$OUT" ]] || fail "--out requires a path"
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      fail "unknown option: $1"
+      ;;
+  esac
+  shift
+done
+
+case "$FORMAT" in
+  brief|json) ;;
+  *) fail "--format must be brief or json" ;;
+esac
+[[ "$MAX_SCHEMA_AGE_SECONDS" =~ ^[0-9]+$ && "$MAX_SCHEMA_AGE_SECONDS" -gt 0 ]] \
+  || fail "--max-schema-age must be a positive integer"
+[[ "$INVARIANT_LIMIT" =~ ^[0-9]+$ && "$INVARIANT_LIMIT" -gt 0 ]] \
+  || fail "GRAYMATTER_INVARIANT_PREFLIGHT_LIMIT must be a positive integer"
+
+require_command jq
+require_command shasum
+[[ -x "$SCRIPT_DIR/gm-invariant-preflight" ]] || fail "gm-invariant-preflight is missing"
+[[ -x "$SCRIPT_DIR/graymatter_api.sh" ]] || fail "graymatter_api.sh is missing"
+[[ -x "$SCRIPT_DIR/gm-openapi-sync" ]] || fail "gm-openapi-sync is missing"
+
+tmp_dir="$(mktemp -d "${TMPDIR:-/tmp}/gm-startup-preflight.XXXXXX")"
+trap 'rm -rf "$tmp_dir"' EXIT
+
+invariant_raw="$tmp_dir/invariant.json"
+invariant_projection='null'
+invariant_status="READY"
+if "$SCRIPT_DIR/gm-invariant-preflight" "$WORKSPACE_KEY" \
+  startup activation capability schema invariant rule instruction \
+  --format json --limit "$INVARIANT_LIMIT" >"$invariant_raw" 2>"$tmp_dir/invariant.err" \
+  && jq -e '
+    type == "object"
+    and .failClosed == true
+    and (.sourceChannel | type == "string" and length > 0)
+    and (.workspace | type == "string" and length > 0)
+    and (.count | type == "number" and . >= 0)
+    and (.status.state | IN("ready","degraded"))
+  ' "$invariant_raw" >/dev/null 2>&1; then
+  invariant_projection="$(jq -c '{
+    status:(.status.state | ascii_upcase),
+    sourceChannel,
+    workspace,
+    matchCount:.count,
+    failClosed
+  }' "$invariant_raw")"
+  if [[ "$(jq -r '.status.state' "$invariant_raw")" != "ready" ]]; then
+    invariant_status="DEGRADED"
+  fi
+else
+  invariant_status="DEGRADED"
+  invariant_projection="$(jq -cn --arg workspace "$WORKSPACE_KEY" \
+    '{status:"DEGRADED",workspace:$workspace,matchCount:null,failClosed:true,reason:"invariant_preflight_unavailable"}')"
+fi
+if [[ "$invariant_status" == "DEGRADED" && "$ALLOW_MEMORY_DEGRADED" != true ]]; then
+  fail "binding invariant retrieval is unavailable or degraded"
+fi
+
+capability_raw="$tmp_dir/capabilities.json"
+if ! "$SCRIPT_DIR/graymatter_api.sh" GET /graymatter/omega/capabilities >"$capability_raw" 2>"$tmp_dir/capabilities.err"; then
+  fail "authenticated OmegaRAG capability discovery failed"
+fi
+now_epoch="$(date -u +%s)"
+if ! jq -e --argjson now "$now_epoch" '
+    def utc_epoch:
+      sub("\\+00:00$"; "Z")
+      | sub("\\.[0-9]+Z$"; "Z")
+      | fromdateiso8601;
+    def evidence_state:
+      IN("LIVE_VERIFIED","IMPLEMENTED_UNVERIFIED","DEGRADED","PLANNED","UNAVAILABLE");
+    def evidence_tier:
+      IN("AUTHENTICATED_LIVE_READ","AUTHENTICATED_SIGNATURE_CANARY","RUNTIME_COMPONENT_REGISTRATION","CONTRACT_DECLARATION","NONE");
+    type == "object"
+    and .manifestVersion == "omegarag-capability-manifest/v1"
+    and (.scopeHash | type == "string" and test("^[0-9a-f]{64}$"))
+    and (.authorityHash | type == "string" and test("^[0-9a-f]{64}$"))
+    and (.checkedAt | type == "string" and utc_epoch <= ($now + 300))
+    and (.expiresAt | type == "string" and utc_epoch > $now)
+    and (.ttlSeconds | type == "number" and . > 0)
+    and (.capabilities | type == "array" and length > 0)
+    and (all(.capabilities[];
+      ((.capabilityId // .id) | type == "string" and length > 0 and length <= 160)
+      and (.state | evidence_state)
+      and (.evidenceTier | evidence_tier)
+      and (.invocable | type == "boolean")
+      and (.liveVerified | type == "boolean")
+      and (if .state == "LIVE_VERIFIED" then
+        .liveVerified == true
+        and (.evidenceExpiresAt | type == "string" and utc_epoch > $now)
+      else .liveVerified == false end)
+      and ((.safeNextAction == null) or (.safeNextAction | type == "string" and length <= 240))))
+    and (([.capabilities[] | .capabilityId // .id] | unique | length) == (.capabilities | length))
+    and ((.subsystems // []) | type == "array")
+    and (all((.subsystems // [])[];
+      ((.subsystemId // .id) | type == "string" and length > 0 and length <= 160)
+      and (.state | evidence_state)
+      and (.evidenceTier | evidence_tier)
+      and ((.safeNextAction == null) or (.safeNextAction | type == "string" and length <= 240))))
+    and (.limits | type == "object")
+    and (.distributions | type == "object")
+    and (.distributions.light | type == "object")
+    and (.distributions.cloud | type == "object")
+  ' "$capability_raw" >/dev/null 2>&1; then
+  fail "capability discovery returned invalid, unscoped, incomplete, or expired evidence"
+fi
+
+capability_projection="$(jq -c '
+  def state_counts: reduce .[] as $state
+    ({LIVE_VERIFIED:0,IMPLEMENTED_UNVERIFIED:0,DEGRADED:0,PLANNED:0,UNAVAILABLE:0}; .[$state] += 1);
+  def bounded_strings:
+    if type == "array" then map(select(type == "string") | .[0:240])[:32] else [] end;
+  ([.capabilities[].state] | state_counts) as $counts
+  | ([(.subsystems // [])[].state] | state_counts) as $subsystemCounts
+  | {
+      status:(
+        if ($counts.DEGRADED + $counts.UNAVAILABLE + $subsystemCounts.DEGRADED + $subsystemCounts.UNAVAILABLE) > 0 then "DEGRADED"
+        elif ($counts.IMPLEMENTED_UNVERIFIED + $counts.PLANNED + $subsystemCounts.IMPLEMENTED_UNVERIFIED + $subsystemCounts.PLANNED) > 0 then "READY_WITH_LIMITS"
+        else "READY" end),
+      manifestVersion,
+      apiVersion,
+      environment,
+      scopeHash,
+      schemaVersion,
+      policyVersion,
+      authorityHash,
+      checkedAt,
+      expiresAt,
+      ttlSeconds,
+      stateCounts:$counts,
+      subsystemStateCounts:$subsystemCounts,
+      capabilities:[.capabilities[] | {
+        id:((.capabilityId // .id)[0:160]),
+        state,
+        evidenceTier,
+        invocable,
+        liveVerified,
+        safeNextAction:(.safeNextAction // "" | tostring | .[0:240] | if length > 0 then . else null end)
+      }] | sort_by(.id),
+      subsystems:[(.subsystems // [])[] | {
+        id:((.subsystemId // .id)[0:160]),
+        state,
+        evidenceTier,
+        safeNextAction:(.safeNextAction // "" | tostring | .[0:240] | if length > 0 then . else null end)
+      }] | sort_by(.id),
+      limits:(.limits | {
+        defaultTopK,maxTopK,maxAdaptiveRetrievalSteps,minContextChars,defaultContextChars,maxContextChars,
+        capabilityTtlSeconds,maxLatencyMs,maxCredits,maxContextTokens,maxGraphHops,maxProviderCalls,
+        maxCandidates,maxEvidenceBytes,maxParallelFanout,maxGraphNodes,maxGraphEdges,maxAsyncRunDurationMs,
+        maxAsyncAttempts,retryInitialBackoffMs,retryBackoffMultiplier,retryMaxBackoffMs,
+        circuitFailureThreshold,circuitOpenSeconds
+      } | with_entries(select(.value != null and (.value | type == "number")))),
+      distributions:(.distributions | with_entries(
+        select(.key == "light" or .key == "cloud")
+        | .value |= {
+          displayName:(.displayName // "" | tostring | .[0:120]),
+          evidenceTier,
+          currentRuntimeCompatible,
+          correctnessPath:(.correctnessPath | bounded_strings),
+          optionalAccelerators:(.optionalAccelerators | bounded_strings),
+          explicitDifferences:(.explicitDifferences | bounded_strings)
+        }))
+    }
+' "$capability_raw")"
+mkdir -p "$(dirname "$CAPABILITY_CACHE")"
+printf '%s\n' "$capability_projection" >"$CAPABILITY_CACHE"
+
+mkdir -p "$(dirname "$OPENAPI_CACHE")"
+if ! "$SCRIPT_DIR/gm-openapi-sync" "$OPENAPI_CACHE" >"$tmp_dir/openapi-sync.out" 2>"$tmp_dir/openapi-sync.err"; then
+  fail "authenticated live OpenAPI sync failed"
+fi
+[[ -s "$OPENAPI_CACHE" ]] || fail "live OpenAPI cache is empty"
+if ! jq -e '
+    type == "object"
+    and (.openapi | type == "string" and startswith("3."))
+    and (.paths | type == "object" and length > 0)
+    and ((.paths["/v1/graymatter/omega/capabilities"] // .paths["/graymatter/omega/capabilities"]) | type == "object")
+    and ((.paths["/v1/MemoryEntry/query"] // .paths["/MemoryEntry/query"]) | type == "object")
+  ' "$OPENAPI_CACHE" >/dev/null 2>&1; then
+  fail "live schema is invalid or missing required GrayMatter startup paths"
+fi
+schema_mtime="$(file_mtime "$OPENAPI_CACHE")" || fail "cannot determine live schema cache age"
+schema_age=$((now_epoch - schema_mtime))
+if [[ "$schema_age" -lt 0 ]]; then
+  schema_age=0
+fi
+[[ "$schema_age" -le "$MAX_SCHEMA_AGE_SECONDS" ]] \
+  || fail "live schema cache exceeds the configured freshness bound"
+schema_projection="$(jq -c \
+  --arg checkedAt "$(date -u +%FT%TZ)" \
+  --arg sha256 "$(shasum -a 256 "$OPENAPI_CACHE" | awk '{print $1}')" \
+  --argjson ageSeconds "$schema_age" \
+  --argjson maxAgeSeconds "$MAX_SCHEMA_AGE_SECONDS" '
+    {
+      status:"READY",
+      checkedAt:$checkedAt,
+      openapiVersion:.openapi,
+      apiTitle:(.info.title // null),
+      apiVersion:(.info.version // null),
+      pathCount:(.paths | length),
+      sha256:$sha256,
+      ageSeconds:$ageSeconds,
+      maxAgeSeconds:$maxAgeSeconds,
+      requiredPaths:{
+        capabilityDiscovery:true,
+        memoryQuery:true
+      }
+    }
+  ' "$OPENAPI_CACHE")"
+
+capability_status="$(jq -r '.status' <<<"$capability_projection")"
+overall_status="READY"
+if [[ "$invariant_status" == "DEGRADED" || "$capability_status" == "DEGRADED" ]]; then
+  overall_status="DEGRADED"
+elif [[ "$capability_status" == "READY_WITH_LIMITS" ]]; then
+  overall_status="READY_WITH_LIMITS"
+fi
+
+result="$(jq -n \
+  --arg schemaVersion "graymatter-startup-preflight/v1" \
+  --arg checkedAt "$(date -u +%FT%TZ)" \
+  --arg status "$overall_status" \
+  --argjson invariant "$invariant_projection" \
+  --argjson capabilities "$capability_projection" \
+  --argjson schema "$schema_projection" '
+    {
+      schemaVersion:$schemaVersion,
+      checkedAt:$checkedAt,
+      status:$status,
+      invariantPreflight:$invariant,
+      capabilityDiscovery:$capabilities,
+      schemaFreshness:$schema,
+      authorizations:{
+        mergeAuthorized:false,
+        productionDeploymentAuthorized:false
+      }
+    }
+  ')"
+if [[ -n "$OUT" ]]; then
+  mkdir -p "$(dirname "$OUT")"
+  printf '%s\n' "$result" >"$OUT"
+fi
+
+if [[ "$FORMAT" == "json" ]]; then
+  printf '%s\n' "$result"
+else
+  jq -r '
+    "GrayMatter startup preflight",
+    "status=" + .status,
+    "workspace=" + .invariantPreflight.workspace,
+    "invariantStatus=" + .invariantPreflight.status,
+    "invariantMatches=" + ((.invariantPreflight.matchCount // 0) | tostring),
+    "capabilityStatus=" + .capabilityDiscovery.status,
+    "capabilities=" + ((.capabilityDiscovery.stateCounts | to_entries | map(.key + ":" + (.value | tostring)) | join(","))),
+    "subsystems=" + ((.capabilityDiscovery.subsystemStateCounts | to_entries | map(.key + ":" + (.value | tostring)) | join(","))),
+    "schemaStatus=" + .schemaFreshness.status,
+    "schemaVersion=" + (.schemaFreshness.apiVersion // "unknown"),
+    "schemaAgeSeconds=" + (.schemaFreshness.ageSeconds | tostring)
+  ' <<<"$result"
+fi

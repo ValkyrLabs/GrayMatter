@@ -34,6 +34,7 @@ REQUIRED=(
   scripts/gm-activate
   scripts/gm-activation-fastlane
   scripts/gm-invariant-preflight
+  scripts/gm-startup-preflight
   scripts/gm-client
   scripts/gm-read
   scripts/gm-doctor

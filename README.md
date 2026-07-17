@@ -163,7 +163,7 @@ brew install jq
 scripts/gm-activate
 ```
 
-`scripts/gm-activate` is the preferred first-run path. It checks for updates, signs in, stores the session in Keychain when available, validates the install, registers the agent, syncs the OpenAPI schema, and runs the readiness checks needed for normal use.
+`scripts/gm-activate` is the preferred first-run path. It checks for updates, signs in, stores the session in Keychain when available, validates the install, registers the agent, and writes a bounded startup-preflight artifact after invariant retrieval, authenticated capability discovery, and live OpenAPI freshness checks.
 
 Before task planning, code edits, production-affecting actions, or answers based on project history, agents must immediately run the invariant preflight for the current workspace/product:
 

@@ -51,9 +51,9 @@ On startup or first use in a workspace that depends on GrayMatter:
 1. Ensure auth is available
 2. Confirm install readiness
 3. Register the OpenClaw instance as an Agent record for itself in api-0
-4. Load the live OpenAPI from `https://api-0.valkyrlabs.com/v1/api-docs`
-5. Treat `/v1/api-docs` as the source of truth for the environment's available business objects and actions
-6. Run the mandatory invariant preflight for the current workspace/product before task planning or edits
+4. Run `scripts/gm-startup-preflight --workspace-key <current-workspace>` to bind mandatory invariant retrieval, authenticated capability discovery, and live OpenAPI freshness into one content-free artifact
+5. Treat capability states and limits as operational truth; degraded or unavailable capabilities are never proof of availability
+6. Treat `/v1/api-docs` as the source of truth for the environment's available business objects and actions
 7. Replay any deferred local memory records, confirm durable sync, and remove the synchronized local copies
 8. Use GrayMatter and the broader schema as the primary operational context
 
@@ -71,7 +71,7 @@ scripts/gm-login
 scripts/gm-install-check
 scripts/gm-smoke
 scripts/gm-register-agent
-scripts/gm-openapi-sync
+scripts/gm-startup-preflight --workspace-key <current-workspace>
 scripts/gm-doctor --quick
 ```
 
@@ -183,6 +183,7 @@ Readiness and auth:
 - `scripts/gm-doctor`
 - `scripts/gm-smoke`
 - `scripts/gm-register-agent`
+- `scripts/gm-startup-preflight`
 - `scripts/gm-openapi-sync`
 - `scripts/gm-openapi-summary`
 - `scripts/gm-status`
@@ -265,7 +266,7 @@ scripts/gm-login
 scripts/gm-install-check
 scripts/gm-smoke
 scripts/gm-register-agent
-scripts/gm-openapi-sync
+scripts/gm-startup-preflight --workspace-key <current-workspace>
 scripts/gm-openapi-summary
 ```
 

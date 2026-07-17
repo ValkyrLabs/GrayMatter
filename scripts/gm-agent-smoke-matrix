@@ -155,6 +155,16 @@ else
   record_stage "schema_sync_readiness" "fail" "Schema sync tooling or api-docs guidance is missing."
 fi
 
+if all_executable scripts/gm-startup-preflight scripts/gm-invariant-preflight scripts/gm-openapi-sync \
+  && grep -q 'gm-startup-preflight' "$ROOT/scripts/gm-activate" \
+  && grep -q '/graymatter/omega/capabilities' "$ROOT/scripts/gm-startup-preflight" \
+  && grep -q 'gm-invariant-preflight' "$ROOT/scripts/gm-startup-preflight" \
+  && grep -q 'gm-openapi-sync' "$ROOT/scripts/gm-startup-preflight"; then
+  record_stage "startup_preflight_readiness" "pass" "Activation binds invariant retrieval, capability discovery, and live schema freshness into one startup artifact."
+else
+  record_stage "startup_preflight_readiness" "fail" "Activation is missing the invariant, capability, or live schema startup preflight."
+fi
+
 routing_text="$tmp_dir/routing.txt"
 cat $(existing_files SKILL.md skills/graymatter/SKILL.md README.md) >"$routing_text"
 missing_terms=()

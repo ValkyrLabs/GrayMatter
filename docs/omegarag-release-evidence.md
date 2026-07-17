@@ -47,6 +47,28 @@ The signature-history input is also exactly one JSON object. Each observation us
 
 The versioned policy, not caller flags, fixes the required environments, capability IDs, seven-day window, freshness bound, and maximum observation count. Every environment and capability must have at least one passing 2xx observation on each UTC day; any failed observation fails that cell. Scope and authority hashes must remain stable within each environment, and production hashes must match the current production capability manifest. Evidence references and individual observations do not enter the release artifact; it contains only bounded dates, counts, hashes, and coverage status.
 
+Collect one freshly published and manifest-verified report without copying
+query or response content into history:
+
+```bash
+scripts/graymatter-prod-acceptance.sh \
+  --environment staging \
+  --publish-capability-evidence \
+  --artifact artifacts/staging-canary.json
+
+scripts/gm-signature-history \
+  --report artifacts/staging-canary.json \
+  --history artifacts/omegarag-signature-history.json \
+  --out artifacts/omegarag-signature-history.next.json
+```
+
+Omit `--history` for the first collected report.
+
+The collector accepts at most 64 reports per invocation, rejects stale,
+unpublished, unverified, relabeled, or extra-field reports, deduplicates exact
+report observations, and caps retained observations using the release policy.
+Promote the `.next.json` artifact through the normal reviewed artifact flow.
+
 Run the deterministic contract with:
 
 ```bash

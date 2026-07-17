@@ -16,6 +16,7 @@ FORMAT="text"
 TOKEN_COMMAND=""
 ARTIFACT=""
 RUN_REF=""
+ENVIRONMENT=""
 
 usage() {
   cat <<'EOF'
@@ -30,6 +31,8 @@ Run authenticated, bounded OmegaRAG release signatures for:
 Options:
   --token-command COMMAND       Execute COMMAND and use its stdout as VALKYR_AUTH_TOKEN.
   --api-base URL                Set VALKYR_API_BASE for this invocation.
+  --environment staging|production
+                                Bind the report to an explicit release environment.
   --canary-query TEXT           Low-sensitivity synthetic query (never written to the report).
   --max-context-chars N         Bounded context response size (default: 1200).
   --artifact PATH               Content-free JSON report path.
@@ -59,6 +62,11 @@ while [[ $# -gt 0 ]]; do
     --api-base)
       [[ $# -ge 2 ]] || { echo "--api-base requires a URL" >&2; exit 2; }
       export VALKYR_API_BASE="$2"
+      shift 2
+      ;;
+    --environment)
+      [[ $# -ge 2 ]] || { echo "--environment requires staging or production" >&2; exit 2; }
+      ENVIRONMENT="$2"
       shift 2
       ;;
     --canary-query)
@@ -100,6 +108,11 @@ done
 case "$FORMAT" in
   text|json) ;;
   *) echo "--format must be text or json" >&2; exit 2 ;;
+esac
+
+case "$ENVIRONMENT" in
+  staging|production) ;;
+  *) echo "--environment must be staging or production" >&2; exit 2 ;;
 esac
 
 [[ "$MAX_CONTEXT_CHARS" =~ ^[0-9]+$ ]] && (( MAX_CONTEXT_CHARS >= 1200 && MAX_CONTEXT_CHARS <= 48000 )) || {
@@ -165,7 +178,7 @@ record_probe() {
     --argjson httpStatus "$http_status" \
     --arg contractVersion "$CONTRACT_VERSION" \
     --arg reason "$reason" \
-    --arg evidenceRef "signature-canary/${RUN_REF}/${short_ref}" \
+    --arg evidenceRef "signature-canary/${ENVIRONMENT}/${RUN_REF}/${short_ref}" \
     '{capabilityId:$capabilityId,passed:$passed,httpStatus:$httpStatus,contractVersion:$contractVersion,reason:$reason,evidenceRef:$evidenceRef}' \
     >>"$PROBES_FILE"
 }
@@ -233,6 +246,8 @@ fi
 
 PUBLISHED=false
 VERIFY_STATE="NOT_REQUESTED"
+MANIFEST_SCOPE_HASH=""
+MANIFEST_AUTHORITY_HASH=""
 if [[ "$PUBLISH_EVIDENCE" == true ]]; then
   submission="$(jq -s '{probes:.}' "$PROBES_FILE")"
   invoke POST /graymatter/capabilities/evidence "$submission"
@@ -242,9 +257,12 @@ if [[ "$PUBLISH_EVIDENCE" == true ]]; then
     ' >/dev/null 2>&1 <<<"$RESPONSE"; then
     PUBLISHED=true
     invoke GET /graymatter/omega/capabilities
-    if [[ "$REQUEST_OK" == true ]] && jq -e --slurpfile probes "$PROBES_FILE" '
+    if [[ "$REQUEST_OK" == true ]] && jq -e --slurpfile probes "$PROBES_FILE" --arg environment "$ENVIRONMENT" '
         . as $manifest
-        | ($manifest.capabilities | type == "array")
+        | .environment == $environment
+        and (.scopeHash | type == "string" and test("^[0-9a-f]{64}$"))
+        and (.authorityHash | type == "string" and test("^[0-9a-f]{64}$"))
+        and ($manifest.capabilities | type == "array")
         and all($probes[]; . as $probe
           | ([$manifest.capabilities[]
               | select((.capabilityId // .id) == $probe.capabilityId)
@@ -252,6 +270,8 @@ if [[ "$PUBLISH_EVIDENCE" == true ]]; then
           | $state == (if $probe.passed then "LIVE_VERIFIED" else "DEGRADED" end))
       ' >/dev/null 2>&1 <<<"$RESPONSE"; then
       VERIFY_STATE="PASSED"
+      MANIFEST_SCOPE_HASH="$(jq -r '.scopeHash' <<<"$RESPONSE")"
+      MANIFEST_AUTHORITY_HASH="$(jq -r '.authorityHash' <<<"$RESPONSE")"
     else
       VERIFY_STATE="FAILED"
     fi
@@ -264,6 +284,7 @@ FINISHED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 query_digest="$(printf '%s' "$CANARY_QUERY" | shasum -a 256 | awk '{print $1}')"
 jq -s \
   --arg reportVersion "$CONTRACT_VERSION" \
+  --arg environment "$ENVIRONMENT" \
   --arg startedAt "$STARTED_AT" \
   --arg finishedAt "$FINISHED_AT" \
   --arg runRef "signature-canary/${RUN_REF}" \
@@ -271,7 +292,9 @@ jq -s \
   --argjson publishRequested "$PUBLISH_EVIDENCE" \
   --argjson published "$PUBLISHED" \
   --arg verification "$VERIFY_STATE" \
-  '{reportVersion:$reportVersion,startedAt:$startedAt,finishedAt:$finishedAt,runRef:$runRef,queryDigest:$queryDigest,publishRequested:$publishRequested,published:$published,verification:$verification,probes:.}' \
+  --arg scopeHash "$MANIFEST_SCOPE_HASH" \
+  --arg authorityHash "$MANIFEST_AUTHORITY_HASH" \
+  '{reportVersion:$reportVersion,environment:$environment,startedAt:$startedAt,finishedAt:$finishedAt,runRef:$runRef,queryDigest:$queryDigest,publishRequested:$publishRequested,published:$published,verification:$verification,scopeHash:($scopeHash | if length == 64 then . else null end),authorityHash:($authorityHash | if length == 64 then . else null end),probes:.}' \
   "$PROBES_FILE" >"$ARTIFACT"
 
 all_passed=false

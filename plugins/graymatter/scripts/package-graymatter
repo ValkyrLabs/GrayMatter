@@ -42,6 +42,8 @@ REQUIRED=(
   scripts/gm-mcp-contract
   scripts/gm-agent-smoke-matrix
   scripts/gm-release-evidence
+  scripts/gm-signature-history
+  scripts/graymatter-prod-acceptance.sh
   scripts/gm-status
   scripts/smoke-test-public-mcp.sh
   scripts/gm-write

@@ -264,6 +264,8 @@ if [[ -f "$ROOT/plugins/graymatter/scripts/gm-release-evidence" ]]; then
   parity_failures=()
   for relative in \
     scripts/gm-release-evidence \
+    scripts/gm-signature-history \
+    scripts/graymatter-prod-acceptance.sh \
     references/contracts/release/graymatter_omegarag_release_policy_v1.json \
     docs/omegarag-release-evidence.md; do
     [[ -f "$ROOT/plugins/graymatter/$relative" ]] || {
@@ -275,9 +277,11 @@ if [[ -f "$ROOT/plugins/graymatter/scripts/gm-release-evidence" ]]; then
   if [[ ${#parity_failures[@]} -eq 0 ]]; then
     parity_details="$(jq -cn \
       --arg scriptSha256 "$(sha256_file "$ROOT/scripts/gm-release-evidence")" \
+      --arg historyCollectorSha256 "$(sha256_file "$ROOT/scripts/gm-signature-history")" \
+      --arg acceptanceCanarySha256 "$(sha256_file "$ROOT/scripts/graymatter-prod-acceptance.sh")" \
       --arg policySha256 "$(sha256_file "$POLICY")" \
       --arg docsSha256 "$(sha256_file "$ROOT/docs/omegarag-release-evidence.md")" \
-      '{scriptSha256:$scriptSha256,policySha256:$policySha256,docsSha256:$docsSha256}')"
+      '{scriptSha256:$scriptSha256,historyCollectorSha256:$historyCollectorSha256,acceptanceCanarySha256:$acceptanceCanarySha256,policySha256:$policySha256,docsSha256:$docsSha256}')"
     add_check "marketplace-release-parity" "PASS" "Release evidence script, policy, and docs match the marketplace surface." "$parity_details"
   else
     add_check "marketplace-release-parity" "FAIL" "Marketplace release evidence surfaces differ from the root package." \

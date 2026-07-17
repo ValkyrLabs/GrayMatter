@@ -219,6 +219,14 @@ grep -q 'Normalized object writes' "$ROOT/plugins/graymatter/skills/graymatter/S
   echo "Codex marketplace plugin release evidence generator missing or not executable" >&2
   exit 1
 }
+[[ -x "$ROOT/plugins/graymatter/scripts/gm-signature-history" ]] || {
+  echo "Codex marketplace plugin signature history collector missing or not executable" >&2
+  exit 1
+}
+[[ -x "$ROOT/plugins/graymatter/scripts/graymatter-prod-acceptance.sh" ]] || {
+  echo "Codex marketplace plugin production acceptance canary missing or not executable" >&2
+  exit 1
+}
 [[ -x "$ROOT/plugins/graymatter/scripts/gm-light-smoke" ]] || {
   echo "Codex marketplace plugin Light smoke script missing or not executable" >&2
   exit 1
@@ -273,6 +281,10 @@ grep -q 'Normalized object writes' "$ROOT/plugins/graymatter/skills/graymatter/S
 }
 [[ -x "$ROOT/scripts/gm-release-evidence" ]] || {
   echo "release evidence generator missing or not executable" >&2
+  exit 1
+}
+[[ -x "$ROOT/scripts/gm-signature-history" ]] || {
+  echo "signature history collector missing or not executable" >&2
   exit 1
 }
 [[ -x "$ROOT/scripts/gm-read" ]] || {
@@ -500,6 +512,18 @@ grep -q "gm-release-evidence" "$ROOT/plugins/graymatter/scripts/package-graymatt
   echo "plugin package manifest missing release evidence generator" >&2
   exit 1
 }
+grep -q "gm-signature-history" "$ROOT/scripts/package-graymatter" || {
+  echo "package manifest missing signature history collector" >&2
+  exit 1
+}
+grep -q "gm-signature-history" "$ROOT/plugins/graymatter/scripts/package-graymatter" || {
+  echo "plugin package manifest missing signature history collector" >&2
+  exit 1
+}
+grep -q "graymatter-prod-acceptance.sh" "$ROOT/plugins/graymatter/scripts/package-graymatter" || {
+  echo "plugin package manifest missing production acceptance canary" >&2
+  exit 1
+}
 grep -q "graymatter_omegarag_release_policy_v1.json" "$ROOT/scripts/package-graymatter" || {
   echo "package manifest missing OmegaRAG release policy" >&2
   exit 1
@@ -600,6 +624,8 @@ grep -q '^graymatter/scripts/gm-install-check$' "$ZIP_LIST"
 grep -q '^graymatter/scripts/gm-doctor$' "$ZIP_LIST"
 grep -q '^graymatter/scripts/gm-agent-smoke-matrix$' "$ZIP_LIST"
 grep -q '^graymatter/scripts/gm-release-evidence$' "$ZIP_LIST"
+grep -q '^graymatter/scripts/gm-signature-history$' "$ZIP_LIST"
+grep -q '^graymatter/scripts/graymatter-prod-acceptance.sh$' "$ZIP_LIST"
 grep -q '^graymatter/scripts/gm-register-agent$' "$ZIP_LIST"
 grep -q '^graymatter/scripts/gm-openapi-sync$' "$ZIP_LIST"
 grep -q '^graymatter/scripts/gm-openapi-summary$' "$ZIP_LIST"
@@ -641,6 +667,8 @@ grep -q '^graymatter/clawhub.json$' "$PLUGIN_ZIP_LIST"
 grep -q '^graymatter/scripts/package-graymatter$' "$PLUGIN_ZIP_LIST"
 grep -q '^graymatter/scripts/package_graymatter.sh$' "$PLUGIN_ZIP_LIST"
 grep -q '^graymatter/scripts/gm-release-evidence$' "$PLUGIN_ZIP_LIST"
+grep -q '^graymatter/scripts/gm-signature-history$' "$PLUGIN_ZIP_LIST"
+grep -q '^graymatter/scripts/graymatter-prod-acceptance.sh$' "$PLUGIN_ZIP_LIST"
 grep -q '^graymatter/scripts/gm-startup-preflight$' "$PLUGIN_ZIP_LIST"
 grep -q '^graymatter/mcp-server/index.js$' "$PLUGIN_ZIP_LIST"
 grep -q '^graymatter/.mcp.json$' "$PLUGIN_ZIP_LIST"

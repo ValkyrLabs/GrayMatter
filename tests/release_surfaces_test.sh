@@ -3,6 +3,15 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
+[[ -f "$ROOT/SUBMISSION_CHECKLIST.md" ]] || {
+  echo "Root submission checklist is missing from the packaged/self-update surface" >&2
+  exit 1
+}
+cmp -s "$ROOT/SUBMISSION_CHECKLIST.md" "$ROOT/plugins/graymatter/SUBMISSION_CHECKLIST.md" || {
+  echo "Root and marketplace submission checklists must stay identical" >&2
+  exit 1
+}
+
 require() {
   if ! "$@"; then
     echo "release surface check failed: $*" >&2
@@ -511,6 +520,7 @@ RELEASE_TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/graymatter-release-surfaces.XXXXXX
 trap 'rm -rf "$RELEASE_TMP_DIR"' EXIT
 ZIP_LIST="$RELEASE_TMP_DIR/graymatter-skill-list.txt"
 unzip -Z1 "$ROOT/graymatter.skill" >"$ZIP_LIST"
+grep -q '^graymatter/SUBMISSION_CHECKLIST.md$' "$ZIP_LIST"
 grep -q '^graymatter/SKILL.md$' "$ZIP_LIST"
 grep -q '^graymatter/skills/graymatter-analytics/SKILL.md$' "$ZIP_LIST"
 grep -q '^graymatter/skills/graymatter-analytics/references/semantic-layer-template.md$' "$ZIP_LIST"

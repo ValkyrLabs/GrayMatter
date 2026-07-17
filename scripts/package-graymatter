@@ -85,14 +85,7 @@ REQUIRED=(
 )
 
 source_path_for() {
-  case "$1" in
-    SUBMISSION_CHECKLIST.md)
-      printf '%s\n' "$ROOT/plugins/graymatter/SUBMISSION_CHECKLIST.md"
-      ;;
-    *)
-      printf '%s\n' "$ROOT/$1"
-      ;;
-  esac
+  printf '%s\n' "$ROOT/$1"
 }
 
 TEMPLATE_FILES=()

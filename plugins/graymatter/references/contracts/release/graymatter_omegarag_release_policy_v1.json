@@ -78,6 +78,41 @@
     "maxCasesPerManifest": 2048,
     "maxProvidersPerManifest": 32
   },
+  "objectiveEvidence": {
+    "schemaVersion": "omegarag-objective-evidence/v1",
+    "maxEvidenceAgeHours": 24,
+    "securityContractVersion": "omegarag-security-objectives/v1",
+    "requiredSecurityEnvironments": ["test", "staging", "production"],
+    "requiredSecurityProbeClasses": [
+      "cross_tenant",
+      "cross_principal",
+      "object_acl",
+      "field_acl",
+      "secure_field",
+      "cache_isolation",
+      "timing_side_channel",
+      "provider_boundary",
+      "server_derived_identity",
+      "receipt_trajectory_coverage",
+      "unsupported_high_stakes_answer",
+      "prompt_injection"
+    ],
+    "availabilityContractVersion": "omegarag-availability-objectives/v1",
+    "requiredAvailabilityObjectives": ["synchronous_api", "receipt_retrieval"],
+    "latencyContractVersion": "omegarag-latency-objectives/v1",
+    "requiredLatencyObjectives": [
+      "cached_memory_exact_lookup",
+      "fast_hybrid_retrieval",
+      "balanced_context_page",
+      "deep_adaptive_trajectory",
+      "receipt_trajectory_read"
+    ],
+    "recoveryContractVersion": "omegarag-recovery-objectives/v1",
+    "targetRpoSeconds": 300,
+    "targetRtoSeconds": 1800,
+    "deletionContractVersion": "omegarag-deletion-slo/v1",
+    "minimumDeletionSuccessRate": 0.999
+  },
   "requiredContracts": [
     {
       "id": "portable-mcp",

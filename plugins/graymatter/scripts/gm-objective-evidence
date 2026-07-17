@@ -1,0 +1,528 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+POLICY="$ROOT/references/contracts/release/graymatter_omegarag_release_policy_v1.json"
+SECURITY=""
+AVAILABILITY=""
+LATENCY=""
+RECOVERY=""
+DELETION=""
+VALIDATE=""
+OUT=""
+FORMAT="quiet"
+
+usage() {
+  cat <<'EOF'
+Usage:
+  scripts/gm-objective-evidence --security PATH --availability PATH --latency PATH --recovery PATH --deletion PATH --out PATH [--format quiet|projection]
+  scripts/gm-objective-evidence --validate PATH [--format quiet|projection]
+
+Collect or validate a content-free OmegaRAG security, correctness, availability,
+latency, recovery, and deletion objective evidence bundle. All source responses
+must come from one current authenticated capability scope.
+EOF
+}
+
+fail() {
+  printf 'gm-objective-evidence failed: %s\n' "$*" >&2
+  exit 1
+}
+
+canonical_path() {
+  local path="$1"
+  local parent
+  parent="$(dirname "$path")"
+  mkdir -p "$parent"
+  parent="$(cd "$parent" && pwd -P)"
+  printf '%s/%s\n' "$parent" "$(basename "$path")"
+}
+
+read_one_object() {
+  jq -cse '
+    if length == 1 and (.[0] | type == "object") then .[0]
+    else error("expected exactly one JSON object") end
+  ' "$1" 2>/dev/null
+}
+
+sha256_file() {
+  shasum -a 256 "$1" | awk '{print $1}'
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --security|--availability|--latency|--recovery|--deletion|--validate|--out|--format)
+      option="$1"
+      shift
+      value="${1:-}"
+      [[ -n "$value" ]] || fail "$option requires a value"
+      case "$option" in
+        --security) SECURITY="$value" ;;
+        --availability) AVAILABILITY="$value" ;;
+        --latency) LATENCY="$value" ;;
+        --recovery) RECOVERY="$value" ;;
+        --deletion) DELETION="$value" ;;
+        --validate) VALIDATE="$value" ;;
+        --out) OUT="$value" ;;
+        --format) FORMAT="$value" ;;
+      esac
+      ;;
+    --help|-h) usage; exit 0 ;;
+    *) fail "unknown option: $1" ;;
+  esac
+  shift
+done
+
+case "$FORMAT" in
+  quiet|projection) ;;
+  *) fail "--format must be quiet or projection" ;;
+esac
+
+command -v jq >/dev/null 2>&1 || fail "missing required command: jq"
+command -v shasum >/dev/null 2>&1 || fail "missing required command: shasum"
+[[ -f "$POLICY" ]] || fail "release policy is missing"
+objective_policy="$(jq -ce '.objectiveEvidence | select(.schemaVersion == "omegarag-objective-evidence/v1")' "$POLICY")" \
+  || fail "objective evidence policy is invalid"
+now_epoch="$(date -u +%s)"
+
+project_json() {
+  local json="$1"
+  jq -c --argjson now "$now_epoch" --argjson policy "$objective_policy" '
+    def utc_epoch:
+      sub("\\+00:00$"; "Z")
+      | sub("\\.[0-9]+Z$"; "Z")
+      | fromdateiso8601;
+    . as $set
+    | ([
+        $set.objectives.security.evaluatedAt,
+        $set.objectives.availability.evaluatedAt,
+        $set.objectives.latency.evaluatedAt,
+        $set.objectives.recovery.evaluatedAt,
+        $set.objectives.deletion.evaluatedAt
+      ] | map(utc_epoch)) as $times
+    | ($times | min) as $earliest
+    | ($times | max) as $latest
+    | (($now - $earliest) <= ($policy.maxEvidenceAgeHours * 3600)) as $fresh
+    | {
+        schemaVersion:$set.schemaVersion,
+        generatedAt:$set.generatedAt,
+        scopeHash:$set.scopeHash,
+        earliestEvaluatedAt:($earliest | strftime("%Y-%m-%dT%H:%M:%SZ")),
+        latestEvaluatedAt:($latest | strftime("%Y-%m-%dT%H:%M:%SZ")),
+        fresh:$fresh,
+        objectiveCount:5,
+        securityEnvironmentCount:($set.objectives.security.environments | length),
+        securityProbeClassCount:($set.objectives.security.environments[0].coveredProbeClasses | length),
+        receiptTrajectoryCoverage:all($set.objectives.security.environments[];
+          (.coveredProbeClasses | index("receipt_trajectory_coverage")) != null),
+        sourceHashes:([
+          $set.objectives.security.sourceSha256,
+          $set.objectives.availability.sourceSha256,
+          $set.objectives.latency.sourceSha256,
+          $set.objectives.recovery.sourceSha256,
+          $set.objectives.deletion.sourceSha256
+        ] | sort),
+        complete:$fresh
+      }
+  ' <<<"$json"
+}
+
+validate_bundle() {
+  local json="$1"
+  jq -e --argjson now "$now_epoch" --argjson policy "$objective_policy" '
+    def utc_epoch:
+      sub("\\+00:00$"; "Z")
+      | sub("\\.[0-9]+Z$"; "Z")
+      | fromdateiso8601;
+    def only_keys($allowed): ((keys_unsorted - $allowed) | length) == 0;
+    def sha: type == "string" and test("^[0-9a-f]{64}$");
+    def bounded($maximum): type == "string" and length > 0 and length <= $maximum;
+    def integer_at_least($minimum): type == "number" and floor == . and . >= $minimum;
+    def current_month($value):
+      ($value | utc_epoch | gmtime | .[0:2]) == ($now | gmtime | .[0:2]);
+    def current_month_start($value):
+      ($value | utc_epoch | gmtime) as $time
+      | current_month($value) and $time[2] == 1 and $time[3] == 0
+        and $time[4] == 0 and $time[5] == 0;
+    def same_instant($left; $right): ($left | utc_epoch) == ($right | utc_epoch);
+    try (
+      . as $set
+      | type == "object"
+      and ($set | only_keys(["schemaVersion","generatedAt","scopeHash","objectives"]))
+      and $set.schemaVersion == $policy.schemaVersion
+      and ($set.generatedAt | current_month(.) and utc_epoch <= ($now + 300))
+      and ($set.scopeHash | sha)
+      and ($set.objectives | type == "object"
+        and only_keys(["security","availability","latency","recovery","deletion"]))
+      and ($set.objectives.security as $security
+        | type == "object"
+        and ($security | only_keys(["contractVersion","windowStart","windowEnd","evaluatedAt","liveClaimStatus","releaseEligible","environments","sourceSha256"]))
+        and $security.contractVersion == $policy.securityContractVersion
+        and ($security.windowStart | current_month_start(.))
+        and same_instant($security.windowEnd; $security.evaluatedAt)
+        and ($security.evaluatedAt | current_month(.) and utc_epoch <= ($now + 300)
+          and ($now - utc_epoch) <= ($policy.maxEvidenceAgeHours * 3600))
+        and $security.liveClaimStatus == "passed"
+        and $security.releaseEligible == true
+        and ($security.sourceSha256 | sha)
+        and ($security.environments | type == "array"
+          and length == ($policy.requiredSecurityEnvironments | length)
+          and ([.[].environment] | sort) == ($policy.requiredSecurityEnvironments | sort)
+          and all(.[];
+            type == "object"
+            and only_keys(["environment","coveredProbeClasses","totalProbeCount","passedProbeCount"])
+            and (.coveredProbeClasses | type == "array"
+              and (sort == ($policy.requiredSecurityProbeClasses | sort)))
+            and (.totalProbeCount | integer_at_least($policy.requiredSecurityProbeClasses | length))
+            and .passedProbeCount == .totalProbeCount)))
+      and ($set.objectives.availability as $availability
+        | type == "object"
+        and ($availability | only_keys(["contractVersion","windowStart","windowEnd","evaluatedAt","assessments","sourceSha256"]))
+        and $availability.contractVersion == $policy.availabilityContractVersion
+        and ($availability.windowStart | current_month_start(.))
+        and same_instant($availability.windowEnd; $availability.evaluatedAt)
+        and ($availability.evaluatedAt | current_month(.) and utc_epoch <= ($now + 300)
+          and ($now - utc_epoch) <= ($policy.maxEvidenceAgeHours * 3600))
+        and ($availability.sourceSha256 | sha)
+        and ($availability.assessments | type == "array"
+          and length == ($policy.requiredAvailabilityObjectives | length)
+          and ([.[].objective] | sort) == ($policy.requiredAvailabilityObjectives | sort)
+          and all(.[];
+            . as $assessment
+            | type == "object"
+            and only_keys(["objective","targetAvailability","observedAvailability","totalProbeCount","maxObservedGapSeconds"])
+            and ($assessment.targetAvailability | type == "number" and . > 0 and . <= 1)
+            and ($assessment.observedAvailability | type == "number"
+              and . >= $assessment.targetAvailability and . <= 1)
+            and ($assessment.totalProbeCount | integer_at_least(1))
+            and ($assessment.maxObservedGapSeconds | integer_at_least(0)))))
+      and ($set.objectives.latency as $latency
+        | type == "object"
+        and ($latency | only_keys(["contractVersion","windowStart","windowEnd","evaluatedAt","evidenceEnvironment","liveClaimStatus","releaseEligible","assessments","sourceSha256"]))
+        and $latency.contractVersion == $policy.latencyContractVersion
+        and ($latency.windowStart | current_month_start(.))
+        and same_instant($latency.windowEnd; $latency.evaluatedAt)
+        and ($latency.evaluatedAt | current_month(.) and utc_epoch <= ($now + 300)
+          and ($now - utc_epoch) <= ($policy.maxEvidenceAgeHours * 3600))
+        and $latency.evidenceEnvironment == "production"
+        and $latency.liveClaimStatus == "passed"
+        and $latency.releaseEligible == true
+        and ($latency.sourceSha256 | sha)
+        and ($latency.assessments | type == "array"
+          and length == ($policy.requiredLatencyObjectives | length)
+          and ([.[].objective] | sort) == ($policy.requiredLatencyObjectives | sort)
+          and all(.[];
+            . as $assessment
+            | type == "object"
+            and only_keys(["objective","targetP50LatencyMs","targetP95LatencyMs","targetP99LatencyMs","observedP50LatencyMs","observedP95LatencyMs","observedP99LatencyMs","totalProbeCount","distinctBenchmarkEvidenceCount"])
+            and ($assessment.targetP50LatencyMs | integer_at_least(0))
+            and ($assessment.targetP95LatencyMs | integer_at_least($assessment.targetP50LatencyMs))
+            and ($assessment.targetP99LatencyMs | integer_at_least($assessment.targetP95LatencyMs))
+            and ($assessment.observedP50LatencyMs | integer_at_least(0)
+              and . <= $assessment.targetP50LatencyMs)
+            and ($assessment.observedP95LatencyMs | integer_at_least($assessment.observedP50LatencyMs)
+              and . <= $assessment.targetP95LatencyMs)
+            and ($assessment.observedP99LatencyMs | integer_at_least($assessment.observedP95LatencyMs)
+              and . <= $assessment.targetP99LatencyMs)
+            and ($assessment.totalProbeCount | integer_at_least(1))
+            and ($assessment.distinctBenchmarkEvidenceCount | integer_at_least(1)))))
+      and ($set.objectives.recovery as $recovery
+        | type == "object"
+        and ($recovery | only_keys(["contractVersion","evaluatedAt","environment","targetRpoSeconds","targetRtoSeconds","observedRpoSeconds","observedRtoSeconds","evidenceState","drillAssessment","liveClaimStatus","evidenceHash","attestedAt","sourceSha256"]))
+        and $recovery.contractVersion == $policy.recoveryContractVersion
+        and ($recovery.evaluatedAt | current_month(.) and utc_epoch <= ($now + 300)
+          and ($now - utc_epoch) <= ($policy.maxEvidenceAgeHours * 3600))
+        and $recovery.environment == "production"
+        and $recovery.targetRpoSeconds == $policy.targetRpoSeconds
+        and $recovery.targetRtoSeconds == $policy.targetRtoSeconds
+        and ($recovery.observedRpoSeconds | integer_at_least(0) and . <= $policy.targetRpoSeconds)
+        and ($recovery.observedRtoSeconds | integer_at_least(0) and . <= $policy.targetRtoSeconds)
+        and $recovery.evidenceState == "attested"
+        and $recovery.drillAssessment == "passed"
+        and $recovery.liveClaimStatus == "passed"
+        and ($recovery.evidenceHash | sha)
+        and ($recovery.attestedAt | current_month(.) and utc_epoch <= ($now + 300))
+        and ($recovery.sourceSha256 | sha))
+      and ($set.objectives.deletion as $deletion
+        | type == "object"
+        and ($deletion | only_keys(["contractVersion","windowStart","windowEnd","evaluatedAt","targetSuccessRate","observedSuccessRate","eligibleEventCount","measuredEventCount","withinSlaEventCount","lateEventCount","residualProofFailureCount","evidenceState","assessmentStatus","sourceSha256"]))
+        and $deletion.contractVersion == $policy.deletionContractVersion
+        and ($deletion.windowStart | current_month_start(.))
+        and same_instant($deletion.windowEnd; $deletion.evaluatedAt)
+        and ($deletion.evaluatedAt | current_month(.) and utc_epoch <= ($now + 300)
+          and ($now - utc_epoch) <= ($policy.maxEvidenceAgeHours * 3600))
+        and ($deletion.targetSuccessRate | type == "number" and . >= $policy.minimumDeletionSuccessRate and . <= 1)
+        and ($deletion.observedSuccessRate | type == "number"
+          and . >= $deletion.targetSuccessRate and . <= 1)
+        and ($deletion.eligibleEventCount | integer_at_least(1))
+        and ($deletion.measuredEventCount | integer_at_least(1) and . == $deletion.eligibleEventCount)
+        and ($deletion.withinSlaEventCount | integer_at_least(1) and . <= $deletion.measuredEventCount)
+        and ($deletion.lateEventCount | integer_at_least(0)
+          and . == ($deletion.measuredEventCount - $deletion.withinSlaEventCount))
+        and $deletion.residualProofFailureCount == 0
+        and $deletion.evidenceState == "measured"
+        and $deletion.assessmentStatus == "passed"
+        and ($deletion.sourceSha256 | sha))
+    ) catch false
+  ' <<<"$json" >/dev/null 2>&1
+}
+
+if [[ -n "$VALIDATE" ]]; then
+  [[ -z "$SECURITY" && -z "$AVAILABILITY" && -z "$LATENCY" && -z "$RECOVERY" \
+      && -z "$DELETION" && -z "$OUT" ]] \
+    || fail "--validate cannot be combined with collection options"
+  [[ -f "$VALIDATE" ]] || fail "objective evidence does not exist: $VALIDATE"
+  bundle="$(read_one_object "$VALIDATE")" || fail "objective evidence is not exactly one JSON object"
+  validate_bundle "$bundle" || fail "objective evidence is invalid, stale, incomplete, or unsafe"
+  if [[ "$FORMAT" == "projection" ]]; then
+    project_json "$bundle"
+  fi
+  exit 0
+fi
+
+for name in SECURITY AVAILABILITY LATENCY RECOVERY DELETION OUT; do
+  [[ -n "${!name}" ]] || fail "--$(tr '[:upper:]' '[:lower:]' <<<"$name") is required"
+done
+for path in "$SECURITY" "$AVAILABILITY" "$LATENCY" "$RECOVERY" "$DELETION"; do
+  [[ -f "$path" ]] || fail "objective source does not exist: $path"
+done
+
+OUT="$(canonical_path "$OUT")"
+for path in "$SECURITY" "$AVAILABILITY" "$LATENCY" "$RECOVERY" "$DELETION"; do
+  source_path="$(cd "$(dirname "$path")" && pwd -P)/$(basename "$path")"
+  [[ "$OUT" != "$source_path" ]] || fail "--out must not overwrite an objective source"
+done
+
+security_json="$(read_one_object "$SECURITY")" || fail "security input is not exactly one JSON object"
+availability_json="$(read_one_object "$AVAILABILITY")" || fail "availability input is not exactly one JSON object"
+latency_json="$(read_one_object "$LATENCY")" || fail "latency input is not exactly one JSON object"
+recovery_json="$(read_one_object "$RECOVERY")" || fail "recovery input is not exactly one JSON object"
+deletion_json="$(read_one_object "$DELETION")" || fail "deletion input is not exactly one JSON object"
+
+raw_valid="$(jq -cn \
+  --argjson now "$now_epoch" \
+  --argjson policy "$objective_policy" \
+  --argjson security "$security_json" \
+  --argjson availability "$availability_json" \
+  --argjson latency "$latency_json" \
+  --argjson recovery "$recovery_json" \
+  --argjson deletion "$deletion_json" '
+  def utc_epoch:
+    sub("\\+00:00$"; "Z")
+    | sub("\\.[0-9]+Z$"; "Z")
+    | fromdateiso8601;
+  def only_keys($allowed): ((keys_unsorted - $allowed) | length) == 0;
+  def sha: type == "string" and test("^[0-9a-f]{64}$");
+  def bounded($maximum): type == "string" and length > 0 and length <= $maximum;
+  def integer_at_least($minimum): type == "number" and floor == . and . >= $minimum;
+  def current_month($value):
+    ($value | utc_epoch | gmtime | .[0:2]) == ($now | gmtime | .[0:2]);
+  def current_month_start($value):
+    ($value | utc_epoch | gmtime) as $time
+    | current_month($value) and $time[2] == 1 and $time[3] == 0
+      and $time[4] == 0 and $time[5] == 0;
+  def same_instant($left; $right): ($left | utc_epoch) == ($right | utc_epoch);
+  def fresh($value):
+    ($value | utc_epoch) as $time
+    | $time <= ($now + 300) and ($now - $time) <= ($policy.maxEvidenceAgeHours * 3600)
+      and current_month($value);
+  try (
+    ([ $security.tenantId, $availability.tenantId, $latency.tenantId,
+       $recovery.tenantId, $deletion.tenantId ] | unique | length) == 1
+    and ([ $security.scopeHash, $availability.scopeHash, $latency.scopeHash,
+       $recovery.scopeHash, $deletion.scopeHash ] | unique | length) == 1
+    and ($security.scopeHash | sha)
+    and ($security | only_keys(["contractVersion","tenantId","scopeHash","windowStart","windowEnd","evidenceLimit","assessments","liveClaimStatus","releaseEligible","evaluatedAt"]))
+    and $security.contractVersion == $policy.securityContractVersion
+    and ($security.tenantId | bounded(128))
+    and ($security.evaluatedAt | fresh(.))
+    and ($security.windowStart | current_month_start(.))
+    and same_instant($security.windowEnd; $security.evaluatedAt)
+    and $security.liveClaimStatus == "passed" and $security.releaseEligible == true
+    and ($security.assessments | type == "array"
+      and length == ($policy.requiredSecurityEnvironments | length)
+      and ([.[].environment] | sort) == ($policy.requiredSecurityEnvironments | sort)
+      and all(.[];
+        type == "object"
+        and only_keys(["environment","requiredProbeClasses","coveredProbeClasses","missingProbeClasses","totalProbeCount","passedProbeCount","failedProbeCount","invalidEvidenceCount","evidenceState","assessmentStatus","blockingReasons"])
+        and (.requiredProbeClasses | sort) == ($policy.requiredSecurityProbeClasses | sort)
+        and (.coveredProbeClasses | sort) == ($policy.requiredSecurityProbeClasses | sort)
+        and (.missingProbeClasses | type == "array" and length == 0)
+        and (.totalProbeCount | integer_at_least($policy.requiredSecurityProbeClasses | length))
+        and .passedProbeCount == .totalProbeCount
+        and .failedProbeCount == 0 and .invalidEvidenceCount == 0
+        and .evidenceState == "attested" and .assessmentStatus == "passed"
+        and (.blockingReasons | type == "array" and length == 0)))
+    and ($availability | only_keys(["contractVersion","tenantId","scopeHash","windowStart","windowEnd","requiredProbeCount","maximumProbeGapSeconds","synchronousApi","receiptRetrieval","evaluatedAt"]))
+    and $availability.contractVersion == $policy.availabilityContractVersion
+    and ($availability.evaluatedAt | fresh(.))
+    and ($availability.windowStart | current_month_start(.))
+    and same_instant($availability.windowEnd; $availability.evaluatedAt)
+    and ([ $availability.synchronousApi.objective, $availability.receiptRetrieval.objective ] | sort)
+      == ($policy.requiredAvailabilityObjectives | sort)
+    and all([$availability.synchronousApi,$availability.receiptRetrieval][];
+      . as $assessment
+      | type == "object"
+      and only_keys(["objective","targetAvailability","totalProbeCount","successfulProbeCount","failedProbeCount","excludedProviderOutageCount","invalidEvidenceCount","observedAvailability","maxObservedGapSeconds","evidenceState","assessmentStatus","blockingReasons"])
+      and ($assessment.totalProbeCount | integer_at_least($availability.requiredProbeCount))
+      and $assessment.invalidEvidenceCount == 0
+      and ($assessment.observedAvailability | type == "number"
+        and . >= $assessment.targetAvailability and . <= 1)
+      and ($assessment.maxObservedGapSeconds | integer_at_least(0)
+        and . <= $availability.maximumProbeGapSeconds)
+      and $assessment.evidenceState == "measured" and $assessment.assessmentStatus == "passed"
+      and ($assessment.blockingReasons | type == "array" and length == 0))
+    and ($latency | only_keys(["contractVersion","tenantId","scopeHash","windowStart","windowEnd","requiredProbeCount","maximumProbeGapSeconds","evidenceEnvironment","assessments","liveClaimStatus","releaseEligible","evaluatedAt"]))
+    and $latency.contractVersion == $policy.latencyContractVersion
+    and ($latency.evaluatedAt | fresh(.))
+    and ($latency.windowStart | current_month_start(.))
+    and same_instant($latency.windowEnd; $latency.evaluatedAt)
+    and $latency.evidenceEnvironment == "production"
+    and $latency.liveClaimStatus == "passed" and $latency.releaseEligible == true
+    and ($latency.assessments | type == "array"
+      and length == ($policy.requiredLatencyObjectives | length)
+      and ([.[].objective] | sort) == ($policy.requiredLatencyObjectives | sort)
+      and all(.[];
+        . as $assessment
+        | type == "object"
+        and only_keys(["objective","targetP50LatencyMs","targetP95LatencyMs","targetP99LatencyMs","hardBehavior","totalProbeCount","distinctBenchmarkEvidenceCount","hardBehaviorFailureCount","invalidEvidenceCount","observedP50LatencyMs","observedP95LatencyMs","observedP99LatencyMs","maxObservedGapSeconds","evidenceState","assessmentStatus","blockingReasons"])
+        and ($assessment.totalProbeCount | integer_at_least($latency.requiredProbeCount))
+        and ($assessment.distinctBenchmarkEvidenceCount | integer_at_least(1))
+        and $assessment.hardBehaviorFailureCount == 0 and $assessment.invalidEvidenceCount == 0
+        and ($assessment.targetP99LatencyMs | integer_at_least($assessment.targetP95LatencyMs))
+        and ($assessment.observedP50LatencyMs | integer_at_least(0)
+          and . <= $assessment.targetP50LatencyMs)
+        and ($assessment.observedP95LatencyMs | integer_at_least($assessment.observedP50LatencyMs)
+          and . <= $assessment.targetP95LatencyMs)
+        and ($assessment.observedP99LatencyMs | integer_at_least($assessment.observedP95LatencyMs)
+          and . <= $assessment.targetP99LatencyMs)
+        and ($assessment.maxObservedGapSeconds | integer_at_least(0)
+          and . <= $latency.maximumProbeGapSeconds)
+        and $assessment.evidenceState == "measured" and $assessment.assessmentStatus == "passed"
+        and ($assessment.blockingReasons | type == "array" and length == 0)))
+    and ($recovery | only_keys(["contractVersion","tenantId","scopeHash","targetRpoSeconds","targetRtoSeconds","evidenceState","drillAssessment","liveClaimStatus","environment","backupOperationId","restoreOperationId","recoveryPointAt","disruptionAt","restoreStartedAt","restoreCompletedAt","observedRpoSeconds","observedRtoSeconds","evidenceHash","attestedAt","blockingReasons","evaluatedAt"]))
+    and $recovery.contractVersion == $policy.recoveryContractVersion
+    and ($recovery.evaluatedAt | fresh(.))
+    and $recovery.environment == "production"
+    and $recovery.targetRpoSeconds == $policy.targetRpoSeconds
+    and $recovery.targetRtoSeconds == $policy.targetRtoSeconds
+    and ($recovery.observedRpoSeconds | integer_at_least(0) and . <= $policy.targetRpoSeconds)
+    and ($recovery.observedRtoSeconds | integer_at_least(0) and . <= $policy.targetRtoSeconds)
+    and $recovery.evidenceState == "attested"
+    and $recovery.drillAssessment == "passed" and $recovery.liveClaimStatus == "passed"
+    and ($recovery.evidenceHash | sha) and ($recovery.attestedAt | fresh(.))
+    and ($recovery.blockingReasons | type == "array" and length == 0)
+    and ($deletion | only_keys(["contractVersion","tenantId","scopeHash","targetSuccessRate","currentConfiguredSlaSeconds","windowStart","windowEnd","eligibleEventCount","measuredEventCount","withinSlaEventCount","lateEventCount","residualProofFailureCount","excludedLegalHoldCount","observedSuccessRate","evidenceState","assessmentStatus","blockingReasons","evaluatedAt"]))
+    and $deletion.contractVersion == $policy.deletionContractVersion
+    and ($deletion.evaluatedAt | fresh(.))
+    and ($deletion.windowStart | current_month_start(.))
+    and same_instant($deletion.windowEnd; $deletion.evaluatedAt)
+    and ($deletion.targetSuccessRate | type == "number" and . >= $policy.minimumDeletionSuccessRate and . <= 1)
+    and ($deletion.observedSuccessRate | type == "number"
+      and . >= $deletion.targetSuccessRate and . <= 1)
+    and ($deletion.eligibleEventCount | integer_at_least(1))
+    and $deletion.measuredEventCount == $deletion.eligibleEventCount
+    and $deletion.withinSlaEventCount <= $deletion.measuredEventCount
+    and $deletion.lateEventCount == ($deletion.measuredEventCount - $deletion.withinSlaEventCount)
+    and $deletion.residualProofFailureCount == 0
+    and $deletion.evidenceState == "measured" and $deletion.assessmentStatus == "passed"
+    and ($deletion.blockingReasons | type == "array" and length == 0)
+  ) catch false
+')"
+[[ "$raw_valid" == "true" ]] || fail "objective sources are invalid, stale, incomplete, unsafe, or not scope-coherent"
+
+generated_at="$(date -u +%FT%TZ)"
+bundle="$(jq -cn \
+  --arg schemaVersion "$(jq -r '.schemaVersion' <<<"$objective_policy")" \
+  --arg generatedAt "$generated_at" \
+  --arg securitySha "$(sha256_file "$SECURITY")" \
+  --arg availabilitySha "$(sha256_file "$AVAILABILITY")" \
+  --arg latencySha "$(sha256_file "$LATENCY")" \
+  --arg recoverySha "$(sha256_file "$RECOVERY")" \
+  --arg deletionSha "$(sha256_file "$DELETION")" \
+  --argjson security "$security_json" \
+  --argjson availability "$availability_json" \
+  --argjson latency "$latency_json" \
+  --argjson recovery "$recovery_json" \
+  --argjson deletion "$deletion_json" '
+    {
+      schemaVersion:$schemaVersion,
+      generatedAt:$generatedAt,
+      scopeHash:$security.scopeHash,
+      objectives:{
+        security:{
+          contractVersion:$security.contractVersion,
+          windowStart:$security.windowStart,
+          windowEnd:$security.windowEnd,
+          evaluatedAt:$security.evaluatedAt,
+          liveClaimStatus:$security.liveClaimStatus,
+          releaseEligible:$security.releaseEligible,
+          environments:[$security.assessments[] | {
+            environment,coveredProbeClasses,totalProbeCount,passedProbeCount}],
+          sourceSha256:$securitySha
+        },
+        availability:{
+          contractVersion:$availability.contractVersion,
+          windowStart:$availability.windowStart,
+          windowEnd:$availability.windowEnd,
+          evaluatedAt:$availability.evaluatedAt,
+          assessments:[$availability.synchronousApi,$availability.receiptRetrieval | {
+            objective,targetAvailability,observedAvailability,totalProbeCount,maxObservedGapSeconds}],
+          sourceSha256:$availabilitySha
+        },
+        latency:{
+          contractVersion:$latency.contractVersion,
+          windowStart:$latency.windowStart,
+          windowEnd:$latency.windowEnd,
+          evaluatedAt:$latency.evaluatedAt,
+          evidenceEnvironment:$latency.evidenceEnvironment,
+          liveClaimStatus:$latency.liveClaimStatus,
+          releaseEligible:$latency.releaseEligible,
+          assessments:[$latency.assessments[] | {
+            objective,targetP50LatencyMs,targetP95LatencyMs,targetP99LatencyMs,
+            observedP50LatencyMs,observedP95LatencyMs,observedP99LatencyMs,
+            totalProbeCount,distinctBenchmarkEvidenceCount}],
+          sourceSha256:$latencySha
+        },
+        recovery:{
+          contractVersion:$recovery.contractVersion,
+          evaluatedAt:$recovery.evaluatedAt,
+          environment:$recovery.environment,
+          targetRpoSeconds:$recovery.targetRpoSeconds,
+          targetRtoSeconds:$recovery.targetRtoSeconds,
+          observedRpoSeconds:$recovery.observedRpoSeconds,
+          observedRtoSeconds:$recovery.observedRtoSeconds,
+          evidenceState:$recovery.evidenceState,
+          drillAssessment:$recovery.drillAssessment,
+          liveClaimStatus:$recovery.liveClaimStatus,
+          evidenceHash:$recovery.evidenceHash,
+          attestedAt:$recovery.attestedAt,
+          sourceSha256:$recoverySha
+        },
+        deletion:{
+          contractVersion:$deletion.contractVersion,
+          windowStart:$deletion.windowStart,
+          windowEnd:$deletion.windowEnd,
+          evaluatedAt:$deletion.evaluatedAt,
+          targetSuccessRate:$deletion.targetSuccessRate,
+          observedSuccessRate:$deletion.observedSuccessRate,
+          eligibleEventCount:$deletion.eligibleEventCount,
+          measuredEventCount:$deletion.measuredEventCount,
+          withinSlaEventCount:$deletion.withinSlaEventCount,
+          lateEventCount:$deletion.lateEventCount,
+          residualProofFailureCount:$deletion.residualProofFailureCount,
+          evidenceState:$deletion.evidenceState,
+          assessmentStatus:$deletion.assessmentStatus,
+          sourceSha256:$deletionSha
+        }
+      }
+    }
+  ')"
+validate_bundle "$bundle" || fail "generated objective evidence is structurally invalid"
+
+output_tmp="$(mktemp "$(dirname "$OUT")/.gm-objective-evidence.XXXXXX")"
+printf '%s\n' "$bundle" >"$output_tmp"
+mv "$output_tmp" "$OUT"
+if [[ "$FORMAT" == "projection" ]]; then
+  project_json "$bundle"
+fi

@@ -5,12 +5,13 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CAPABILITY_MANIFEST=""
 SIGNATURE_HISTORY=""
 BENCHMARK_EVIDENCE=""
+OBJECTIVE_EVIDENCE=""
 OUT=""
 
 usage() {
   cat <<'EOF'
 Usage:
-  scripts/gm-release-evidence [--capability-manifest PATH] [--signature-history PATH] [--benchmark-evidence PATH] [--out PATH]
+  scripts/gm-release-evidence [--capability-manifest PATH] [--signature-history PATH] [--benchmark-evidence PATH] [--objective-evidence PATH] [--out PATH]
 
 Builds a content-free OmegaRAG source-to-installed release evidence bundle.
 The strongest possible decision is ELIGIBLE_FOR_HUMAN_REVIEW; this tool never
@@ -57,6 +58,11 @@ while [[ $# -gt 0 ]]; do
       BENCHMARK_EVIDENCE="${1:-}"
       [[ -n "$BENCHMARK_EVIDENCE" ]] || fail "--benchmark-evidence requires a path"
       ;;
+    --objective-evidence)
+      shift
+      OBJECTIVE_EVIDENCE="${1:-}"
+      [[ -n "$OBJECTIVE_EVIDENCE" ]] || fail "--objective-evidence requires a path"
+      ;;
     --out)
       shift
       OUT="${1:-}"
@@ -94,6 +100,11 @@ if [[ -n "$BENCHMARK_EVIDENCE" && -n "$OUT" && -e "$BENCHMARK_EVIDENCE" ]]; then
   benchmark_path="$benchmark_parent/$(basename "$BENCHMARK_EVIDENCE")"
   [[ "$OUT" != "$benchmark_path" ]] || fail "--out must not overwrite the OmegaBench evidence set"
 fi
+if [[ -n "$OBJECTIVE_EVIDENCE" && -n "$OUT" && -e "$OBJECTIVE_EVIDENCE" ]]; then
+  objective_parent="$(cd "$(dirname "$OBJECTIVE_EVIDENCE")" && pwd -P)"
+  objective_path="$objective_parent/$(basename "$OBJECTIVE_EVIDENCE")"
+  [[ "$OUT" != "$objective_path" ]] || fail "--out must not overwrite the objective evidence bundle"
+fi
 
 POLICY="$ROOT/references/contracts/release/graymatter_omegarag_release_policy_v1.json"
 [[ -f "$POLICY" ]] || fail "release policy is missing"
@@ -114,6 +125,10 @@ jq -e '
     and (.omegaBench.requiredTracks | type == "array" and length >= 4)
     and (.omegaBench.requiredBaselines | type == "array" and length >= 6)
     and (.omegaBench.maxManifests | type == "number" and . >= 30)
+    and (.objectiveEvidence | type == "object")
+    and (.objectiveEvidence.schemaVersion == "omegarag-objective-evidence/v1")
+    and (.objectiveEvidence.requiredSecurityProbeClasses | type == "array" and length >= 12)
+    and (.objectiveEvidence.requiredLatencyObjectives | type == "array" and length >= 5)
   ' "$POLICY" >/dev/null \
   || fail "release policy is invalid"
 
@@ -283,6 +298,7 @@ if [[ -f "$ROOT/plugins/graymatter/scripts/gm-release-evidence" ]]; then
     scripts/gm-release-evidence \
     scripts/gm-signature-history \
     scripts/gm-omegabench-evidence \
+    scripts/gm-objective-evidence \
     scripts/graymatter-prod-acceptance.sh \
     references/contracts/release/graymatter_omegarag_release_policy_v1.json \
     docs/omegarag-release-evidence.md; do
@@ -297,10 +313,11 @@ if [[ -f "$ROOT/plugins/graymatter/scripts/gm-release-evidence" ]]; then
       --arg scriptSha256 "$(sha256_file "$ROOT/scripts/gm-release-evidence")" \
       --arg historyCollectorSha256 "$(sha256_file "$ROOT/scripts/gm-signature-history")" \
       --arg omegaBenchCollectorSha256 "$(sha256_file "$ROOT/scripts/gm-omegabench-evidence")" \
+      --arg objectiveCollectorSha256 "$(sha256_file "$ROOT/scripts/gm-objective-evidence")" \
       --arg acceptanceCanarySha256 "$(sha256_file "$ROOT/scripts/graymatter-prod-acceptance.sh")" \
       --arg policySha256 "$(sha256_file "$POLICY")" \
       --arg docsSha256 "$(sha256_file "$ROOT/docs/omegarag-release-evidence.md")" \
-      '{scriptSha256:$scriptSha256,historyCollectorSha256:$historyCollectorSha256,omegaBenchCollectorSha256:$omegaBenchCollectorSha256,acceptanceCanarySha256:$acceptanceCanarySha256,policySha256:$policySha256,docsSha256:$docsSha256}')"
+      '{scriptSha256:$scriptSha256,historyCollectorSha256:$historyCollectorSha256,omegaBenchCollectorSha256:$omegaBenchCollectorSha256,objectiveCollectorSha256:$objectiveCollectorSha256,acceptanceCanarySha256:$acceptanceCanarySha256,policySha256:$policySha256,docsSha256:$docsSha256}')"
     add_check "marketplace-release-parity" "PASS" "Release evidence script, policy, and docs match the marketplace surface." "$parity_details"
   else
     add_check "marketplace-release-parity" "FAIL" "Marketplace release evidence surfaces differ from the root package." \
@@ -674,6 +691,51 @@ if [[ "$benchmark_status" == "COMPLETE" ]]; then
   add_check "omegabench-baseline" "PASS" "$benchmark_reason" "$benchmark_details"
 else
   add_check "omegabench-baseline" "FAIL" "$benchmark_reason" "$benchmark_details"
+fi
+
+objective_status="MISSING"
+objective_reason="No security, correctness, and SLO objective evidence bundle was supplied."
+objective_projection='null'
+objective_validator="$ROOT/scripts/gm-objective-evidence"
+if [[ -n "$OBJECTIVE_EVIDENCE" && -f "$OBJECTIVE_EVIDENCE" ]]; then
+  raw_objective_projection=""
+  if [[ -x "$objective_validator" ]] \
+    && raw_objective_projection="$($objective_validator --validate "$OBJECTIVE_EVIDENCE" --format projection 2>/dev/null)" \
+    && jq -e 'type == "object"' <<<"$raw_objective_projection" >/dev/null 2>&1; then
+    objective_projection="$(jq -c --argjson capability "$capability_projection" '
+      . as $projection
+      | ($capability != null
+          and $capability.environment == "production"
+          and $projection.scopeHash != null
+          and $projection.scopeHash == $capability.scopeHash) as $capabilityBound
+      | $projection + {
+          productionCapabilityBound:$capabilityBound,
+          complete:($projection.complete and $capabilityBound)
+        }
+    ' <<<"$raw_objective_projection")"
+    if jq -e '.complete == true' <<<"$objective_projection" >/dev/null; then
+      objective_status="COMPLETE"
+      objective_reason="The security, receipt-lineage, availability, latency, recovery, and deletion objectives pass with fresh evidence bound to the current production scope."
+    else
+      objective_status="INCOMPLETE"
+      objective_reason="The objective evidence does not establish every required current production gate and capability binding."
+    fi
+  else
+    objective_status="INVALID"
+    objective_reason="The objective evidence is malformed, stale, incomplete, unsafe, or contains non-contract fields."
+  fi
+elif [[ -n "$OBJECTIVE_EVIDENCE" ]]; then
+  objective_status="INVALID"
+  objective_reason="The requested objective evidence bundle does not exist."
+fi
+
+objective_details="$(jq -cn --arg status "$objective_status" --arg reason "$objective_reason" \
+  --arg file "$(basename "${OBJECTIVE_EVIDENCE:-not-supplied}")" \
+  --argjson evidence "$objective_projection" '{status:$status,reason:$reason,file:$file,evidence:$evidence}')"
+if [[ "$objective_status" == "COMPLETE" ]]; then
+  add_check "omegarag-objectives" "PASS" "$objective_reason" "$objective_details"
+else
+  add_check "omegarag-objectives" "FAIL" "$objective_reason" "$objective_details"
 fi
 
 decision="HOLD"

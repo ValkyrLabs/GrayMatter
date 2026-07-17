@@ -32,6 +32,7 @@ assert_jq "$missing_out" '
   and ([.checks[] | select(.id == "capability-manifest" and .status == "FAIL")] | length == 1)
   and ([.checks[] | select(.id == "sustained-signature-canaries" and .status == "FAIL")] | length == 1)
   and ([.checks[] | select(.id == "omegabench-baseline" and .status == "FAIL")] | length == 1)
+  and ([.checks[] | select(.id == "omegarag-objectives" and .status == "FAIL")] | length == 1)
   and ([.authorizations[]] | all(. == false))
 '
 
@@ -208,6 +209,62 @@ jq -n \
   }
 ' >"$valid_benchmark"
 
+valid_objectives="$TMP_DIR/objective-evidence.json"
+jq -n \
+  --argjson now "$now_epoch" \
+  --argjson policy "$(jq -c '.objectiveEvidence' "$ROOT/references/contracts/release/graymatter_omegarag_release_policy_v1.json")" '
+  ($now - 30 | strftime("%Y-%m-%dT%H:%M:%SZ")) as $evaluatedAt
+  | ($now | strftime("%Y-%m-01T00:00:00Z")) as $windowStart
+  | {
+      schemaVersion:$policy.schemaVersion,
+      generatedAt:($now - 10 | strftime("%Y-%m-%dT%H:%M:%SZ")),
+      scopeHash:("a" * 64),
+      objectives:{
+        security:{
+          contractVersion:$policy.securityContractVersion,windowStart:$windowStart,
+          windowEnd:$evaluatedAt,evaluatedAt:$evaluatedAt,
+          liveClaimStatus:"passed",releaseEligible:true,
+          environments:[$policy.requiredSecurityEnvironments[] | {
+            environment:.,coveredProbeClasses:$policy.requiredSecurityProbeClasses,
+            totalProbeCount:12,passedProbeCount:12}],sourceSha256:("1" * 64)},
+        availability:{
+          contractVersion:$policy.availabilityContractVersion,windowStart:$windowStart,
+          windowEnd:$evaluatedAt,evaluatedAt:$evaluatedAt,
+          assessments:[$policy.requiredAvailabilityObjectives[] | {
+            objective:.,targetAvailability:0.999,observedAvailability:1,
+            totalProbeCount:100,maxObservedGapSeconds:60}],sourceSha256:("2" * 64)},
+        latency:{
+          contractVersion:$policy.latencyContractVersion,windowStart:$windowStart,
+          windowEnd:$evaluatedAt,evaluatedAt:$evaluatedAt,
+          evidenceEnvironment:"production",liveClaimStatus:"passed",releaseEligible:true,
+          assessments:[$policy.requiredLatencyObjectives[] | {
+            objective:.,targetP50LatencyMs:100,targetP95LatencyMs:200,targetP99LatencyMs:300,
+            observedP50LatencyMs:50,observedP95LatencyMs:100,observedP99LatencyMs:150,
+            totalProbeCount:100,distinctBenchmarkEvidenceCount:1}],sourceSha256:("3" * 64)},
+        recovery:{
+          contractVersion:$policy.recoveryContractVersion,evaluatedAt:$evaluatedAt,
+          environment:"production",targetRpoSeconds:$policy.targetRpoSeconds,
+          targetRtoSeconds:$policy.targetRtoSeconds,observedRpoSeconds:120,
+          observedRtoSeconds:900,evidenceState:"attested",drillAssessment:"passed",
+          liveClaimStatus:"passed",evidenceHash:("4" * 64),attestedAt:$evaluatedAt,
+          sourceSha256:("5" * 64)},
+        deletion:{
+          contractVersion:$policy.deletionContractVersion,windowStart:$windowStart,
+          windowEnd:$evaluatedAt,evaluatedAt:$evaluatedAt,
+          targetSuccessRate:$policy.minimumDeletionSuccessRate,observedSuccessRate:1,
+          eligibleEventCount:1000,measuredEventCount:1000,withinSlaEventCount:1000,
+          lateEventCount:0,residualProofFailureCount:0,evidenceState:"measured",
+          assessmentStatus:"passed",sourceSha256:("6" * 64)}
+      }
+    }
+' >"$valid_objectives"
+
+RELEASE_SCRIPT="$SCRIPT"
+release_with_objectives() {
+  "$RELEASE_SCRIPT" --objective-evidence "$valid_objectives" "$@"
+}
+SCRIPT=release_with_objectives
+
 if "$SCRIPT" --capability-manifest "$valid_manifest" --out "$valid_manifest" >/dev/null 2>&1; then
   fail "generator accepted an output path that overwrites its capability input"
 fi
@@ -218,6 +275,11 @@ fi
 if "$SCRIPT" --capability-manifest "$valid_manifest" --signature-history "$valid_history" \
   --benchmark-evidence "$valid_benchmark" --out "$valid_benchmark" >/dev/null 2>&1; then
   fail "generator accepted an output path that overwrites its OmegaBench input"
+fi
+if "$RELEASE_SCRIPT" --capability-manifest "$valid_manifest" --signature-history "$valid_history" \
+  --benchmark-evidence "$valid_benchmark" --objective-evidence "$valid_objectives" \
+  --out "$valid_objectives" >/dev/null 2>&1; then
+  fail "generator accepted an output path that overwrites its objective-evidence input"
 fi
 
 valid_out="$TMP_DIR/valid-evidence.json"
@@ -243,6 +305,11 @@ assert_jq "$valid_out" '
       and .details.evidence.productionCapabilityBound == true
       and .details.evidence.manifestCount == 30
       and .details.evidence.totalCaseCount == 30)
+  and (.checks[] | select(.id == "omegarag-objectives")
+    | .details.evidence.complete == true
+      and .details.evidence.productionCapabilityBound == true
+      and .details.evidence.receiptTrajectoryCoverage == true
+      and .details.evidence.objectiveCount == 5)
   and (.knownLimitations | map(.distribution) | index("light") != null)
   and (.knownLimitations | map(.distribution) | index("cloud") != null)
 '
@@ -433,6 +500,19 @@ assert_jq "$private_benchmark_out" '
   and (.checks[] | select(.id == "omegabench-baseline") | .details.status == "INVALID")
 '
 
+wrong_scope_objectives="$TMP_DIR/wrong-scope-objectives.json"
+jq '.scopeHash = ("b" * 64)' "$valid_objectives" >"$wrong_scope_objectives"
+wrong_scope_objectives_out="$TMP_DIR/wrong-scope-objectives-evidence.json"
+"$SCRIPT" --capability-manifest "$valid_manifest" --signature-history "$valid_history" \
+  --benchmark-evidence "$valid_benchmark" --objective-evidence "$wrong_scope_objectives" \
+  --out "$wrong_scope_objectives_out"
+assert_jq "$wrong_scope_objectives_out" '
+  .decision == "HOLD"
+  and (.checks[] | select(.id == "omegarag-objectives")
+    | .details.status == "INCOMPLETE"
+      and .details.evidence.productionCapabilityBound == false)
+'
+
 plugin_archive="$TMP_DIR/graymatter-plugin.skill"
 GRAYMATTER_PLUGIN_PACKAGE_OUT="$plugin_archive" \
   "$ROOT/plugins/graymatter/scripts/package-graymatter" >/dev/null
@@ -443,9 +523,11 @@ printf '%s\n' "$(git -C "$ROOT" rev-parse HEAD)" >"$installed_root/graymatter/.g
 installed_out_one="$TMP_DIR/installed-one.json"
 installed_out_two="$TMP_DIR/installed-two.json"
 "$installed_root/graymatter/scripts/gm-release-evidence" \
-  --capability-manifest "$valid_manifest" --signature-history "$valid_history" --benchmark-evidence "$valid_benchmark" --out "$installed_out_one"
+  --capability-manifest "$valid_manifest" --signature-history "$valid_history" \
+  --benchmark-evidence "$valid_benchmark" --objective-evidence "$valid_objectives" --out "$installed_out_one"
 "$installed_root/graymatter/scripts/gm-release-evidence" \
-  --capability-manifest "$valid_manifest" --signature-history "$valid_history" --benchmark-evidence "$valid_benchmark" --out "$installed_out_two"
+  --capability-manifest "$valid_manifest" --signature-history "$valid_history" \
+  --benchmark-evidence "$valid_benchmark" --objective-evidence "$valid_objectives" --out "$installed_out_two"
 assert_jq "$installed_out_one" '
   .decision == "ELIGIBLE_FOR_HUMAN_REVIEW"
   and .source.revisionSource == "installed-source-marker"

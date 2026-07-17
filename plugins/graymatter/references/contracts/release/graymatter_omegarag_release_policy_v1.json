@@ -12,6 +12,24 @@
     "write_readiness",
     "safe_response_readiness"
   ],
+  "sustainedSignatureCanary": {
+    "historySchemaVersion": "omegarag-signature-history/v1",
+    "contractVersion": "omegarag-signature-canary/v1",
+    "releaseCapabilityEnvironment": "production",
+    "requiredEnvironments": [
+      "staging",
+      "production"
+    ],
+    "requiredCapabilityIds": [
+      "graymatter.receipt.create",
+      "graymatter.context.create",
+      "graymatter.graph.shape",
+      "graymatter.semantic.manifest"
+    ],
+    "requiredConsecutiveUtcDays": 7,
+    "maxLatestObservationAgeHours": 36,
+    "maxObservations": 1024
+  },
   "requiredContracts": [
     {
       "id": "portable-mcp",

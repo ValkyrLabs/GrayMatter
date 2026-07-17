@@ -30,6 +30,7 @@ assert_jq "$missing_out" '
   .schemaVersion == "graymatter-omegarag-release-evidence/v1"
   and .decision == "HOLD"
   and ([.checks[] | select(.id == "capability-manifest" and .status == "FAIL")] | length == 1)
+  and ([.checks[] | select(.id == "sustained-signature-canaries" and .status == "FAIL")] | length == 1)
   and ([.authorizations[]] | all(. == false))
 '
 
@@ -39,7 +40,7 @@ jq -n --argjson now "$now_epoch" '
   {
     manifestVersion:"omegarag-capability-manifest/v1",
     apiVersion:"v1",
-    environment:"contract-test",
+    environment:"production",
     scopeHash:("a" * 64),
     schemaVersion:"schema-v1",
     policyVersion:"policy-v1",
@@ -110,12 +111,47 @@ jq -n --argjson now "$now_epoch" '
   }
 ' >"$valid_manifest"
 
+valid_history="$TMP_DIR/signature-history.json"
+jq -n --argjson now "$now_epoch" '
+  def capabilities: [
+    "graymatter.receipt.create",
+    "graymatter.context.create",
+    "graymatter.graph.shape",
+    "graymatter.semantic.manifest"
+  ];
+  {
+    schemaVersion:"omegarag-signature-history/v1",
+    generatedAt:($now - 10 | strftime("%Y-%m-%dT%H:%M:%SZ")),
+    observations:[
+      ["staging","production"][] as $environment
+      | range(0; 7) as $day
+      | capabilities[] as $capabilityId
+      | {
+          environment:$environment,
+          observedAt:($now - 30 - ($day * 86400) | strftime("%Y-%m-%dT%H:%M:%SZ")),
+          capabilityId:$capabilityId,
+          passed:true,
+          httpStatus:204,
+          contractVersion:"omegarag-signature-canary/v1",
+          evidenceRef:("signature-canary/" + $environment + "/" + ($day | tostring) + "/" + $capabilityId),
+          evidenceHash:("e" * 64),
+          scopeHash:(if $environment == "production" then ("a" * 64) else ("c" * 64) end),
+          authorityHash:(if $environment == "production" then ("b" * 64) else ("d" * 64) end)
+        }
+    ]
+  }
+' >"$valid_history"
+
 if "$SCRIPT" --capability-manifest "$valid_manifest" --out "$valid_manifest" >/dev/null 2>&1; then
   fail "generator accepted an output path that overwrites its capability input"
 fi
+if "$SCRIPT" --capability-manifest "$valid_manifest" --signature-history "$valid_history" \
+  --out "$valid_history" >/dev/null 2>&1; then
+  fail "generator accepted an output path that overwrites its signature-history input"
+fi
 
 valid_out="$TMP_DIR/valid-evidence.json"
-"$SCRIPT" --capability-manifest "$valid_manifest" --out "$valid_out"
+"$SCRIPT" --capability-manifest "$valid_manifest" --signature-history "$valid_history" --out "$valid_out"
 assert_jq "$valid_out" '
   .decision == "ELIGIBLE_FOR_HUMAN_REVIEW"
   and ([.checks[] | select(.status == "FAIL")] | length == 0)
@@ -125,10 +161,15 @@ assert_jq "$valid_out" '
   and (.checks[] | select(.id == "capability-manifest") | .details.manifest.stateCounts.PLANNED == 1)
   and (.checks[] | select(.id == "capability-manifest") | .details.manifest.limits.maxAsyncAttempts == 4)
   and (.checks[] | select(.id == "capability-manifest") | .details.manifest.limits.circuitFailureThreshold == 3)
+  and (.checks[] | select(.id == "sustained-signature-canaries")
+    | .details.history.complete == true
+      and .details.history.observationCount == 56
+      and .details.history.productionManifestBound == true
+      and ([.details.history.environments[].completeDays] | all(. == 7)))
   and (.knownLimitations | map(.distribution) | index("light") != null)
   and (.knownLimitations | map(.distribution) | index("cloud") != null)
 '
-if jq -r tostring "$valid_out" | grep -Eq 'tenant-must-not-leak|provider-must-not-leak|token-must-not-leak|privateBalance'; then
+if jq -r tostring "$valid_out" | grep -Eq 'tenant-must-not-leak|provider-must-not-leak|token-must-not-leak|privateBalance|signature-canary/(staging|production)'; then
   fail "release evidence leaked a private capability-manifest field"
 fi
 if jq -e '.. | strings | select(startswith("/private/") or startswith("/Users/") or startswith("/tmp/"))' \
@@ -156,7 +197,7 @@ jq --argjson now "$now_epoch" '
     }]
 ' "$valid_manifest" >"$generated_manifest"
 generated_out="$TMP_DIR/generated-shape-evidence.json"
-"$SCRIPT" --capability-manifest "$generated_manifest" --out "$generated_out"
+"$SCRIPT" --capability-manifest "$generated_manifest" --signature-history "$valid_history" --out "$generated_out"
 assert_jq "$generated_out" '
   .decision == "ELIGIBLE_FOR_HUMAN_REVIEW"
   and (.checks[] | select(.id == "capability-manifest")
@@ -171,7 +212,7 @@ jq --argjson now "$now_epoch" \
    | .expiresAt = ($now - 60 | strftime("%Y-%m-%dT%H:%M:%SZ"))' \
   "$valid_manifest" >"$expired_manifest"
 expired_out="$TMP_DIR/expired-evidence.json"
-"$SCRIPT" --capability-manifest "$expired_manifest" --out "$expired_out"
+"$SCRIPT" --capability-manifest "$expired_manifest" --signature-history "$valid_history" --out "$expired_out"
 assert_jq "$expired_out" '
   .decision == "HOLD"
   and (.checks[] | select(.id == "capability-manifest") | .details.status == "INVALID_OR_EXPIRED")
@@ -182,7 +223,7 @@ jq --argjson now "$now_epoch" \
   '.capabilities[0].evidenceExpiresAt = ($now - 1 | strftime("%Y-%m-%dT%H:%M:%SZ"))' \
   "$valid_manifest" >"$stale_live_manifest"
 stale_live_out="$TMP_DIR/stale-live-evidence.json"
-"$SCRIPT" --capability-manifest "$stale_live_manifest" --out "$stale_live_out"
+"$SCRIPT" --capability-manifest "$stale_live_manifest" --signature-history "$valid_history" --out "$stale_live_out"
 assert_jq "$stale_live_out" '
   .decision == "HOLD"
   and (.checks[] | select(.id == "capability-manifest") | .details.status == "INVALID_OR_EXPIRED")
@@ -191,7 +232,7 @@ assert_jq "$stale_live_out" '
 missing_cloud_manifest="$TMP_DIR/missing-cloud.json"
 jq 'del(.distributions.cloud)' "$valid_manifest" >"$missing_cloud_manifest"
 missing_cloud_out="$TMP_DIR/missing-cloud-evidence.json"
-"$SCRIPT" --capability-manifest "$missing_cloud_manifest" --out "$missing_cloud_out"
+"$SCRIPT" --capability-manifest "$missing_cloud_manifest" --signature-history "$valid_history" --out "$missing_cloud_out"
 assert_jq "$missing_cloud_out" '
   .decision == "HOLD"
   and (.checks[] | select(.id == "capability-manifest") | .details.status == "INVALID_OR_EXPIRED")
@@ -202,7 +243,7 @@ for blocked_state in DEGRADED UNAVAILABLE; do
   blocked_out="$TMP_DIR/${blocked_state}-evidence.json"
   jq --arg state "$blocked_state" '.capabilities[0].state = $state | .capabilities[0].liveVerified = false' \
     "$valid_manifest" >"$blocked_manifest"
-  "$SCRIPT" --capability-manifest "$blocked_manifest" --out "$blocked_out"
+  "$SCRIPT" --capability-manifest "$blocked_manifest" --signature-history "$valid_history" --out "$blocked_out"
   assert_jq "$blocked_out" '
     .decision == "HOLD"
     and (.checks[] | select(.id == "capability-manifest") | .details.status == "BLOCKED")
@@ -213,10 +254,68 @@ multiple_manifest="$TMP_DIR/multiple.json"
 jq -c . "$valid_manifest" >"$multiple_manifest"
 jq -c . "$valid_manifest" >>"$multiple_manifest"
 multiple_out="$TMP_DIR/multiple-evidence.json"
-"$SCRIPT" --capability-manifest "$multiple_manifest" --out "$multiple_out"
+"$SCRIPT" --capability-manifest "$multiple_manifest" --signature-history "$valid_history" --out "$multiple_out"
 assert_jq "$multiple_out" '
   .decision == "HOLD"
   and (.checks[] | select(.id == "capability-manifest") | .details.status == "INVALID_OR_EXPIRED")
+'
+
+nonproduction_manifest="$TMP_DIR/nonproduction.json"
+jq '.environment = "staging"' "$valid_manifest" >"$nonproduction_manifest"
+nonproduction_out="$TMP_DIR/nonproduction-evidence.json"
+"$SCRIPT" --capability-manifest "$nonproduction_manifest" --signature-history "$valid_history" --out "$nonproduction_out"
+assert_jq "$nonproduction_out" '
+  .decision == "HOLD"
+  and (.checks[] | select(.id == "capability-manifest") | .details.status == "INVALID_OR_EXPIRED")
+  and (.checks[] | select(.id == "sustained-signature-canaries")
+    | .details.status == "INCOMPLETE" and .details.history.productionManifestBound == false)
+'
+
+missing_cell_history="$TMP_DIR/missing-cell-history.json"
+jq '.observations |= map(select(
+    (.environment == "production" and .capabilityId == "graymatter.semantic.manifest") | not))
+  | .observations += [
+      (input.observations
+        | map(select(.environment == "production" and .capabilityId == "graymatter.semantic.manifest"))
+        | .[1:])[]
+    ]' "$valid_history" "$valid_history" >"$missing_cell_history"
+missing_cell_out="$TMP_DIR/missing-cell-evidence.json"
+"$SCRIPT" --capability-manifest "$valid_manifest" --signature-history "$missing_cell_history" --out "$missing_cell_out"
+assert_jq "$missing_cell_out" '
+  .decision == "HOLD"
+  and (.checks[] | select(.id == "sustained-signature-canaries")
+    | .details.status == "INCOMPLETE"
+      and (.details.history.environments[] | select(.environment == "production") | .completeDays == 6))
+'
+
+failed_history="$TMP_DIR/failed-history.json"
+jq '.observations[0].passed = false | .observations[0].httpStatus = 503' \
+  "$valid_history" >"$failed_history"
+failed_history_out="$TMP_DIR/failed-history-evidence.json"
+"$SCRIPT" --capability-manifest "$valid_manifest" --signature-history "$failed_history" --out "$failed_history_out"
+assert_jq "$failed_history_out" '
+  .decision == "HOLD"
+  and (.checks[] | select(.id == "sustained-signature-canaries") | .details.status == "INCOMPLETE")
+'
+
+drift_history="$TMP_DIR/drift-history.json"
+jq '.observations[0].scopeHash = ("f" * 64)' "$valid_history" >"$drift_history"
+drift_history_out="$TMP_DIR/drift-history-evidence.json"
+"$SCRIPT" --capability-manifest "$valid_manifest" --signature-history "$drift_history" --out "$drift_history_out"
+assert_jq "$drift_history_out" '
+  .decision == "HOLD"
+  and (.checks[] | select(.id == "sustained-signature-canaries")
+    | .details.status == "INCOMPLETE"
+      and (.details.history.environments[] | select(.environment == "staging") | .scopeHash == null))
+'
+
+private_history="$TMP_DIR/private-history.json"
+jq '.observations[0].tenantId = "must-not-be-accepted"' "$valid_history" >"$private_history"
+private_history_out="$TMP_DIR/private-history-evidence.json"
+"$SCRIPT" --capability-manifest "$valid_manifest" --signature-history "$private_history" --out "$private_history_out"
+assert_jq "$private_history_out" '
+  .decision == "HOLD"
+  and (.checks[] | select(.id == "sustained-signature-canaries") | .details.status == "INVALID")
 '
 
 plugin_archive="$TMP_DIR/graymatter-plugin.skill"
@@ -229,9 +328,9 @@ printf '%s\n' "$(git -C "$ROOT" rev-parse HEAD)" >"$installed_root/graymatter/.g
 installed_out_one="$TMP_DIR/installed-one.json"
 installed_out_two="$TMP_DIR/installed-two.json"
 "$installed_root/graymatter/scripts/gm-release-evidence" \
-  --capability-manifest "$valid_manifest" --out "$installed_out_one"
+  --capability-manifest "$valid_manifest" --signature-history "$valid_history" --out "$installed_out_one"
 "$installed_root/graymatter/scripts/gm-release-evidence" \
-  --capability-manifest "$valid_manifest" --out "$installed_out_two"
+  --capability-manifest "$valid_manifest" --signature-history "$valid_history" --out "$installed_out_two"
 assert_jq "$installed_out_one" '
   .decision == "ELIGIBLE_FOR_HUMAN_REVIEW"
   and .source.revisionSource == "installed-source-marker"

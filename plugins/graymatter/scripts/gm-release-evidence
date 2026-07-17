@@ -3,12 +3,13 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CAPABILITY_MANIFEST=""
+SIGNATURE_HISTORY=""
 OUT=""
 
 usage() {
   cat <<'EOF'
 Usage:
-  scripts/gm-release-evidence [--capability-manifest PATH] [--out PATH]
+  scripts/gm-release-evidence [--capability-manifest PATH] [--signature-history PATH] [--out PATH]
 
 Builds a content-free OmegaRAG source-to-installed release evidence bundle.
 The strongest possible decision is ELIGIBLE_FOR_HUMAN_REVIEW; this tool never
@@ -45,6 +46,11 @@ while [[ $# -gt 0 ]]; do
       CAPABILITY_MANIFEST="${1:-}"
       [[ -n "$CAPABILITY_MANIFEST" ]] || fail "--capability-manifest requires a path"
       ;;
+    --signature-history)
+      shift
+      SIGNATURE_HISTORY="${1:-}"
+      [[ -n "$SIGNATURE_HISTORY" ]] || fail "--signature-history requires a path"
+      ;;
     --out)
       shift
       OUT="${1:-}"
@@ -72,10 +78,26 @@ if [[ -n "$CAPABILITY_MANIFEST" && -n "$OUT" && -e "$CAPABILITY_MANIFEST" ]]; th
   capability_path="$capability_parent/$(basename "$CAPABILITY_MANIFEST")"
   [[ "$OUT" != "$capability_path" ]] || fail "--out must not overwrite the capability manifest"
 fi
+if [[ -n "$SIGNATURE_HISTORY" && -n "$OUT" && -e "$SIGNATURE_HISTORY" ]]; then
+  signature_parent="$(cd "$(dirname "$SIGNATURE_HISTORY")" && pwd -P)"
+  signature_path="$signature_parent/$(basename "$SIGNATURE_HISTORY")"
+  [[ "$OUT" != "$signature_path" ]] || fail "--out must not overwrite the signature history"
+fi
 
 POLICY="$ROOT/references/contracts/release/graymatter_omegarag_release_policy_v1.json"
 [[ -f "$POLICY" ]] || fail "release policy is missing"
-jq -e '.schemaVersion == "graymatter-omegarag-release-policy/v1"' "$POLICY" >/dev/null \
+jq -e '
+    .schemaVersion == "graymatter-omegarag-release-policy/v1"
+    and (.sustainedSignatureCanary | type == "object")
+    and (.sustainedSignatureCanary.historySchemaVersion | type == "string" and length > 0)
+    and (.sustainedSignatureCanary.contractVersion | type == "string" and length > 0)
+    and (.sustainedSignatureCanary.releaseCapabilityEnvironment | type == "string" and length > 0)
+    and (.sustainedSignatureCanary.requiredEnvironments | type == "array" and length >= 2)
+    and (.sustainedSignatureCanary.requiredCapabilityIds | type == "array" and length == 4)
+    and (.sustainedSignatureCanary.requiredConsecutiveUtcDays | type == "number" and . >= 7)
+    and (.sustainedSignatureCanary.maxLatestObservationAgeHours | type == "number" and . > 0)
+    and (.sustainedSignatureCanary.maxObservations | type == "number" and . >= 56)
+  ' "$POLICY" >/dev/null \
   || fail "release policy is invalid"
 
 tmp_dir="$(mktemp -d "${TMPDIR:-/tmp}/gm-release-evidence.XXXXXX")"
@@ -292,6 +314,7 @@ fi
 capability_status="MISSING"
 capability_reason="No capability manifest was supplied."
 capability_projection='null'
+release_capability_environment="$(jq -r '.sustainedSignatureCanary.releaseCapabilityEnvironment' "$POLICY")"
 if [[ -n "$CAPABILITY_MANIFEST" && -f "$CAPABILITY_MANIFEST" ]]; then
   manifest_json=""
   if manifest_json="$(jq -cse '
@@ -299,7 +322,7 @@ if [[ -n "$CAPABILITY_MANIFEST" && -f "$CAPABILITY_MANIFEST" ]]; then
       else error("expected exactly one JSON object") end
     ' "$CAPABILITY_MANIFEST" 2>/dev/null)"; then
     now_epoch="$(date -u +%s)"
-    if jq -e --argjson now "$now_epoch" '
+    if jq -e --argjson now "$now_epoch" --arg requiredEnvironment "$release_capability_environment" '
         def utc_epoch:
           sub("\\+00:00$"; "Z")
           | sub("\\.[0-9]+Z$"; "Z")
@@ -311,6 +334,7 @@ if [[ -n "$CAPABILITY_MANIFEST" && -f "$CAPABILITY_MANIFEST" ]]; then
         def bounded_strings:
           type == "array" and length <= 32 and all(.[]; type == "string" and length <= 240);
         .manifestVersion == "omegarag-capability-manifest/v1"
+        and .environment == $requiredEnvironment
         and (.scopeHash | type == "string" and test("^[0-9a-f]{64}$"))
         and (.authorityHash | type == "string" and test("^[0-9a-f]{64}$"))
         and (.checkedAt | type == "string" and utc_epoch <= ($now + 300))
@@ -351,7 +375,7 @@ if [[ -n "$CAPABILITY_MANIFEST" && -f "$CAPABILITY_MANIFEST" ]]; then
           and (.explicitDifferences | bounded_strings)))
       ' <<<"$manifest_json" >/dev/null 2>&1; then
       capability_status="CURRENT"
-      capability_reason="The scoped capability manifest is structurally valid and unexpired."
+      capability_reason="The production-scoped capability manifest is structurally valid and unexpired."
       capability_projection="$(jq -c '
         def bounded_strings: if type == "array" then map(select(type == "string") | .[0:240])[:32] else [] end;
         def state_counts: reduce .[] as $state
@@ -415,7 +439,7 @@ if [[ -n "$CAPABILITY_MANIFEST" && -f "$CAPABILITY_MANIFEST" ]]; then
       fi
     else
       capability_status="INVALID_OR_EXPIRED"
-      capability_reason="The capability manifest is invalid, unscoped, incomplete, or expired."
+      capability_reason="The capability manifest is invalid, non-production, unscoped, incomplete, or expired."
     fi
   else
     capability_status="INVALID_OR_EXPIRED"
@@ -433,6 +457,154 @@ if [[ "$capability_status" == "CURRENT" ]]; then
   add_check "capability-manifest" "PASS" "$capability_reason" "$capability_details"
 else
   add_check "capability-manifest" "FAIL" "$capability_reason" "$capability_details"
+fi
+
+signature_status="MISSING"
+signature_reason="No sustained signature history was supplied."
+signature_projection='null'
+signature_policy="$(jq -c '.sustainedSignatureCanary' "$POLICY")"
+if [[ -n "$SIGNATURE_HISTORY" && -f "$SIGNATURE_HISTORY" ]]; then
+  history_json=""
+  if history_json="$(jq -cse '
+      if length == 1 and (.[0] | type == "object") then .[0]
+      else error("expected exactly one JSON object") end
+    ' "$SIGNATURE_HISTORY" 2>/dev/null)"; then
+    now_epoch="$(date -u +%s)"
+    if jq -e --argjson now "$now_epoch" --argjson policy "$signature_policy" '
+        def utc_epoch:
+          sub("\\+00:00$"; "Z")
+          | sub("\\.[0-9]+Z$"; "Z")
+          | fromdateiso8601;
+        def only_keys($allowed): ((keys_unsorted - $allowed) | length) == 0;
+        try (
+          . as $history
+          | $history.schemaVersion == $policy.historySchemaVersion
+          and ($history | only_keys(["schemaVersion","generatedAt","observations"]))
+          and ($history.generatedAt | type == "string")
+          and (($history.generatedAt | utc_epoch) <= ($now + 300))
+          and (($history.generatedAt | utc_epoch) >= ($now - ($policy.maxLatestObservationAgeHours * 3600)))
+          and ($history.observations | type == "array" and length > 0 and length <= $policy.maxObservations)
+          and (all($history.observations[];
+            . as $observation
+            | type == "object"
+            and ($observation | only_keys([
+              "environment","observedAt","capabilityId","passed","httpStatus","contractVersion",
+              "evidenceRef","evidenceHash","scopeHash","authorityHash"
+            ]))
+            and ($observation.environment | type == "string")
+            and (($policy.requiredEnvironments | index($observation.environment)) != null)
+            and ($observation.capabilityId | type == "string")
+            and (($policy.requiredCapabilityIds | index($observation.capabilityId)) != null)
+            and ($observation.observedAt | type == "string")
+            and (($observation.observedAt | utc_epoch) <= ($now + 300))
+            and ($observation.passed | type == "boolean")
+            and ($observation.httpStatus | type == "number" and floor == . and . >= 0 and . <= 599)
+            and $observation.contractVersion == $policy.contractVersion
+            and ($observation.evidenceRef | type == "string"
+              and test("^[A-Za-z0-9][A-Za-z0-9._:/-]{0,239}$") and (contains("..") | not))
+            and ($observation.evidenceHash | type == "string" and test("^[0-9a-f]{64}$"))
+            and ($observation.scopeHash | type == "string" and test("^[0-9a-f]{64}$"))
+            and ($observation.authorityHash | type == "string" and test("^[0-9a-f]{64}$"))
+          ))
+        ) catch false
+      ' <<<"$history_json" >/dev/null 2>&1; then
+      signature_projection="$(jq -c \
+        --argjson now "$now_epoch" \
+        --argjson policy "$signature_policy" \
+        --argjson capability "$capability_projection" '
+          def utc_epoch:
+            sub("\\+00:00$"; "Z")
+            | sub("\\.[0-9]+Z$"; "Z")
+            | fromdateiso8601;
+          . as $history
+          | [$history.observations[]
+              | (.observedAt | utc_epoch) as $epoch
+              | . + {_epoch:$epoch,_day:($epoch | strftime("%Y-%m-%d"))}] as $observations
+          | ($observations | max_by(._epoch) | ._epoch) as $latest
+          | ($latest - ($latest % 86400)) as $latestDay
+          | [range(0; $policy.requiredConsecutiveUtcDays)
+              | ($latestDay - (. * 86400) | strftime("%Y-%m-%d"))] as $days
+          | [ $observations[]
+              | select(._epoch >= ($latestDay - (($policy.requiredConsecutiveUtcDays - 1) * 86400))
+                and ._epoch < ($latestDay + 86400)) ] as $window
+          | [ $policy.requiredEnvironments[] as $environment
+              | ([$window[] | select(.environment == $environment) | .scopeHash] | unique) as $scopeHashes
+              | ([$window[] | select(.environment == $environment) | .authorityHash] | unique) as $authorityHashes
+              | {
+                  environment:$environment,
+                  scopeHash:(if ($scopeHashes | length) == 1 then $scopeHashes[0] else null end),
+                  authorityHash:(if ($authorityHashes | length) == 1 then $authorityHashes[0] else null end),
+                  completeDays:([
+                    $days[] as $day
+                    | select([
+                        $policy.requiredCapabilityIds[] as $capabilityId
+                        | ([$window[]
+                            | select(.environment == $environment
+                              and .capabilityId == $capabilityId
+                              and ._day == $day)] as $cell
+                          | ($cell | length) > 0
+                            and all($cell[]; .passed == true and .httpStatus >= 200 and .httpStatus < 300))
+                      ] | all)
+                  ] | length)
+                }
+            ] as $environments
+          | ($environments
+              | map(select(.environment == $policy.releaseCapabilityEnvironment))
+              | first) as $production
+          | (($now - $latest) <= ($policy.maxLatestObservationAgeHours * 3600)) as $fresh
+          | ($environments | all(
+              .completeDays == $policy.requiredConsecutiveUtcDays
+              and .scopeHash != null
+              and .authorityHash != null)) as $coverage
+          | ($capability != null
+              and $capability.environment == $policy.releaseCapabilityEnvironment
+              and $production != null
+              and $production.scopeHash == $capability.scopeHash
+              and $production.authorityHash == $capability.authorityHash) as $productionBound
+          | {
+              schemaVersion:$history.schemaVersion,
+              generatedAt:$history.generatedAt,
+              contractVersion:$policy.contractVersion,
+              requiredConsecutiveUtcDays:$policy.requiredConsecutiveUtcDays,
+              requiredEnvironments:$policy.requiredEnvironments,
+              requiredCapabilityIds:$policy.requiredCapabilityIds,
+              windowStart:($days | last),
+              windowEnd:($days | first),
+              latestObservationAt:($latest | strftime("%Y-%m-%dT%H:%M:%SZ")),
+              observationCount:($window | length),
+              fresh:$fresh,
+              productionManifestBound:$productionBound,
+              environments:$environments,
+              complete:($fresh and $coverage and $productionBound)
+            }
+        ' <<<"$history_json")"
+      if jq -e '.complete == true' <<<"$signature_projection" >/dev/null; then
+        signature_status="COMPLETE"
+        signature_reason="Seven consecutive UTC days of staging and production signature canaries are complete and production-bound."
+      else
+        signature_status="INCOMPLETE"
+        signature_reason="The signature history does not establish the policy-required consecutive staging and production window."
+      fi
+    else
+      signature_status="INVALID"
+      signature_reason="The signature history is malformed, unscoped, unsupported, stale, or contains non-contract fields."
+    fi
+  else
+    signature_status="INVALID"
+    signature_reason="The signature history input is not exactly one JSON object."
+  fi
+elif [[ -n "$SIGNATURE_HISTORY" ]]; then
+  signature_status="INVALID"
+  signature_reason="The requested signature history does not exist."
+fi
+
+signature_details="$(jq -cn --arg status "$signature_status" --arg reason "$signature_reason" \
+  --arg file "$(basename "${SIGNATURE_HISTORY:-not-supplied}")" \
+  --argjson history "$signature_projection" '{status:$status,reason:$reason,file:$file,history:$history}')"
+if [[ "$signature_status" == "COMPLETE" ]]; then
+  add_check "sustained-signature-canaries" "PASS" "$signature_reason" "$signature_details"
+else
+  add_check "sustained-signature-canaries" "FAIL" "$signature_reason" "$signature_details"
 fi
 
 decision="HOLD"

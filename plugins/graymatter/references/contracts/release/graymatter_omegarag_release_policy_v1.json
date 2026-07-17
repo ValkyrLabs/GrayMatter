@@ -1,0 +1,83 @@
+{
+  "schemaVersion": "graymatter-omegarag-release-policy/v1",
+  "requiredSmokeStages": [
+    "install_readiness",
+    "read_search_readiness",
+    "agent_memory_scope_readiness",
+    "mcp_readiness",
+    "schema_sync_readiness",
+    "tool_routing_readiness"
+  ],
+  "manualSmokeStages": [
+    "write_readiness",
+    "safe_response_readiness"
+  ],
+  "requiredContracts": [
+    {
+      "id": "portable-mcp",
+      "path": "references/contracts/mcp/graymatter_mcp_contract_v1.json"
+    },
+    {
+      "id": "portable-tools",
+      "path": "references/contracts/mcp/graymatter_mcp_tools_v1.json"
+    },
+    {
+      "id": "omegarag-agent-abi",
+      "path": "references/contracts/mcp/graymatter_omegarag_agent_abi_v1.json"
+    },
+    {
+      "id": "memory-tool",
+      "path": "references/mcp/memory-tool-contract.v1.json"
+    }
+  ],
+  "knownLimitations": [
+    {
+      "id": "light.tenant-isolation",
+      "distribution": "light",
+      "reason": "A local process boundary does not prove GrayMatter Cloud tenant, cache, index, object-store, or provider namespace isolation.",
+      "safeNextAction": "Use an authenticated Cloud isolation matrix before making tenant-isolation claims."
+    },
+    {
+      "id": "light.kms",
+      "distribution": "light",
+      "reason": "Local key handling does not prove managed KMS, customer-managed-key, rotation, or crypto-shredding behavior.",
+      "safeNextAction": "Keep managed-key claims Cloud-only until the authenticated KMS lifecycle suite passes."
+    },
+    {
+      "id": "light.graph",
+      "distribution": "light",
+      "reason": "The portable generated-object and Java graph path does not prove parity with an optional managed graph provider.",
+      "safeNextAction": "Describe the portable correctness path and list graph accelerators only from live capability evidence."
+    },
+    {
+      "id": "light.external-providers",
+      "distribution": "light",
+      "reason": "External embeddings, rerankers, connectors, and federated providers are unavailable unless explicitly configured and policy-approved.",
+      "safeNextAction": "Keep local execution content-private by default and verify every approved provider through its disclosure receipt."
+    },
+    {
+      "id": "light.credits",
+      "distribution": "light",
+      "reason": "A local installation may not expose the GrayMatter Cloud credit ledger, reservations, or receipt-backed billing behavior.",
+      "safeNextAction": "Do not claim Cloud credit accounting from a Light-only smoke result."
+    },
+    {
+      "id": "cloud.live-evidence",
+      "distribution": "cloud",
+      "reason": "Source code, registration, packaging, and route declarations do not establish current Cloud availability.",
+      "safeNextAction": "Attach an unexpired authenticated OmegaRAG capability manifest for the release scope."
+    },
+    {
+      "id": "plugin.durable-authority",
+      "distribution": "plugin",
+      "reason": "Plugin-local fallback and replay files are recovery queues, not a second durable memory source.",
+      "safeNextAction": "Replay through authenticated GrayMatter and verify the returned durable memory entry or receipt."
+    },
+    {
+      "id": "plugin.surface-conformance",
+      "distribution": "plugin",
+      "reason": "File parity and local MCP smoke do not prove live behavior in Codex, OpenClaw, ValorIDE, SageChat, Workflow Studio, or generated applications.",
+      "safeNextAction": "Run the shared authenticated conformance suite on every required consumer surface."
+    }
+  ]
+}

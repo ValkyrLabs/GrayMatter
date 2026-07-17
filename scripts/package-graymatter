@@ -24,6 +24,7 @@ REQUIRED=(
   docs/awesome-codex-plugins.md
   docs/graymatter-light.md
   docs/knowledge-packs.md
+  docs/omegarag-release-evidence.md
   docs/openai-app-directory-submission.md
   docs/privacy-policy.md
   docs/reviewer-test-credentials.md
@@ -51,6 +52,7 @@ REQUIRED=(
   scripts/gm-status
   scripts/smoke-test-public-mcp.sh
   scripts/gm-agent-smoke-matrix
+  scripts/gm-release-evidence
   scripts/gm-self-update
   scripts/gm-openapi-sync
   scripts/gm-openapi-summary
@@ -79,6 +81,7 @@ REQUIRED=(
   references/contracts/mcp/graymatter_mcp_contract_v1.json
   references/contracts/mcp/graymatter_mcp_tools_v1.json
   references/contracts/mcp/graymatter_omegarag_agent_abi_v1.json
+  references/contracts/release/graymatter_omegarag_release_policy_v1.json
   references/mcp/memory-tool-contract.v1.json
   references/public-release-checklist.md
   references/multi-agent-conventions.md

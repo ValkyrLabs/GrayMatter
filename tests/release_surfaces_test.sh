@@ -211,6 +211,10 @@ grep -q 'Normalized object writes' "$ROOT/plugins/graymatter/skills/graymatter/S
   echo "Codex marketplace plugin agent smoke matrix missing or not executable" >&2
   exit 1
 }
+[[ -x "$ROOT/plugins/graymatter/scripts/gm-release-evidence" ]] || {
+  echo "Codex marketplace plugin release evidence generator missing or not executable" >&2
+  exit 1
+}
 [[ -x "$ROOT/plugins/graymatter/scripts/gm-light-smoke" ]] || {
   echo "Codex marketplace plugin Light smoke script missing or not executable" >&2
   exit 1
@@ -257,6 +261,10 @@ grep -q 'Normalized object writes' "$ROOT/plugins/graymatter/skills/graymatter/S
 }
 [[ -x "$ROOT/scripts/gm-invariant-preflight" ]] || {
   echo "invariant preflight missing or not executable" >&2
+  exit 1
+}
+[[ -x "$ROOT/scripts/gm-release-evidence" ]] || {
+  echo "release evidence generator missing or not executable" >&2
   exit 1
 }
 [[ -x "$ROOT/scripts/gm-read" ]] || {
@@ -337,6 +345,11 @@ cmp -s "$ROOT/scripts/package_graymatter.sh" "$ROOT/plugins/graymatter/scripts/p
 }
 cmp -s "$ROOT/scripts/gm-agent-smoke-matrix" "$ROOT/plugins/graymatter/scripts/gm-agent-smoke-matrix" || {
   echo "Codex marketplace plugin agent smoke matrix is stale; sync scripts/gm-agent-smoke-matrix" >&2
+  exit 1
+}
+cmp -s "$ROOT/references/contracts/release/graymatter_omegarag_release_policy_v1.json" \
+  "$ROOT/plugins/graymatter/references/contracts/release/graymatter_omegarag_release_policy_v1.json" || {
+  echo "Codex marketplace OmegaRAG release policy is stale" >&2
   exit 1
 }
 cmp -s "$ROOT/scripts/gm-light-bootstrap" "$ROOT/plugins/graymatter/scripts/gm-light-bootstrap" || {
@@ -463,6 +476,22 @@ grep -q "gm-agent-smoke-matrix" "$ROOT/plugins/graymatter/scripts/package-grayma
   echo "plugin package manifest missing agent smoke matrix" >&2
   exit 1
 }
+grep -q "gm-release-evidence" "$ROOT/scripts/package-graymatter" || {
+  echo "package manifest missing release evidence generator" >&2
+  exit 1
+}
+grep -q "gm-release-evidence" "$ROOT/plugins/graymatter/scripts/package-graymatter" || {
+  echo "plugin package manifest missing release evidence generator" >&2
+  exit 1
+}
+grep -q "graymatter_omegarag_release_policy_v1.json" "$ROOT/scripts/package-graymatter" || {
+  echo "package manifest missing OmegaRAG release policy" >&2
+  exit 1
+}
+grep -q "graymatter_omegarag_release_policy_v1.json" "$ROOT/plugins/graymatter/scripts/package-graymatter" || {
+  echo "plugin package manifest missing OmegaRAG release policy" >&2
+  exit 1
+}
 grep -q "docs/agent-discovery.md" "$ROOT/plugins/graymatter/scripts/package-graymatter" || {
   echo "plugin package manifest missing agent discovery docs" >&2
   exit 1
@@ -527,6 +556,7 @@ grep -q '^graymatter/skills/graymatter-analytics/references/semantic-layer-templ
 grep -q '^graymatter/docs/agent-discovery.md$' "$ZIP_LIST"
 grep -q '^graymatter/docs/awesome-codex-plugins.md$' "$ZIP_LIST"
 grep -q '^graymatter/docs/graymatter-light.md$' "$ZIP_LIST"
+grep -q '^graymatter/docs/omegarag-release-evidence.md$' "$ZIP_LIST"
 grep -q '^graymatter/docs/openai-app-directory-submission.md$' "$ZIP_LIST"
 grep -q '^graymatter/docs/privacy-policy.md$' "$ZIP_LIST"
 grep -q '^graymatter/docs/reviewer-test-credentials.md$' "$ZIP_LIST"
@@ -552,6 +582,7 @@ grep -q '^graymatter/scripts/gm-login$' "$ZIP_LIST"
 grep -q '^graymatter/scripts/gm-install-check$' "$ZIP_LIST"
 grep -q '^graymatter/scripts/gm-doctor$' "$ZIP_LIST"
 grep -q '^graymatter/scripts/gm-agent-smoke-matrix$' "$ZIP_LIST"
+grep -q '^graymatter/scripts/gm-release-evidence$' "$ZIP_LIST"
 grep -q '^graymatter/scripts/gm-register-agent$' "$ZIP_LIST"
 grep -q '^graymatter/scripts/gm-openapi-sync$' "$ZIP_LIST"
 grep -q '^graymatter/scripts/gm-openapi-summary$' "$ZIP_LIST"
@@ -564,6 +595,8 @@ grep -q '^graymatter/.mcp.json$' "$ZIP_LIST"
 grep -q '^graymatter/graymatter-bootstrap$' "$ZIP_LIST"
 grep -q '^graymatter/references/contracts/mcp/graymatter_mcp_tools_v1.json$' "$ZIP_LIST"
 grep -q '^graymatter/references/contracts/mcp/graymatter_mcp_contract_v1.json$' "$ZIP_LIST"
+grep -q '^graymatter/references/contracts/mcp/graymatter_omegarag_agent_abi_v1.json$' "$ZIP_LIST"
+grep -q '^graymatter/references/contracts/release/graymatter_omegarag_release_policy_v1.json$' "$ZIP_LIST"
 grep -q '^graymatter/references/mcp/memory-tool-contract.v1.json$' "$ZIP_LIST"
 if grep -Eq '(^|/)[^/]+\.py$|(^|/)requirements[^/]*\.txt$|(^|/)pyproject\.toml$' "$ZIP_LIST"; then
   echo "Standalone GrayMatter package must not ship Python runtime/install files" >&2
@@ -581,6 +614,7 @@ grep -q '^graymatter/skills/graymatter-analytics/references/semantic-layer-templ
 grep -q '^graymatter/docs/agent-discovery.md$' "$PLUGIN_ZIP_LIST"
 grep -q '^graymatter/docs/awesome-codex-plugins.md$' "$PLUGIN_ZIP_LIST"
 grep -q '^graymatter/docs/graymatter-light.md$' "$PLUGIN_ZIP_LIST"
+grep -q '^graymatter/docs/omegarag-release-evidence.md$' "$PLUGIN_ZIP_LIST"
 grep -q '^graymatter/docs/openai-app-directory-submission.md$' "$PLUGIN_ZIP_LIST"
 grep -q '^graymatter/docs/privacy-policy.md$' "$PLUGIN_ZIP_LIST"
 grep -q '^graymatter/docs/reviewer-test-credentials.md$' "$PLUGIN_ZIP_LIST"
@@ -589,8 +623,11 @@ grep -q '^graymatter/openai-app/submission-manifest.json$' "$PLUGIN_ZIP_LIST"
 grep -q '^graymatter/clawhub.json$' "$PLUGIN_ZIP_LIST"
 grep -q '^graymatter/scripts/package-graymatter$' "$PLUGIN_ZIP_LIST"
 grep -q '^graymatter/scripts/package_graymatter.sh$' "$PLUGIN_ZIP_LIST"
+grep -q '^graymatter/scripts/gm-release-evidence$' "$PLUGIN_ZIP_LIST"
 grep -q '^graymatter/mcp-server/index.js$' "$PLUGIN_ZIP_LIST"
 grep -q '^graymatter/.mcp.json$' "$PLUGIN_ZIP_LIST"
+grep -q '^graymatter/references/contracts/mcp/graymatter_omegarag_agent_abi_v1.json$' "$PLUGIN_ZIP_LIST"
+grep -q '^graymatter/references/contracts/release/graymatter_omegarag_release_policy_v1.json$' "$PLUGIN_ZIP_LIST"
 if grep -Eq '(^|/)[^/]+\.py$|(^|/)requirements[^/]*\.txt$|(^|/)pyproject\.toml$' "$PLUGIN_ZIP_LIST"; then
   echo "Codex marketplace GrayMatter plugin package must not ship Python runtime/install files" >&2
   exit 1

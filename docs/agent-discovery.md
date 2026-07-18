@@ -100,6 +100,14 @@ counts, tenant names, private content, tokens, balances, or provider responses.
 Degraded capabilities and incompatible indexes stay visible and never become
 proof that a feature is available.
 
+The four checks share one fail-closed execution deadline instead of receiving
+independent timeout windows. The default is 30 seconds; set
+`GRAYMATTER_STARTUP_PREFLIGHT_TIMEOUT_SECONDS` or pass `--timeout-seconds` to
+shorten it. An inherited `GRAYMATTER_EXECUTION_DEADLINE_EPOCH` can only shorten
+the budget. The startup artifact publishes the configured timeout, effective
+deadline, elapsed time, remaining time, and exhaustion policy under
+`executionLimits`.
+
 Activation and signup:
 
 <https://valkyrlabs.com/graymatter/activate?source=graymatter&intent=signup&operation=memory_query>

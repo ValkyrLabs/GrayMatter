@@ -10,6 +10,7 @@ CAPABILITY_CACHE="${GRAYMATTER_CAPABILITY_CACHE:-$STATE_DIR/capability-summary.j
 INDEX_MANIFEST_CACHE="${GRAYMATTER_INDEX_MANIFEST_CACHE:-$STATE_DIR/semantic-index-summary.json}"
 MAX_SCHEMA_AGE_SECONDS="${GRAYMATTER_SCHEMA_MAX_AGE_SECONDS:-300}"
 INVARIANT_LIMIT="${GRAYMATTER_INVARIANT_PREFLIGHT_LIMIT:-20}"
+STARTUP_TIMEOUT_SECONDS="${GRAYMATTER_STARTUP_PREFLIGHT_TIMEOUT_SECONDS:-30}"
 ALLOW_MEMORY_DEGRADED=false
 FORMAT="brief"
 OUT=""
@@ -26,6 +27,7 @@ Options:
   --index-manifest-cache PATH
                             Write the content-free semantic-index compatibility projection.
   --max-schema-age SECONDS  Maximum accepted OpenAPI cache age after live sync.
+  --timeout-seconds SECONDS Shared fail-closed deadline for all startup HTTP work.
   --allow-memory-degraded   Record unavailable invariant retrieval as degraded.
   --format brief|json       Select stdout format (default: brief).
   --out PATH                Write the combined machine-readable result.
@@ -84,6 +86,10 @@ while [[ $# -gt 0 ]]; do
       shift
       MAX_SCHEMA_AGE_SECONDS="${1:-}"
       ;;
+    --timeout-seconds)
+      shift
+      STARTUP_TIMEOUT_SECONDS="${1:-}"
+      ;;
     --allow-memory-degraded)
       ALLOW_MEMORY_DEGRADED=true
       ;;
@@ -115,6 +121,23 @@ esac
   || fail "--max-schema-age must be a positive integer"
 [[ "$INVARIANT_LIMIT" =~ ^[0-9]+$ && "$INVARIANT_LIMIT" -gt 0 ]] \
   || fail "GRAYMATTER_INVARIANT_PREFLIGHT_LIMIT must be a positive integer"
+[[ "$STARTUP_TIMEOUT_SECONDS" =~ ^[0-9]+$ && "$STARTUP_TIMEOUT_SECONDS" -gt 0 ]] \
+  || fail "--timeout-seconds must be a positive integer"
+
+startup_started_epoch="$(date -u +%s)"
+configured_deadline_epoch=$((startup_started_epoch + STARTUP_TIMEOUT_SECONDS))
+inherited_deadline_epoch="${GRAYMATTER_EXECUTION_DEADLINE_EPOCH:-}"
+if [[ -n "$inherited_deadline_epoch" ]]; then
+  [[ "$inherited_deadline_epoch" =~ ^[0-9]+$ ]] \
+    || fail "GRAYMATTER_EXECUTION_DEADLINE_EPOCH must be a positive epoch second"
+  if (( inherited_deadline_epoch < configured_deadline_epoch )); then
+    configured_deadline_epoch="$inherited_deadline_epoch"
+  fi
+fi
+(( configured_deadline_epoch > startup_started_epoch )) \
+  || fail "shared startup execution deadline is already exhausted"
+export GRAYMATTER_EXECUTION_DEADLINE_EPOCH="$configured_deadline_epoch"
+export GRAYMATTER_SKIP_SELF_UPDATE=true
 
 require_command jq
 require_command shasum
@@ -428,10 +451,19 @@ elif [[ "$capability_status" == "READY_WITH_LIMITS" || "$index_manifest_status" 
   overall_status="READY_WITH_LIMITS"
 fi
 
+startup_completed_epoch="$(date -u +%s)"
+startup_elapsed_seconds=$((startup_completed_epoch - startup_started_epoch))
+startup_remaining_seconds=$((configured_deadline_epoch - startup_completed_epoch))
+(( startup_remaining_seconds > 0 )) || fail "shared startup execution deadline exhausted"
+
 result="$(jq -n \
   --arg schemaVersion "graymatter-startup-preflight/v1" \
   --arg checkedAt "$(date -u +%FT%TZ)" \
   --arg status "$overall_status" \
+  --argjson configuredTimeoutSeconds "$STARTUP_TIMEOUT_SECONDS" \
+  --argjson deadlineEpoch "$configured_deadline_epoch" \
+  --argjson elapsedSeconds "$startup_elapsed_seconds" \
+  --argjson remainingSeconds "$startup_remaining_seconds" \
   --argjson invariant "$invariant_projection" \
   --argjson capabilities "$capability_projection" \
   --argjson semanticIndex "$index_manifest_projection" \
@@ -440,6 +472,14 @@ result="$(jq -n \
       schemaVersion:$schemaVersion,
       checkedAt:$checkedAt,
       status:$status,
+      executionLimits:{
+        configuredTimeoutSeconds:$configuredTimeoutSeconds,
+        deadlineEpoch:$deadlineEpoch,
+        elapsedSeconds:$elapsedSeconds,
+        remainingSeconds:$remainingSeconds,
+        sharedAcrossRequests:true,
+        onExhaustion:"FAIL_CLOSED"
+      },
       invariantPreflight:$invariant,
       capabilityDiscovery:$capabilities,
       semanticIndexCompatibility:$semanticIndex,

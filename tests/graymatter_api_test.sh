@@ -741,6 +741,58 @@ test_curl_requests_use_default_timeouts() {
   assert_contains "${curl_log}" "--max-time 60" "graymatter_api should set a default total request timeout"
 }
 
+test_shared_deadline_caps_transport_timeouts() {
+  local temp_root="$1"
+  local fake_bin="$2"
+  local script_copy="$3"
+  local deadline=$(( $(date -u +%s) + 17 ))
+
+  export TEST_CURL_SCENARIO="success"
+
+  PATH="${fake_bin}:/usr/local/bin:/usr/bin:/bin" \
+  TMPDIR="${temp_root}" \
+  VALKYR_AUTH_TOKEN=test-token \
+  GRAYMATTER_CURL_CONNECT_TIMEOUT=30 \
+  GRAYMATTER_CURL_MAX_TIME=90 \
+  GRAYMATTER_EXECUTION_DEADLINE_EPOCH="$deadline" \
+  "${script_copy}" GET /MemoryEntry/stats >/dev/null 2>&1
+
+  local curl_log
+  local connect_timeout
+  local max_time
+  curl_log="$(cat "${temp_root}/curl.log")"
+  connect_timeout="$(awk '{for (i=1; i<=NF; i++) if ($i == "--connect-timeout") {print $(i+1); exit}}' <<<"$curl_log")"
+  max_time="$(awk '{for (i=1; i<=NF; i++) if ($i == "--max-time") {print $(i+1); exit}}' <<<"$curl_log")"
+  [[ "$connect_timeout" =~ ^[0-9]+$ && "$connect_timeout" -gt 0 && "$connect_timeout" -le 17 ]] \
+    || fail "shared deadline should cap connect timeout to remaining execution budget"
+  [[ "$max_time" =~ ^[0-9]+$ && "$max_time" -gt 0 && "$max_time" -le 17 ]] \
+    || fail "shared deadline should cap total request timeout to remaining execution budget"
+}
+
+test_exhausted_shared_deadline_fails_before_transport() {
+  local temp_root="$1"
+  local fake_bin="$2"
+  local script_copy="$3"
+  local output=""
+  local status=0
+
+  export TEST_CURL_SCENARIO="success"
+  set +e
+  output="$(
+    PATH="${fake_bin}:/usr/local/bin:/usr/bin:/bin" \
+    TMPDIR="${temp_root}" \
+    VALKYR_AUTH_TOKEN=test-token \
+    GRAYMATTER_EXECUTION_DEADLINE_EPOCH="$(date -u +%s)" \
+    "${script_copy}" GET /MemoryEntry/stats 2>&1
+  )"
+  status=$?
+  set -e
+
+  [[ "$status" == "124" ]] || fail "exhausted shared deadline should return timeout status 124"
+  assert_contains "$output" "execution deadline exhausted" "exhausted shared deadline should explain the failure"
+  assert_file_missing "${temp_root}/curl.log" "exhausted shared deadline should fail before network transport"
+}
+
 test_success_uses_fallback_tempdir_when_default_tmp_fails() {
   local _temp_root="$1"
   local fake_bin="$2"
@@ -1004,6 +1056,8 @@ with_fixture test_unauthorized_refreshes_token_from_keychain_credentials
 with_fixture test_missing_token_runs_login_before_request
 with_fixture test_expired_keychain_token_refreshes_before_original_request
 with_fixture test_curl_requests_use_default_timeouts
+with_fixture test_shared_deadline_caps_transport_timeouts
+with_fixture test_exhausted_shared_deadline_fails_before_transport
 with_fixture test_success_uses_fallback_tempdir_when_default_tmp_fails
 with_fixture test_write_uses_stateful_cookie_and_xsrf_after_login
 with_fixture test_memory_write_access_denied_names_missing_permission

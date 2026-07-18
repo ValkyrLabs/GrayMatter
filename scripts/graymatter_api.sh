@@ -6,10 +6,6 @@ PATH_PART="${2:-}"
 BODY="${3:-}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-if [[ "${GRAYMATTER_SKIP_SELF_UPDATE:-false}" != "true" && -x "${SCRIPT_DIR}/gm-self-update" ]]; then
-  GRAYMATTER_SELF_UPDATE_QUIET="${GRAYMATTER_SELF_UPDATE_QUIET:-true}" "${SCRIPT_DIR}/gm-self-update" maybe || true
-fi
-
 if [[ -z "$METHOD" || -z "$PATH_PART" ]]; then
   echo "Usage: $0 <GET|POST|PUT|PATCH|DELETE> <path> [json-body]" >&2
   exit 1
@@ -32,6 +28,7 @@ LOGIN_PATH="${GRAYMATTER_LOGIN_PATH:-/auth/login}"
 FALLBACK_TMPDIR="${GRAYMATTER_TMPDIR:-${SCRIPT_DIR}/../tmp}"
 CURL_CONNECT_TIMEOUT="${GRAYMATTER_CURL_CONNECT_TIMEOUT:-5}"
 CURL_MAX_TIME="${GRAYMATTER_CURL_MAX_TIME:-60}"
+EXECUTION_DEADLINE_EPOCH="${GRAYMATTER_EXECUTION_DEADLINE_EPOCH:-}"
 TOKEN_REFRESH_SKEW_SECONDS="${GRAYMATTER_TOKEN_REFRESH_SKEW_SECONDS:-60}"
 GRAYMATTER_INSTALL_ID="${GRAYMATTER_INSTALL_ID:-${OPENCLAW_INSTANCE_ID:-${HOSTNAME:-graymatter-install}}}"
 GRAYMATTER_ACTIVATION_SOURCE="${GRAYMATTER_ACTIVATION_SOURCE:-graymatter}"
@@ -39,6 +36,60 @@ GRAYMATTER_ACTIVATION_RETURN_TO="${GRAYMATTER_ACTIVATION_RETURN_TO:-graymatter:/
 GRAYMATTER_DEFERRED_DIR="${GRAYMATTER_DEFERRED_DIR:-${SCRIPT_DIR}/../memory/deferred-ops}"
 GRAYMATTER_SKIP_DEFERRED="${GRAYMATTER_SKIP_DEFERRED:-false}"
 GRAYMATTER_CREDIT_EVENTS_PATH="${GRAYMATTER_CREDIT_EVENTS_PATH:-${SCRIPT_DIR}/../memory/credit-recovery-events.jsonl}"
+
+validate_timeout_value() {
+  local name="$1"
+  local value="$2"
+  [[ "$value" =~ ^[0-9]+([.][0-9]+)?$ ]] || {
+    echo "$name must be a positive number" >&2
+    exit 2
+  }
+  awk -v value="$value" 'BEGIN { exit !(value > 0) }' || {
+    echo "$name must be a positive number" >&2
+    exit 2
+  }
+}
+
+cap_timeout() {
+  local configured="$1"
+  local remaining="$2"
+  awk -v configured="$configured" -v remaining="$remaining" \
+    'BEGIN { print (configured < remaining ? configured : remaining) }'
+}
+
+refresh_execution_budget() {
+  local now_epoch=""
+  local remaining_seconds=""
+
+  validate_timeout_value "GRAYMATTER_CURL_CONNECT_TIMEOUT" "$CURL_CONNECT_TIMEOUT"
+  validate_timeout_value "GRAYMATTER_CURL_MAX_TIME" "$CURL_MAX_TIME"
+  [[ -n "$EXECUTION_DEADLINE_EPOCH" ]] || return 0
+  [[ "$EXECUTION_DEADLINE_EPOCH" =~ ^[0-9]+$ ]] || {
+    echo "GRAYMATTER_EXECUTION_DEADLINE_EPOCH must be a positive epoch second" >&2
+    exit 2
+  }
+
+  now_epoch="$(date -u +%s)"
+  remaining_seconds=$((EXECUTION_DEADLINE_EPOCH - now_epoch))
+  if (( remaining_seconds <= 0 )); then
+    echo "GrayMatter execution deadline exhausted before ${METHOD:-request} ${PATH_PART:-transport}" >&2
+    exit 124
+  fi
+
+  CURL_MAX_TIME="$(cap_timeout "$CURL_MAX_TIME" "$remaining_seconds")"
+  CURL_CONNECT_TIMEOUT="$(cap_timeout "$CURL_CONNECT_TIMEOUT" "$remaining_seconds")"
+  export GRAYMATTER_CURL_MAX_TIME="$CURL_MAX_TIME"
+  export GRAYMATTER_CURL_CONNECT_TIMEOUT="$CURL_CONNECT_TIMEOUT"
+}
+
+refresh_execution_budget
+
+# A caller that owns a shared deadline also owns update orchestration. Avoid
+# multiplying that bounded operation with an independent network self-update.
+if [[ -z "$EXECUTION_DEADLINE_EPOCH" && "${GRAYMATTER_SKIP_SELF_UPDATE:-false}" != "true" \
+  && -x "${SCRIPT_DIR}/gm-self-update" ]]; then
+  GRAYMATTER_SELF_UPDATE_QUIET="${GRAYMATTER_SELF_UPDATE_QUIET:-true}" "${SCRIPT_DIR}/gm-self-update" maybe || true
+fi
 
 portable_mktemp() {
   local template="${1:-graymatter.XXXXXX}"
@@ -377,6 +428,7 @@ run_login() {
     return 1
   fi
 
+  refresh_execution_budget
   eval "$("$login_cmd" env)"
   TOKEN=${VALKYR_AUTH_TOKEN:-${VALKYR_JWT_SESSION:-}}
   if [[ -z "$USERNAME" ]] && command -v security >/dev/null 2>&1; then
@@ -783,6 +835,7 @@ refresh_token() {
   local login_status
   login_body="$(portable_mktemp graymatter-login-body.XXXXXX)"
   login_headers="$(portable_mktemp graymatter-login-headers.XXXXXX)"
+  refresh_execution_budget
 
   set +e
   login_status="$(
@@ -830,6 +883,7 @@ prepare_stateful_auth_for_write() {
   login_body="$(portable_mktemp graymatter-login-body.XXXXXX)"
   login_headers="$(portable_mktemp graymatter-login-headers.XXXXXX)"
   STATEFUL_COOKIE_JAR="$(portable_mktemp graymatter-login-cookie.XXXXXX)"
+  refresh_execution_budget
 
   set +e
   login_status="$(
@@ -887,6 +941,7 @@ if method_requires_write_access && [[ -n "$TOKEN" ]] && token_is_clearly_read_on
 fi
 
 perform_request() {
+  refresh_execution_budget
   COMMON_HEADERS=(
     -H "accept: application/json"
   )

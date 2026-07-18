@@ -160,10 +160,13 @@ if all_executable scripts/gm-startup-preflight scripts/gm-invariant-preflight sc
   && grep -q '/graymatter/omega/capabilities' "$ROOT/scripts/gm-startup-preflight" \
   && grep -q '/graymatter/semantic-index/manifest' "$ROOT/scripts/gm-startup-preflight" \
   && grep -q 'gm-invariant-preflight' "$ROOT/scripts/gm-startup-preflight" \
-  && grep -q 'gm-openapi-sync' "$ROOT/scripts/gm-startup-preflight"; then
-  record_stage "startup_preflight_readiness" "pass" "Activation binds invariant retrieval, capability discovery, semantic-index compatibility, and live schema freshness into one startup artifact."
+  && grep -q 'gm-openapi-sync' "$ROOT/scripts/gm-startup-preflight" \
+  && grep -q 'GRAYMATTER_EXECUTION_DEADLINE_EPOCH' "$ROOT/scripts/gm-startup-preflight" \
+  && grep -q 'sharedAcrossRequests:true' "$ROOT/scripts/gm-startup-preflight" \
+  && grep -q 'GRAYMATTER_EXECUTION_DEADLINE_EPOCH' "$ROOT/scripts/graymatter_api.sh"; then
+  record_stage "startup_preflight_readiness" "pass" "Activation binds invariant retrieval, capability discovery, semantic-index compatibility, and live schema freshness into one startup artifact with one shared fail-closed execution deadline."
 else
-  record_stage "startup_preflight_readiness" "fail" "Activation is missing the invariant, capability, semantic-index compatibility, or live schema startup preflight."
+  record_stage "startup_preflight_readiness" "fail" "Activation is missing the invariant, capability, semantic-index compatibility, live schema, or shared execution deadline startup contract."
 fi
 
 routing_text="$tmp_dir/routing.txt"

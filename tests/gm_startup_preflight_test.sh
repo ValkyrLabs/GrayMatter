@@ -25,7 +25,9 @@ chmod 755 "$fixture_scripts/gm-startup-preflight"
 cat >"$fixture_scripts/gm-invariant-preflight" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
-printf '%s\n' "$*" >>"${TEST_INVARIANT_LOG:?}"
+printf 'deadline=%s skipSelfUpdate=%s args=%s\n' \
+  "${GRAYMATTER_EXECUTION_DEADLINE_EPOCH:-}" "${GRAYMATTER_SKIP_SELF_UPDATE:-}" "$*" \
+  >>"${TEST_INVARIANT_LOG:?}"
 if [[ "${TEST_INVARIANT_FAIL:-false}" == "true" ]]; then
   exit 2
 fi
@@ -43,7 +45,9 @@ chmod 755 "$fixture_scripts/gm-invariant-preflight"
 cat >"$fixture_scripts/graymatter_api.sh" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
-printf '%s\n' "$*" >>"${TEST_API_LOG:?}"
+printf 'deadline=%s skipSelfUpdate=%s args=%s\n' \
+  "${GRAYMATTER_EXECUTION_DEADLINE_EPOCH:-}" "${GRAYMATTER_SKIP_SELF_UPDATE:-}" "$*" \
+  >>"${TEST_API_LOG:?}"
 case "$*" in
   "GET /graymatter/omega/capabilities") cat "${TEST_CAPABILITY_FILE:?}" ;;
   "GET /graymatter/semantic-index/manifest") cat "${TEST_INDEX_MANIFEST_FILE:?}" ;;
@@ -55,7 +59,9 @@ chmod 755 "$fixture_scripts/graymatter_api.sh"
 cat >"$fixture_scripts/gm-openapi-sync" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
-printf '%s\n' "$*" >>"${TEST_SCHEMA_LOG:?}"
+printf 'deadline=%s skipSelfUpdate=%s args=%s\n' \
+  "${GRAYMATTER_EXECUTION_DEADLINE_EPOCH:-}" "${GRAYMATTER_SKIP_SELF_UPDATE:-}" "$*" \
+  >>"${TEST_SCHEMA_LOG:?}"
 mkdir -p "$(dirname "$1")"
 cp "${TEST_OPENAPI_FILE:?}" "$1"
 printf '%s\n' "$1"
@@ -225,8 +231,27 @@ assert_jq "$ready_out" '
   and .schemaFreshness.apiVersion == "test-version"
   and .schemaFreshness.requiredPaths.capabilityDiscovery == true
   and .schemaFreshness.requiredPaths.semanticIndexManifest == true
+  and .executionLimits.configuredTimeoutSeconds == 30
+  and .executionLimits.elapsedSeconds >= 0
+  and .executionLimits.remainingSeconds > 0
+  and .executionLimits.sharedAcrossRequests == true
+  and .executionLimits.onExhaustion == "FAIL_CLOSED"
   and ([.authorizations[]] | all(. == false))
 '
+startup_deadline="$(jq -r '.executionLimits.deadlineEpoch' "$ready_out")"
+for deadline_log in "$TEST_INVARIANT_LOG" "$TEST_API_LOG" "$TEST_SCHEMA_LOG"; do
+  grep -q "deadline=${startup_deadline} " "$deadline_log" \
+    || fail "startup did not propagate one shared deadline to $(basename "$deadline_log")"
+  grep -q 'skipSelfUpdate=true' "$deadline_log" \
+    || fail "startup child transport did not suppress duplicate self-update work"
+done
+
+if GRAYMATTER_EXECUTION_DEADLINE_EPOCH="$(date -u +%s)" \
+  "$fixture_scripts/gm-startup-preflight" \
+  --openapi-cache "$TMP_DIR/exhausted-api.json" \
+  --capability-cache "$TMP_DIR/exhausted-summary.json" >/dev/null 2>&1; then
+  fail "startup accepted an already exhausted shared execution deadline"
+fi
 if jq -r tostring "$ready_out" | grep -Eq 'must-not-leak|privateBalance|privateCount|activeRows|configuredProvider|configuredModel|providerResponse'; then
   fail "startup evidence leaked a private capability or semantic-index field"
 fi
@@ -234,9 +259,9 @@ cmp -s "$run_dir/semantic-index-summary.json" <(jq -c '.semanticIndexCompatibili
   || fail "semantic-index cache does not match the safe startup projection"
 grep -q 'OmegaTest startup activation capability schema invariant rule instruction' "$TEST_INVARIANT_LOG" \
   || fail "startup did not run the workspace invariant preflight"
-grep -q '^GET /graymatter/omega/capabilities$' "$TEST_API_LOG" \
+grep -q 'args=GET /graymatter/omega/capabilities$' "$TEST_API_LOG" \
   || fail "startup did not run canonical capability discovery"
-grep -q '^GET /graymatter/semantic-index/manifest$' "$TEST_API_LOG" \
+grep -q 'args=GET /graymatter/semantic-index/manifest$' "$TEST_API_LOG" \
   || fail "startup did not run canonical semantic-index compatibility discovery"
 
 degraded_capabilities="$TMP_DIR/degraded-capabilities.json"

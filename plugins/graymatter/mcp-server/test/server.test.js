@@ -174,6 +174,11 @@ test('health reports server readiness without api-0 auth', async () => {
     assert.equal(body.apiBase, 'https://api-0.example.test/v1');
     assert.ok(body.tools.includes('memory_write'));
     assert.ok(body.tools.includes('schema_summary'));
+    assert.equal(body.executionLimits.configuredTimeoutMs, 30000);
+    assert.equal(body.executionLimits.maxRequestBodyBytes, 1024 * 1024);
+    assert.equal(body.executionLimits.sharedAcrossRequests, true);
+    assert.equal(body.executionLimits.onExhaustion, 'FAIL_CLOSED');
+    assert.equal(body.executionLimits.requestBodyPolicy, 'REJECT_BEFORE_PARSE');
   } finally {
     server.close();
   }

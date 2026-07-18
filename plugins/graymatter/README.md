@@ -36,7 +36,7 @@ export VALKYR_API_BASE=https://api-0.valkyrlabs.com/v1
 node mcp-server/index.js
 ```
 
-Do not configure `VALKYR_AUTH_TOKEN`, `VALKYR_JWT_SESSION`, `GRAYMATTER_TENANT_ID`, or `X-Valkyr-Token` on the public multi-tenant service. Each request must carry the current user's OAuth bearer token. Public mode validates issuer, audience, lifetime, RS256 signature, required identity claims, and tool scopes; it then forwards only the bearer token to api-0 and never forwards caller tenant or owner identifiers. OAuth metadata and JWKS fetches inherit the request's shared execution deadline, are aborted when it expires, and return content-free `executionLimits` on timeout.
+Do not configure `VALKYR_AUTH_TOKEN`, `VALKYR_JWT_SESSION`, `GRAYMATTER_TENANT_ID`, or `X-Valkyr-Token` on the public multi-tenant service. Each request must carry the current user's OAuth bearer token. Public mode validates issuer, audience, lifetime, RS256 signature, required identity claims, and tool scopes; it then forwards only the bearer token to api-0 and never forwards caller tenant or owner identifiers. OAuth metadata, JWKS fetches, and request-body reads inherit the request's shared execution deadline and stop when it expires. HTTP request bodies also fail before JSON parsing above `GRAYMATTER_MCP_MAX_REQUEST_BYTES` (default 1 MiB, capped at 16 MiB); health and bounded errors return content-free `executionLimits`.
 
 To connect a developer version in ChatGPT:
 

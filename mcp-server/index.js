@@ -18,6 +18,8 @@ const DEFAULT_PORT = 3333;
 const DEFAULT_PUBLIC_MCP_PATH = '/graymatter/mcp';
 const COMPATIBLE_PUBLIC_MCP_PATH = '/mcp';
 const DEFAULT_PUBLIC_RESOURCE = 'https://api-0.valkyrlabs.com';
+const DEFAULT_MCP_MAX_REQUEST_BYTES = 1024 * 1024;
+const MAX_CONFIGURED_MCP_REQUEST_BYTES = 16 * 1024 * 1024;
 const PUBLIC_OAUTH_SCOPES = Object.freeze(['memory:read', 'memory:write', 'context:read']);
 const PUBLIC_IDENTITY_KEYS = new Set([
   'userid', 'user_id', 'ownerid', 'owner_id', 'principal', 'principalid', 'principal_id',
@@ -1243,6 +1245,7 @@ function createGrayMatterMcpServer(options = {}) {
   const oauthJwksUri = options.oauthJwksUri || process.env.GRAYMATTER_OAUTH_JWKS_URI || '';
   const tokenVerifier = options.tokenVerifier || verifyPublicAccessToken;
   const jwksCache = { expiresAt: 0, keys: [] };
+  const maxRequestBodyBytes = configuredMcpMaxRequestBytes();
   const processToken = options.token || process.env.VALKYR_AUTH_TOKEN || process.env.VALKYR_JWT_SESSION || '';
   const processTenantId = options.tenantId || process.env.GRAYMATTER_TENANT_ID || process.env.VALKYR_TENANT_ID || '';
   const lightUsername = options.lightUsername || process.env.GRAYMATTER_LIGHT_USERNAME || 'admin';
@@ -1280,7 +1283,8 @@ function createGrayMatterMcpServer(options = {}) {
           ok: true,
           apiBase,
           mcpPath: publicApp ? publicMcpPath : COMPATIBLE_PUBLIC_MCP_PATH,
-          tools: selectedTools.map((tool) => tool.name)
+          tools: selectedTools.map((tool) => tool.name),
+          executionLimits: mcpExecutionLimits(maxRequestBodyBytes)
         }, security);
         return;
       }
@@ -1320,6 +1324,7 @@ function createGrayMatterMcpServer(options = {}) {
       }
 
       if (req.method === 'POST' && mcpPath) {
+        req.__grayMatterRequestBodyPending = true;
         const rpcResponse = await runWithMcpExecutionBudget(async () => {
           let principal = null;
           let requestAuth = authContextFrom(req, processToken, security);
@@ -1345,7 +1350,7 @@ function createGrayMatterMcpServer(options = {}) {
             'POST',
             requestUrl.pathname,
             'request_body',
-            () => readJson(req)
+            (signal) => readJson(req, signal, maxRequestBodyBytes)
           );
           return handleRpc(rpcRequest, {
             apiBase,
@@ -1383,11 +1388,13 @@ function createGrayMatterMcpServer(options = {}) {
     } catch (error) {
       if (publicApp) {
         const mapped = publicHttpError(error, publicResource);
-        sendJson(req, res, mapped.status, mapped.body, security, mapped.headers);
+        sendJson(req, res, mapped.status, mapped.body, security,
+          closeAfterResponseHeaders(req, res, error, mapped.headers));
         return;
       }
       const status = error && error.statusCode ? error.statusCode : 500;
-      sendJson(req, res, status, { error: error.message }, security);
+      sendJson(req, res, status, { error: error.message }, security,
+        closeAfterResponseHeaders(req, res, error));
     }
   });
 }
@@ -2483,6 +2490,24 @@ function configuredMcpExecutionTimeoutMs() {
     || 30000;
 }
 
+function configuredMcpMaxRequestBytes() {
+  return Math.min(
+    parsePositiveInteger(process.env.GRAYMATTER_MCP_MAX_REQUEST_BYTES)
+      || DEFAULT_MCP_MAX_REQUEST_BYTES,
+    MAX_CONFIGURED_MCP_REQUEST_BYTES
+  );
+}
+
+function mcpExecutionLimits(maxRequestBodyBytes = configuredMcpMaxRequestBytes()) {
+  return {
+    configuredTimeoutMs: configuredMcpExecutionTimeoutMs(),
+    maxRequestBodyBytes,
+    sharedAcrossRequests: true,
+    onExhaustion: 'FAIL_CLOSED',
+    requestBodyPolicy: 'REJECT_BEFORE_PARSE'
+  };
+}
+
 function runWithMcpExecutionBudget(requestFn) {
   const configuredTimeoutMs = configuredMcpExecutionTimeoutMs();
   const nowMs = Date.now();
@@ -2555,8 +2580,9 @@ async function runWithinExecutionBudget(method, endpoint, phase, requestFn) {
       new Promise((_, reject) => {
         timeout = setTimeout(
           () => {
-            if (controller) controller.abort();
-            reject(apiExecutionDeadlineError(method, endpoint, requestBudget));
+            const error = apiExecutionDeadlineError(method, endpoint, requestBudget);
+            reject(error);
+            if (controller) controller.abort(error);
           },
           remainingMs
         );
@@ -2643,6 +2669,7 @@ function apiExecutionDeadlineError(method, endpoint, requestBudget) {
     endpoint,
     executionLimits: {
       configuredTimeoutMs,
+      maxRequestBodyBytes: configuredMcpMaxRequestBytes(),
       deadlineEpochMs: requestBudget.deadlineMs,
       remainingMs: 0,
       sharedAcrossRequests: true,
@@ -2969,11 +2996,15 @@ function recoveryExecutionLimits(payload) {
   }
   return {
     configuredTimeoutMs: Number.isFinite(limits.configuredTimeoutMs) ? limits.configuredTimeoutMs : undefined,
+    maxRequestBodyBytes: Number.isFinite(limits.maxRequestBodyBytes) ? limits.maxRequestBodyBytes : undefined,
     deadlineEpochMs: Number.isFinite(limits.deadlineEpochMs) ? limits.deadlineEpochMs : undefined,
     remainingMs: Number.isFinite(limits.remainingMs) ? Math.max(0, limits.remainingMs) : undefined,
     sharedAcrossRequests: limits.sharedAcrossRequests === true,
     onExhaustion: limits.onExhaustion === 'FAIL_CLOSED' ? 'FAIL_CLOSED' : undefined,
-    phase: typeof limits.phase === 'string' ? limits.phase.slice(0, 80) : undefined
+    phase: typeof limits.phase === 'string' ? limits.phase.slice(0, 80) : undefined,
+    requestBodyPolicy: limits.requestBodyPolicy === 'REJECT_BEFORE_PARSE'
+      ? 'REJECT_BEFORE_PARSE'
+      : undefined
   };
 }
 
@@ -4390,6 +4421,15 @@ function publicHttpError(error, publicResource) {
     body.executionLimits = recoveryExecutionLimits(error.payload);
     return { status: 504, body, headers: {} };
   }
+  if (error && error.name === 'McpRequestBodyError') {
+    const body = publicErrorEnvelope(
+      'PAYLOAD_TOO_LARGE',
+      'The GrayMatter MCP request exceeded the configured request-body limit.',
+      false
+    );
+    body.executionLimits = recoveryExecutionLimits(error.payload);
+    return { status: 413, body, headers: {} };
+  }
   return { status: 500, body: publicErrorEnvelope('INTERNAL_ERROR', 'GrayMatter could not process the request.', true), headers: {} };
 }
 
@@ -4590,24 +4630,104 @@ function openSseStream(req, res, security = defaultSecurityConfig()) {
   });
 }
 
-function readJson(req) {
+function readJson(req, signal, maxBytes = configuredMcpMaxRequestBytes()) {
   return new Promise((resolve, reject) => {
     const chunks = [];
-    req.on('data', (chunk) => chunks.push(chunk));
-    req.on('error', reject);
-    req.on('end', () => {
+    let receivedBytes = 0;
+    let settled = false;
+
+    const cleanup = () => {
+      req.off('data', onData);
+      req.off('error', onError);
+      req.off('end', onEnd);
+      if (signal) signal.removeEventListener('abort', onAbort);
+    };
+    const stopReading = () => {
+      req.__grayMatterCloseAfterResponse = true;
+      req.pause();
+    };
+    const settle = (operation, value) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      operation(value);
+    };
+    const rejectOversized = () => {
+      stopReading();
+      settle(reject, mcpRequestBodyError(maxBytes));
+    };
+    const onData = (chunk) => {
+      receivedBytes += chunk.length;
+      if (receivedBytes > maxBytes) {
+        rejectOversized();
+        return;
+      }
+      chunks.push(chunk);
+    };
+    const onError = (error) => settle(reject, error);
+    const onAbort = () => {
+      stopReading();
+      const error = signal && signal.reason instanceof Error
+        ? signal.reason
+        : Object.assign(new Error('GrayMatter MCP request body read aborted'), { name: 'AbortError' });
+      settle(reject, error);
+    };
+    const onEnd = () => {
+      req.__grayMatterRequestBodyPending = false;
       const raw = Buffer.concat(chunks).toString('utf8');
       if (!raw) {
-        resolve(null);
+        settle(resolve, null);
         return;
       }
       try {
-        resolve(JSON.parse(raw));
+        settle(resolve, JSON.parse(raw));
       } catch (error) {
-        reject(new Error(`Invalid JSON body: ${error.message}`));
+        settle(reject, new Error(`Invalid JSON body: ${error.message}`));
       }
-    });
+    };
+
+    const declaredBytes = Number.parseInt(String(req.headers['content-length'] || ''), 10);
+    if (Number.isFinite(declaredBytes) && declaredBytes > maxBytes) {
+      rejectOversized();
+      return;
+    }
+    if (signal && signal.aborted) {
+      onAbort();
+      return;
+    }
+    req.on('data', onData);
+    req.on('error', onError);
+    req.on('end', onEnd);
+    if (signal) signal.addEventListener('abort', onAbort, { once: true });
   });
+}
+
+function mcpRequestBodyError(maxRequestBodyBytes) {
+  const error = new Error(`GrayMatter MCP request body exceeds ${maxRequestBodyBytes} bytes`);
+  error.name = 'McpRequestBodyError';
+  error.statusCode = 413;
+  error.closeConnection = true;
+  error.payload = {
+    code: 'GRAYMATTER_MCP_PAYLOAD_TOO_LARGE',
+    executionLimits: {
+      maxRequestBodyBytes,
+      sharedAcrossRequests: true,
+      onExhaustion: 'FAIL_CLOSED',
+      phase: 'request_body',
+      requestBodyPolicy: 'REJECT_BEFORE_PARSE'
+    }
+  };
+  return error;
+}
+
+function closeAfterResponseHeaders(req, res, error, headers = {}) {
+  if (!(error && error.closeConnection)
+      && !req.__grayMatterCloseAfterResponse
+      && !req.__grayMatterRequestBodyPending) {
+    return headers;
+  }
+  res.once('finish', () => req.destroy());
+  return { ...headers, connection: 'close' };
 }
 
 function sendJson(req, res, status, payload, security = defaultSecurityConfig(), extraHeaders = {}) {

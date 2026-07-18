@@ -6,6 +6,8 @@ The inventory is deliberately not a ticket board or implementation-status ledger
 
 The current canonical PRD contains 128 requirements: 57 P0, 57 P1, and 14 P2. The 114 P0/P1 requirements are the population governed by the GA Definition of Done; this inventory proves which requirements that aggregate refers to without claiming that any requirement is implemented or live verified.
 
+The checked-in `references/contracts/release/graymatter_omegarag_prd_inventory_v1.json` is the packaged canonical projection. The release policy pins its source, requirement-set, and inventory hashes; source tests require byte-for-byte parity with a fresh derivation before the standalone or marketplace package can pass.
+
 Generate an inventory:
 
 ```bash

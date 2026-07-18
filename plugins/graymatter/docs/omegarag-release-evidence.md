@@ -9,15 +9,17 @@ The generator derives its result from the current package rather than accepting 
 - the deterministic `graymatter.skill` SHA-256 when that archive applies;
 - the submission-manifest target and root/marketplace checklist parity;
 - hashes for the portable MCP, tool, memory, and OmegaRAG agent ABI contracts;
+- the self-hash-valid, policy-pinned inventory derived from the canonical OmegaRAG PRD;
 - root/marketplace release-script and policy parity;
 - the local, non-mutating agent smoke matrix;
 - an unexpired, authenticated production `omegarag-capability-manifest/v1`, projected without tenant names, content, balances, credentials, or provider responses;
 - a policy-bound `omegarag-signature-history/v1` proving seven consecutive UTC days of the four Phase 0 signatures in staging and production;
 - a production `omegabench-evidence-set/v1` containing public-release-eligible, content-free `omegabench-reproducibility/v1` manifests;
 - a scope-bound `omegarag-objective-evidence/v1` proving the security, receipt-lineage, availability, latency, recovery, and deletion gates from authenticated api-0 responses;
+- one aggregate `omegarag-prd-resolution-attestation/v1` binding product and security signoff to every P0/P1 requirement in the exact inventory and source revision;
 - explicit Light, Cloud, and plugin limitations from the versioned release policy.
 
-Without a current production capability manifest, complete signature history, a complete OmegaBench baseline matrix, and a complete objective-evidence bundle, the decision is `HOLD`. A valid capability manifest with any `DEGRADED` or `UNAVAILABLE` capability also remains `HOLD`. The strongest result is `ELIGIBLE_FOR_HUMAN_REVIEW`; `releaseAuthorized`, `claimPromotionAuthorized`, `mergeAuthorized`, and `productionDeploymentAuthorized` always remain false.
+Without a current production capability manifest, complete signature history, a complete OmegaBench baseline matrix, a complete objective-evidence bundle, and a current aggregate P0/P1 resolution attestation, the decision is `HOLD`. A valid capability manifest with any `DEGRADED` or `UNAVAILABLE` capability also remains `HOLD`. The strongest result is `ELIGIBLE_FOR_HUMAN_REVIEW`; `releaseAuthorized`, `claimPromotionAuthorized`, `mergeAuthorized`, and `productionDeploymentAuthorized` always remain false.
 
 ## Run from source or an installed cache
 
@@ -27,8 +29,50 @@ scripts/gm-release-evidence \
   --signature-history artifacts/omegarag-signature-history.json \
   --benchmark-evidence artifacts/omegabench-evidence.json \
   --objective-evidence artifacts/omegarag-objective-evidence.json \
+  --prd-resolution-attestation artifacts/omegarag-prd-resolution-attestation.json \
   --out artifacts/graymatter-omegarag-release-evidence.json
 ```
+
+## Bind the GA P0/P1 requirement gate
+
+`references/contracts/release/graymatter_omegarag_prd_inventory_v1.json` is a
+content-free generated contract. Its self-hash and the release policy bind the
+canonical PRD source hash, requirement-set hash, all 128 requirement IDs and
+priorities, and the 114-item P0/P1 population. Source tests regenerate it from
+`docs/prd-graymatter-omegarag.md`; installed packages validate the same pinned
+contract without needing to ship the product document.
+
+The resolution input is one aggregate reviewed artifact, not a per-ticket
+status board:
+
+```json
+{
+  "schemaVersion": "omegarag-prd-resolution-attestation/v1",
+  "attestedAt": "2026-07-17T12:00:00Z",
+  "sourceRevision": "40-to-64-lowercase-hex-characters",
+  "inventoryHash": "b870fbed097388a322e0f7d9fc235a7cd46b254110d8a1d01d3331d7d07f3f8b",
+  "requirementSetHash": "a6ff1cc837e07a6be22669bc93fbdca2de1d010a22c98ce68d97c10a839b6e2b",
+  "p0P1RequirementCount": 114,
+  "allP0P1Resolved": true,
+  "productSignoff": {
+    "evidenceRef": "approvals/product/omegarag-2026.07",
+    "evidenceHash": "64-lowercase-hex-characters",
+    "approvedAt": "2026-07-17T11:55:00Z"
+  },
+  "securitySignoff": {
+    "evidenceRef": "approvals/security/omegarag-2026.07",
+    "evidenceHash": "64-lowercase-hex-characters",
+    "approvedAt": "2026-07-17T11:56:00Z"
+  }
+}
+```
+
+The attestation is accepted only when it is fresh, uses distinct safe product
+and security evidence references, matches the policy-pinned inventory, and
+names the exact Git or installed source revision. It records no individual
+requirement status and grants no claim, merge, release, or deployment
+authority. A PRD or source revision change therefore returns the aggregate gate
+to `HOLD` until humans review a new attestation.
 
 The capability input must be exactly one JSON object, use the canonical manifest version, identify the production environment, include both Light and Cloud distribution profiles, and remain unexpired. Only bounded capability IDs, evidence states, evidence tiers, claim status, degraded reasons, safe next actions, scope hashes, versions, timestamps, counts, and distribution differences enter the output.
 

@@ -87,6 +87,7 @@ REQUIRED=(
   references/contracts/mcp/graymatter_mcp_tools_v1.json
   references/contracts/mcp/graymatter_omegarag_agent_abi_v1.json
   references/contracts/release/graymatter_omegarag_release_policy_v1.json
+  references/contracts/release/graymatter_omegarag_prd_inventory_v1.json
   references/mcp/memory-tool-contract.v1.json
   references/public-release-checklist.md
   references/multi-agent-conventions.md

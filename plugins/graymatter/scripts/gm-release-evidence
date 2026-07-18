@@ -6,12 +6,13 @@ CAPABILITY_MANIFEST=""
 SIGNATURE_HISTORY=""
 BENCHMARK_EVIDENCE=""
 OBJECTIVE_EVIDENCE=""
+PRD_RESOLUTION_ATTESTATION=""
 OUT=""
 
 usage() {
   cat <<'EOF'
 Usage:
-  scripts/gm-release-evidence [--capability-manifest PATH] [--signature-history PATH] [--benchmark-evidence PATH] [--objective-evidence PATH] [--out PATH]
+  scripts/gm-release-evidence [--capability-manifest PATH] [--signature-history PATH] [--benchmark-evidence PATH] [--objective-evidence PATH] [--prd-resolution-attestation PATH] [--out PATH]
 
 Builds a content-free OmegaRAG source-to-installed release evidence bundle.
 The strongest possible decision is ELIGIBLE_FOR_HUMAN_REVIEW; this tool never
@@ -30,6 +31,10 @@ require_command() {
 
 sha256_file() {
   shasum -a 256 "$1" | awk '{print $1}'
+}
+
+sha256_text() {
+  shasum -a 256 | awk '{print $1}'
 }
 
 canonical_output_path() {
@@ -63,6 +68,12 @@ while [[ $# -gt 0 ]]; do
       OBJECTIVE_EVIDENCE="${1:-}"
       [[ -n "$OBJECTIVE_EVIDENCE" ]] || fail "--objective-evidence requires a path"
       ;;
+    --prd-resolution-attestation)
+      shift
+      PRD_RESOLUTION_ATTESTATION="${1:-}"
+      [[ -n "$PRD_RESOLUTION_ATTESTATION" ]] \
+        || fail "--prd-resolution-attestation requires a path"
+      ;;
     --out)
       shift
       OUT="${1:-}"
@@ -89,27 +100,57 @@ if [[ -n "$CAPABILITY_MANIFEST" && -n "$OUT" && -e "$CAPABILITY_MANIFEST" ]]; th
   capability_parent="$(cd "$(dirname "$CAPABILITY_MANIFEST")" && pwd -P)"
   capability_path="$capability_parent/$(basename "$CAPABILITY_MANIFEST")"
   [[ "$OUT" != "$capability_path" ]] || fail "--out must not overwrite the capability manifest"
+  [[ ! -e "$OUT" || ! "$OUT" -ef "$capability_path" ]] \
+    || fail "--out must not alias the capability manifest"
 fi
 if [[ -n "$SIGNATURE_HISTORY" && -n "$OUT" && -e "$SIGNATURE_HISTORY" ]]; then
   signature_parent="$(cd "$(dirname "$SIGNATURE_HISTORY")" && pwd -P)"
   signature_path="$signature_parent/$(basename "$SIGNATURE_HISTORY")"
   [[ "$OUT" != "$signature_path" ]] || fail "--out must not overwrite the signature history"
+  [[ ! -e "$OUT" || ! "$OUT" -ef "$signature_path" ]] \
+    || fail "--out must not alias the signature history"
 fi
 if [[ -n "$BENCHMARK_EVIDENCE" && -n "$OUT" && -e "$BENCHMARK_EVIDENCE" ]]; then
   benchmark_parent="$(cd "$(dirname "$BENCHMARK_EVIDENCE")" && pwd -P)"
   benchmark_path="$benchmark_parent/$(basename "$BENCHMARK_EVIDENCE")"
   [[ "$OUT" != "$benchmark_path" ]] || fail "--out must not overwrite the OmegaBench evidence set"
+  [[ ! -e "$OUT" || ! "$OUT" -ef "$benchmark_path" ]] \
+    || fail "--out must not alias the OmegaBench evidence set"
 fi
 if [[ -n "$OBJECTIVE_EVIDENCE" && -n "$OUT" && -e "$OBJECTIVE_EVIDENCE" ]]; then
   objective_parent="$(cd "$(dirname "$OBJECTIVE_EVIDENCE")" && pwd -P)"
   objective_path="$objective_parent/$(basename "$OBJECTIVE_EVIDENCE")"
   [[ "$OUT" != "$objective_path" ]] || fail "--out must not overwrite the objective evidence bundle"
+  [[ ! -e "$OUT" || ! "$OUT" -ef "$objective_path" ]] \
+    || fail "--out must not alias the objective evidence bundle"
+fi
+if [[ -n "$PRD_RESOLUTION_ATTESTATION" && -n "$OUT" && -e "$PRD_RESOLUTION_ATTESTATION" ]]; then
+  prd_resolution_parent="$(cd "$(dirname "$PRD_RESOLUTION_ATTESTATION")" && pwd -P)"
+  prd_resolution_path="$prd_resolution_parent/$(basename "$PRD_RESOLUTION_ATTESTATION")"
+  [[ "$OUT" != "$prd_resolution_path" ]] \
+    || fail "--out must not overwrite the PRD resolution attestation"
+  [[ ! -e "$OUT" || ! "$OUT" -ef "$prd_resolution_path" ]] \
+    || fail "--out must not alias the PRD resolution attestation"
 fi
 
 POLICY="$ROOT/references/contracts/release/graymatter_omegarag_release_policy_v1.json"
 [[ -f "$POLICY" ]] || fail "release policy is missing"
 jq -e '
     .schemaVersion == "graymatter-omegarag-release-policy/v1"
+    and (.prdResolution | type == "object")
+    and (.prdResolution.inventorySchemaVersion == "omegarag-prd-inventory/v1")
+    and (.prdResolution.attestationSchemaVersion == "omegarag-prd-resolution-attestation/v1")
+    and (.prdResolution.sourceRef | type == "string" and length > 0 and length <= 256)
+    and (.prdResolution.sourceSha256 | type == "string" and test("^[0-9a-f]{64}$"))
+    and (.prdResolution.requirementSetHash | type == "string" and test("^[0-9a-f]{64}$"))
+    and (.prdResolution.inventoryHash | type == "string" and test("^[0-9a-f]{64}$"))
+    and (.prdResolution.requirementCount | type == "number" and floor == . and . > 0 and . <= 1000)
+    and (.prdResolution.p0P1RequirementCount
+      | type == "number" and floor == . and . > 0 and . <= 1000)
+    and (.prdResolution.priorityCounts
+      | type == "object" and keys == ["P0","P1","P2"]
+        and all(.[]; type == "number" and floor == . and . >= 0))
+    and (.prdResolution.maxAttestationAgeHours | type == "number" and . > 0 and . <= 8760)
     and (.sustainedSignatureCanary | type == "object")
     and (.sustainedSignatureCanary.historySchemaVersion | type == "string" and length > 0)
     and (.sustainedSignatureCanary.contractVersion | type == "string" and length > 0)
@@ -306,6 +347,7 @@ if [[ -f "$ROOT/plugins/graymatter/scripts/gm-release-evidence" ]]; then
     scripts/gm-objective-evidence \
     scripts/graymatter-prod-acceptance.sh \
     references/contracts/release/graymatter_omegarag_release_policy_v1.json \
+    references/contracts/release/graymatter_omegarag_prd_inventory_v1.json \
     docs/omegarag-release-evidence.md; do
     [[ -f "$ROOT/plugins/graymatter/$relative" ]] || {
       parity_failures+=("$relative")
@@ -322,8 +364,9 @@ if [[ -f "$ROOT/plugins/graymatter/scripts/gm-release-evidence" ]]; then
       --arg objectiveCollectorSha256 "$(sha256_file "$ROOT/scripts/gm-objective-evidence")" \
       --arg acceptanceCanarySha256 "$(sha256_file "$ROOT/scripts/graymatter-prod-acceptance.sh")" \
       --arg policySha256 "$(sha256_file "$POLICY")" \
+      --arg prdInventorySha256 "$(sha256_file "$ROOT/references/contracts/release/graymatter_omegarag_prd_inventory_v1.json")" \
       --arg docsSha256 "$(sha256_file "$ROOT/docs/omegarag-release-evidence.md")" \
-      '{scriptSha256:$scriptSha256,historyCollectorSha256:$historyCollectorSha256,omegaBenchCorpusSha256:$omegaBenchCorpusSha256,omegaBenchCollectorSha256:$omegaBenchCollectorSha256,objectiveCollectorSha256:$objectiveCollectorSha256,acceptanceCanarySha256:$acceptanceCanarySha256,policySha256:$policySha256,docsSha256:$docsSha256}')"
+      '{scriptSha256:$scriptSha256,historyCollectorSha256:$historyCollectorSha256,omegaBenchCorpusSha256:$omegaBenchCorpusSha256,omegaBenchCollectorSha256:$omegaBenchCollectorSha256,objectiveCollectorSha256:$objectiveCollectorSha256,acceptanceCanarySha256:$acceptanceCanarySha256,policySha256:$policySha256,prdInventorySha256:$prdInventorySha256,docsSha256:$docsSha256}')"
     add_check "marketplace-release-parity" "PASS" "Release evidence script, policy, and docs match the marketplace surface." "$parity_details"
   else
     add_check "marketplace-release-parity" "FAIL" "Marketplace release evidence surfaces differ from the root package." \
@@ -742,6 +785,179 @@ if [[ "$objective_status" == "COMPLETE" ]]; then
   add_check "omegarag-objectives" "PASS" "$objective_reason" "$objective_details"
 else
   add_check "omegarag-objectives" "FAIL" "$objective_reason" "$objective_details"
+fi
+
+prd_policy="$(jq -c '.prdResolution' "$POLICY")"
+prd_inventory_file="$ROOT/references/contracts/release/graymatter_omegarag_prd_inventory_v1.json"
+prd_inventory_status="MISSING"
+prd_inventory_reason="The packaged canonical PRD inventory is missing."
+prd_inventory_projection='null'
+if [[ -f "$prd_inventory_file" ]]; then
+  prd_inventory_json=""
+  if prd_inventory_json="$(jq -cse '
+      if length == 1 and (.[0] | type == "object") then .[0]
+      else error("expected exactly one JSON object") end
+    ' "$prd_inventory_file" 2>/dev/null)"; then
+    provided_inventory_hash="$(jq -r '.inventoryHash // ""' <<<"$prd_inventory_json")"
+    computed_inventory_hash="$(jq -cS 'del(.inventoryHash)' <<<"$prd_inventory_json" | sha256_text)"
+    if [[ "$provided_inventory_hash" == "$computed_inventory_hash" ]] \
+      && jq -e --argjson policy "$prd_policy" '
+        def only_keys($allowed): ((keys_unsorted - $allowed) | length) == 0;
+        . as $inventory
+        | type == "object"
+        and only_keys([
+          "schemaVersion","sourceRef","sourceSha256","requirementSetHash","requirementCount",
+          "p0P1RequirementCount","priorityCounts","familyCounts","requirements","inventoryHash"
+        ])
+        and .schemaVersion == $policy.inventorySchemaVersion
+        and .sourceRef == $policy.sourceRef
+        and .sourceSha256 == $policy.sourceSha256
+        and .requirementSetHash == $policy.requirementSetHash
+        and .inventoryHash == $policy.inventoryHash
+        and .requirementCount == $policy.requirementCount
+        and .p0P1RequirementCount == $policy.p0P1RequirementCount
+        and .priorityCounts == $policy.priorityCounts
+        and (.familyCounts | type == "object" and length > 0)
+        and ($inventory.requirements | type == "array" and length == $inventory.requirementCount)
+        and (([$inventory.requirements[].id] | unique | length) == $inventory.requirementCount)
+        and all($inventory.requirements[];
+          . as $requirement
+          | type == "object"
+          and only_keys(["id","family","priority","requirementHash","acceptanceEvidenceHash","sourceLine"])
+          and (.id | type == "string" and test("^OMR-[A-Z]+-[0-9]{3}$"))
+          and (.family | type == "string" and test("^[A-Z]+$"))
+          and (.priority | IN("P0","P1","P2"))
+          and (.requirementHash | type == "string" and test("^[0-9a-f]{64}$"))
+          and (.acceptanceEvidenceHash | type == "string" and test("^[0-9a-f]{64}$"))
+          and (.sourceLine | type == "number" and floor == . and . > 0)
+          and ($requirement.id | startswith("OMR-" + $requirement.family + "-")))
+        and $inventory.priorityCounts == ($inventory.requirements | group_by(.priority)
+          | map({key:.[0].priority,value:length}) | from_entries)
+        and $inventory.familyCounts == ($inventory.requirements | group_by(.family)
+          | map({key:.[0].family,value:length}) | from_entries)
+        and $inventory.p0P1RequirementCount == ([$inventory.requirements[]
+          | select(.priority == "P0" or .priority == "P1")] | length)
+      ' <<<"$prd_inventory_json" >/dev/null 2>&1; then
+      prd_inventory_status="CURRENT"
+      prd_inventory_reason="The packaged inventory is self-hash-valid and exactly policy-bound to the canonical PRD requirement set."
+      prd_inventory_projection="$(jq -c '
+        {schemaVersion,sourceRef,sourceSha256,requirementSetHash,inventoryHash,
+          requirementCount,p0P1RequirementCount,priorityCounts,familyCounts}
+      ' <<<"$prd_inventory_json")"
+    else
+      prd_inventory_status="INVALID_OR_DRIFTED"
+      prd_inventory_reason="The packaged inventory is malformed, self-hash-invalid, or differs from the policy-bound canonical PRD set."
+    fi
+  else
+    prd_inventory_status="INVALID_OR_DRIFTED"
+    prd_inventory_reason="The packaged inventory is not exactly one JSON object."
+  fi
+fi
+
+prd_inventory_details="$(jq -cn \
+  --arg status "$prd_inventory_status" \
+  --arg reason "$prd_inventory_reason" \
+  --arg file "$(basename "$prd_inventory_file")" \
+  --argjson inventory "$prd_inventory_projection" \
+  '{status:$status,reason:$reason,file:$file,inventory:$inventory}')"
+if [[ "$prd_inventory_status" == "CURRENT" ]]; then
+  add_check "prd-requirement-inventory" "PASS" "$prd_inventory_reason" "$prd_inventory_details"
+else
+  add_check "prd-requirement-inventory" "FAIL" "$prd_inventory_reason" "$prd_inventory_details"
+fi
+
+prd_resolution_status="MISSING"
+prd_resolution_reason="No aggregate product/security PRD resolution attestation was supplied."
+prd_resolution_projection='null'
+if [[ -n "$PRD_RESOLUTION_ATTESTATION" && -f "$PRD_RESOLUTION_ATTESTATION" ]]; then
+  prd_resolution_json=""
+  if prd_resolution_json="$(jq -cse '
+      if length == 1 and (.[0] | type == "object") then .[0]
+      else error("expected exactly one JSON object") end
+    ' "$PRD_RESOLUTION_ATTESTATION" 2>/dev/null)"; then
+    now_epoch="$(date -u +%s)"
+    if jq -e \
+      --argjson now "$now_epoch" \
+      --argjson policy "$prd_policy" \
+      --arg sourceRevision "$source_revision" '
+        def only_keys($allowed): ((keys_unsorted - $allowed) | length) == 0;
+        def utc_epoch:
+          sub("\\+00:00$"; "Z")
+          | sub("\\.[0-9]+Z$"; "Z")
+          | fromdateiso8601;
+        def safe_ref:
+          type == "string" and test("^[A-Za-z0-9][A-Za-z0-9._:/-]{0,239}$")
+          and (contains("..") | not) and (startswith("/") | not);
+        def signoff:
+          type == "object"
+          and only_keys(["evidenceRef","evidenceHash","approvedAt"])
+          and (.evidenceRef | safe_ref)
+          and (.evidenceHash | type == "string" and test("^[0-9a-f]{64}$"))
+          and (.approvedAt | type == "string");
+        try (
+          . as $attestation
+          | type == "object"
+          and only_keys([
+            "schemaVersion","attestedAt","sourceRevision","inventoryHash",
+            "requirementSetHash","p0P1RequirementCount","allP0P1Resolved",
+            "productSignoff","securitySignoff"
+          ])
+          and .schemaVersion == $policy.attestationSchemaVersion
+          and (.attestedAt | type == "string")
+          and ((.attestedAt | utc_epoch) <= ($now + 300))
+          and ((.attestedAt | utc_epoch) >= ($now - ($policy.maxAttestationAgeHours * 3600)))
+          and .sourceRevision == $sourceRevision
+          and (.sourceRevision | test("^[0-9a-f]{40,64}$"))
+          and .inventoryHash == $policy.inventoryHash
+          and .requirementSetHash == $policy.requirementSetHash
+          and .p0P1RequirementCount == $policy.p0P1RequirementCount
+          and (.allP0P1Resolved | type == "boolean")
+          and (.productSignoff | signoff)
+          and (.securitySignoff | signoff)
+          and .productSignoff.evidenceRef != .securitySignoff.evidenceRef
+          and ((.productSignoff.approvedAt | utc_epoch) <= (($attestation.attestedAt | utc_epoch) + 300))
+          and ((.securitySignoff.approvedAt | utc_epoch) <= (($attestation.attestedAt | utc_epoch) + 300))
+          and ((.productSignoff.approvedAt | utc_epoch) <= ($now + 300))
+          and ((.securitySignoff.approvedAt | utc_epoch) <= ($now + 300))
+        ) catch false
+      ' <<<"$prd_resolution_json" >/dev/null 2>&1; then
+      prd_resolution_projection="$(jq -c '
+        {schemaVersion,attestedAt,sourceRevision,inventoryHash,requirementSetHash,
+          p0P1RequirementCount,allP0P1Resolved,productSignoff,securitySignoff}
+      ' <<<"$prd_resolution_json")"
+      if [[ "$prd_inventory_status" != "CURRENT" ]]; then
+        prd_resolution_status="INVENTORY_BLOCKED"
+        prd_resolution_reason="The resolution attestation cannot be accepted while the packaged PRD inventory is invalid or missing."
+      elif jq -e '.allP0P1Resolved == true' <<<"$prd_resolution_json" >/dev/null; then
+        prd_resolution_status="COMPLETE"
+        prd_resolution_reason="Product and security attest that every P0/P1 requirement in the exact current PRD inventory is resolved for this source revision."
+      else
+        prd_resolution_status="INCOMPLETE"
+        prd_resolution_reason="The aggregate attestation does not resolve every P0/P1 requirement in the exact current PRD inventory."
+      fi
+    else
+      prd_resolution_status="INVALID_OR_STALE"
+      prd_resolution_reason="The PRD resolution attestation is malformed, stale, source-mismatched, inventory-mismatched, or lacks distinct product/security signoff evidence."
+    fi
+  else
+    prd_resolution_status="INVALID_OR_STALE"
+    prd_resolution_reason="The PRD resolution input is not exactly one JSON object."
+  fi
+elif [[ -n "$PRD_RESOLUTION_ATTESTATION" ]]; then
+  prd_resolution_status="INVALID_OR_STALE"
+  prd_resolution_reason="The requested PRD resolution attestation does not exist."
+fi
+
+prd_resolution_details="$(jq -cn \
+  --arg status "$prd_resolution_status" \
+  --arg reason "$prd_resolution_reason" \
+  --arg file "$(basename "${PRD_RESOLUTION_ATTESTATION:-not-supplied}")" \
+  --argjson attestation "$prd_resolution_projection" \
+  '{status:$status,reason:$reason,file:$file,attestation:$attestation}')"
+if [[ "$prd_resolution_status" == "COMPLETE" ]]; then
+  add_check "prd-p0-p1-resolution" "PASS" "$prd_resolution_reason" "$prd_resolution_details"
+else
+  add_check "prd-p0-p1-resolution" "FAIL" "$prd_resolution_reason" "$prd_resolution_details"
 fi
 
 decision="HOLD"

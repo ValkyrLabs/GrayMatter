@@ -396,6 +396,11 @@ cmp -s "$ROOT/references/contracts/release/graymatter_omegarag_release_policy_v1
   echo "Codex marketplace OmegaRAG release policy is stale" >&2
   exit 1
 }
+cmp -s "$ROOT/references/contracts/release/graymatter_omegarag_prd_inventory_v1.json" \
+  "$ROOT/plugins/graymatter/references/contracts/release/graymatter_omegarag_prd_inventory_v1.json" || {
+  echo "Codex marketplace OmegaRAG PRD inventory is stale" >&2
+  exit 1
+}
 cmp -s "$ROOT/scripts/gm-light-bootstrap" "$ROOT/plugins/graymatter/scripts/gm-light-bootstrap" || {
   echo "Codex marketplace plugin Light bootstrap script is stale; sync scripts/gm-light-bootstrap" >&2
   exit 1
@@ -580,6 +585,14 @@ grep -q "graymatter_omegarag_release_policy_v1.json" "$ROOT/plugins/graymatter/s
   echo "plugin package manifest missing OmegaRAG release policy" >&2
   exit 1
 }
+grep -q "graymatter_omegarag_prd_inventory_v1.json" "$ROOT/scripts/package-graymatter" || {
+  echo "package manifest missing OmegaRAG PRD inventory" >&2
+  exit 1
+}
+grep -q "graymatter_omegarag_prd_inventory_v1.json" "$ROOT/plugins/graymatter/scripts/package-graymatter" || {
+  echo "plugin package manifest missing OmegaRAG PRD inventory" >&2
+  exit 1
+}
 grep -q "docs/agent-discovery.md" "$ROOT/plugins/graymatter/scripts/package-graymatter" || {
   echo "plugin package manifest missing agent discovery docs" >&2
   exit 1
@@ -691,6 +704,7 @@ grep -q '^graymatter/references/contracts/mcp/graymatter_mcp_tools_v1.json$' "$Z
 grep -q '^graymatter/references/contracts/mcp/graymatter_mcp_contract_v1.json$' "$ZIP_LIST"
 grep -q '^graymatter/references/contracts/mcp/graymatter_omegarag_agent_abi_v1.json$' "$ZIP_LIST"
 grep -q '^graymatter/references/contracts/release/graymatter_omegarag_release_policy_v1.json$' "$ZIP_LIST"
+grep -q '^graymatter/references/contracts/release/graymatter_omegarag_prd_inventory_v1.json$' "$ZIP_LIST"
 grep -q '^graymatter/references/mcp/memory-tool-contract.v1.json$' "$ZIP_LIST"
 if grep -Eq '(^|/)[^/]+\.py$|(^|/)requirements[^/]*\.txt$|(^|/)pyproject\.toml$' "$ZIP_LIST"; then
   echo "Standalone GrayMatter package must not ship Python runtime/install files" >&2
@@ -728,6 +742,7 @@ grep -q '^graymatter/mcp-server/index.js$' "$PLUGIN_ZIP_LIST"
 grep -q '^graymatter/.mcp.json$' "$PLUGIN_ZIP_LIST"
 grep -q '^graymatter/references/contracts/mcp/graymatter_omegarag_agent_abi_v1.json$' "$PLUGIN_ZIP_LIST"
 grep -q '^graymatter/references/contracts/release/graymatter_omegarag_release_policy_v1.json$' "$PLUGIN_ZIP_LIST"
+grep -q '^graymatter/references/contracts/release/graymatter_omegarag_prd_inventory_v1.json$' "$PLUGIN_ZIP_LIST"
 if grep -Eq '(^|/)[^/]+\.py$|(^|/)requirements[^/]*\.txt$|(^|/)pyproject\.toml$' "$PLUGIN_ZIP_LIST"; then
   echo "Codex marketplace GrayMatter plugin package must not ship Python runtime/install files" >&2
   exit 1

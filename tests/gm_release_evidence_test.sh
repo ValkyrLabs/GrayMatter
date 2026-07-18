@@ -23,6 +23,9 @@ cmp -s "$SCRIPT" "$ROOT/plugins/graymatter/scripts/gm-release-evidence" \
 cmp -s "$ROOT/references/contracts/release/graymatter_omegarag_release_policy_v1.json" \
   "$ROOT/plugins/graymatter/references/contracts/release/graymatter_omegarag_release_policy_v1.json" \
   || fail "root and marketplace release policies differ"
+cmp -s "$ROOT/references/contracts/release/graymatter_omegarag_prd_inventory_v1.json" \
+  "$ROOT/plugins/graymatter/references/contracts/release/graymatter_omegarag_prd_inventory_v1.json" \
+  || fail "root and marketplace PRD inventories differ"
 
 missing_out="$TMP_DIR/missing.json"
 "$SCRIPT" --out "$missing_out"
@@ -33,6 +36,8 @@ assert_jq "$missing_out" '
   and ([.checks[] | select(.id == "sustained-signature-canaries" and .status == "FAIL")] | length == 1)
   and ([.checks[] | select(.id == "omegabench-baseline" and .status == "FAIL")] | length == 1)
   and ([.checks[] | select(.id == "omegarag-objectives" and .status == "FAIL")] | length == 1)
+  and ([.checks[] | select(.id == "prd-requirement-inventory" and .status == "PASS")] | length == 1)
+  and ([.checks[] | select(.id == "prd-p0-p1-resolution" and .status == "FAIL")] | length == 1)
   and ([.authorizations[]] | all(. == false))
 '
 
@@ -278,11 +283,41 @@ jq -n \
     }
 ' >"$valid_objectives"
 
+source_revision="$(git -C "$ROOT" rev-parse HEAD)"
+valid_prd_attestation="$TMP_DIR/prd-resolution-attestation.json"
+jq -n \
+  --argjson now "$now_epoch" \
+  --arg sourceRevision "$source_revision" \
+  --argjson inventory "$(jq -c . "$ROOT/references/contracts/release/graymatter_omegarag_prd_inventory_v1.json")" '
+  {
+    schemaVersion:"omegarag-prd-resolution-attestation/v1",
+    attestedAt:($now - 10 | strftime("%Y-%m-%dT%H:%M:%SZ")),
+    sourceRevision:$sourceRevision,
+    inventoryHash:$inventory.inventoryHash,
+    requirementSetHash:$inventory.requirementSetHash,
+    p0P1RequirementCount:$inventory.p0P1RequirementCount,
+    allP0P1Resolved:true,
+    productSignoff:{
+      evidenceRef:"approvals/product/omegarag-test",
+      evidenceHash:("7" * 64),
+      approvedAt:($now - 30 | strftime("%Y-%m-%dT%H:%M:%SZ"))
+    },
+    securitySignoff:{
+      evidenceRef:"approvals/security/omegarag-test",
+      evidenceHash:("8" * 64),
+      approvedAt:($now - 20 | strftime("%Y-%m-%dT%H:%M:%SZ"))
+    }
+  }
+' >"$valid_prd_attestation"
+
 RELEASE_SCRIPT="$SCRIPT"
-release_with_objectives() {
-  "$RELEASE_SCRIPT" --objective-evidence "$valid_objectives" "$@"
+release_with_required_evidence() {
+  "$RELEASE_SCRIPT" \
+    --objective-evidence "$valid_objectives" \
+    --prd-resolution-attestation "$valid_prd_attestation" \
+    "$@"
 }
-SCRIPT=release_with_objectives
+SCRIPT=release_with_required_evidence
 
 if "$SCRIPT" --capability-manifest "$valid_manifest" --out "$valid_manifest" >/dev/null 2>&1; then
   fail "generator accepted an output path that overwrites its capability input"
@@ -299,6 +334,22 @@ if "$RELEASE_SCRIPT" --capability-manifest "$valid_manifest" --signature-history
   --benchmark-evidence "$valid_benchmark" --objective-evidence "$valid_objectives" \
   --out "$valid_objectives" >/dev/null 2>&1; then
   fail "generator accepted an output path that overwrites its objective-evidence input"
+fi
+if "$RELEASE_SCRIPT" --prd-resolution-attestation "$valid_prd_attestation" \
+  --out "$valid_prd_attestation" >/dev/null 2>&1; then
+  fail "generator accepted an output path that overwrites its PRD resolution input"
+fi
+prd_attestation_link="$TMP_DIR/prd-attestation-link.json"
+ln -s "$valid_prd_attestation" "$prd_attestation_link"
+if "$RELEASE_SCRIPT" --prd-resolution-attestation "$valid_prd_attestation" \
+  --out "$prd_attestation_link" >/dev/null 2>&1; then
+  fail "generator accepted an output symbolic link that aliases its PRD resolution input"
+fi
+prd_attestation_hardlink="$TMP_DIR/prd-attestation-hardlink.json"
+ln "$valid_prd_attestation" "$prd_attestation_hardlink"
+if "$RELEASE_SCRIPT" --prd-resolution-attestation "$valid_prd_attestation" \
+  --out "$prd_attestation_hardlink" >/dev/null 2>&1; then
+  fail "generator accepted an output hard link that aliases its PRD resolution input"
 fi
 
 valid_out="$TMP_DIR/valid-evidence.json"
@@ -329,6 +380,14 @@ assert_jq "$valid_out" '
       and .details.evidence.productionCapabilityBound == true
       and .details.evidence.receiptTrajectoryCoverage == true
       and .details.evidence.objectiveCount == 5)
+  and (.checks[] | select(.id == "prd-requirement-inventory")
+    | .details.inventory.requirementCount == 128
+      and .details.inventory.p0P1RequirementCount == 114
+      and .details.inventory.priorityCounts == {P0:57,P1:57,P2:14})
+  and (.checks[] | select(.id == "prd-p0-p1-resolution")
+    | .details.status == "COMPLETE"
+      and .details.attestation.allP0P1Resolved == true
+      and .details.attestation.p0P1RequirementCount == 114)
   and (.knownLimitations | map(.distribution) | index("light") != null)
   and (.knownLimitations | map(.distribution) | index("cloud") != null)
 '
@@ -339,6 +398,69 @@ if jq -e '.. | strings | select(startswith("/private/") or startswith("/Users/")
   "$valid_out" >/dev/null; then
   fail "release evidence leaked an absolute local path"
 fi
+
+incomplete_prd_attestation="$TMP_DIR/incomplete-prd-attestation.json"
+jq '.allP0P1Resolved = false' "$valid_prd_attestation" >"$incomplete_prd_attestation"
+incomplete_prd_out="$TMP_DIR/incomplete-prd-evidence.json"
+"$SCRIPT" --capability-manifest "$valid_manifest" --signature-history "$valid_history" \
+  --benchmark-evidence "$valid_benchmark" \
+  --prd-resolution-attestation "$incomplete_prd_attestation" --out "$incomplete_prd_out"
+assert_jq "$incomplete_prd_out" '
+  .decision == "HOLD"
+  and (.checks[] | select(.id == "prd-p0-p1-resolution")
+    | .details.status == "INCOMPLETE"
+      and .details.attestation.allP0P1Resolved == false)
+'
+
+wrong_inventory_attestation="$TMP_DIR/wrong-inventory-prd-attestation.json"
+jq '.inventoryHash = ("9" * 64)' "$valid_prd_attestation" >"$wrong_inventory_attestation"
+wrong_inventory_out="$TMP_DIR/wrong-inventory-prd-evidence.json"
+"$SCRIPT" --capability-manifest "$valid_manifest" --signature-history "$valid_history" \
+  --benchmark-evidence "$valid_benchmark" \
+  --prd-resolution-attestation "$wrong_inventory_attestation" --out "$wrong_inventory_out"
+assert_jq "$wrong_inventory_out" '
+  .decision == "HOLD"
+  and (.checks[] | select(.id == "prd-p0-p1-resolution")
+    | .details.status == "INVALID_OR_STALE")
+'
+
+wrong_revision_attestation="$TMP_DIR/wrong-revision-prd-attestation.json"
+jq '.sourceRevision = ("f" * 40)' "$valid_prd_attestation" >"$wrong_revision_attestation"
+wrong_revision_out="$TMP_DIR/wrong-revision-prd-evidence.json"
+"$SCRIPT" --capability-manifest "$valid_manifest" --signature-history "$valid_history" \
+  --benchmark-evidence "$valid_benchmark" \
+  --prd-resolution-attestation "$wrong_revision_attestation" --out "$wrong_revision_out"
+assert_jq "$wrong_revision_out" '
+  .decision == "HOLD"
+  and (.checks[] | select(.id == "prd-p0-p1-resolution")
+    | .details.status == "INVALID_OR_STALE")
+'
+
+stale_prd_attestation="$TMP_DIR/stale-prd-attestation.json"
+jq --argjson now "$now_epoch" \
+  '.attestedAt = ($now - (8 * 86400) | strftime("%Y-%m-%dT%H:%M:%SZ"))' \
+  "$valid_prd_attestation" >"$stale_prd_attestation"
+stale_prd_out="$TMP_DIR/stale-prd-evidence.json"
+"$SCRIPT" --capability-manifest "$valid_manifest" --signature-history "$valid_history" \
+  --benchmark-evidence "$valid_benchmark" \
+  --prd-resolution-attestation "$stale_prd_attestation" --out "$stale_prd_out"
+assert_jq "$stale_prd_out" '
+  .decision == "HOLD"
+  and (.checks[] | select(.id == "prd-p0-p1-resolution")
+    | .details.status == "INVALID_OR_STALE")
+'
+
+private_prd_attestation="$TMP_DIR/private-prd-attestation.json"
+jq '.tenantId = "must-not-be-accepted"' "$valid_prd_attestation" >"$private_prd_attestation"
+private_prd_out="$TMP_DIR/private-prd-evidence.json"
+"$SCRIPT" --capability-manifest "$valid_manifest" --signature-history "$valid_history" \
+  --benchmark-evidence "$valid_benchmark" \
+  --prd-resolution-attestation "$private_prd_attestation" --out "$private_prd_out"
+assert_jq "$private_prd_out" '
+  .decision == "HOLD"
+  and (.checks[] | select(.id == "prd-p0-p1-resolution")
+    | .details.status == "INVALID_OR_STALE")
+'
 
 generated_manifest="$TMP_DIR/generated-shape.json"
 jq --argjson now "$now_epoch" '
@@ -543,10 +665,12 @@ installed_out_one="$TMP_DIR/installed-one.json"
 installed_out_two="$TMP_DIR/installed-two.json"
 "$installed_root/graymatter/scripts/gm-release-evidence" \
   --capability-manifest "$valid_manifest" --signature-history "$valid_history" \
-  --benchmark-evidence "$valid_benchmark" --objective-evidence "$valid_objectives" --out "$installed_out_one"
+  --benchmark-evidence "$valid_benchmark" --objective-evidence "$valid_objectives" \
+  --prd-resolution-attestation "$valid_prd_attestation" --out "$installed_out_one"
 "$installed_root/graymatter/scripts/gm-release-evidence" \
   --capability-manifest "$valid_manifest" --signature-history "$valid_history" \
-  --benchmark-evidence "$valid_benchmark" --objective-evidence "$valid_objectives" --out "$installed_out_two"
+  --benchmark-evidence "$valid_benchmark" --objective-evidence "$valid_objectives" \
+  --prd-resolution-attestation "$valid_prd_attestation" --out "$installed_out_two"
 assert_jq "$installed_out_one" '
   .decision == "ELIGIBLE_FOR_HUMAN_REVIEW"
   and .source.revisionSource == "installed-source-marker"

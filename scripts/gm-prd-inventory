@@ -126,12 +126,18 @@ build_inventory() {
   local output="$1"
   local requirements_file="$tmp_dir/requirements.$RANDOM.jsonl"
   local ids_file="$tmp_dir/ids.$RANDOM.txt"
+  local rows_file="$tmp_dir/rows.$RANDOM.tsv"
+  local hashes_file="$tmp_dir/hashes.$RANDOM.txt"
+  local -a hash_files=()
   local line=""
   local line_number=0
+  local row_number=0
   local id family priority requirement evidence requirement_hash evidence_hash
+  local cell_prefix requirement_cell evidence_cell ignored
   local row_pattern='^\|[[:space:]]*(OMR-([A-Z]+)-([0-9]{3}))[[:space:]]*\|[[:space:]]*(P[0-2])[[:space:]]*\|[[:space:]]*(.+)[[:space:]]*\|[[:space:]]*(.+)[[:space:]]*\|[[:space:]]*$'
   : >"$requirements_file"
   : >"$ids_file"
+  : >"$rows_file"
 
   while IFS= read -r line || [[ -n "$line" ]]; do
     line_number=$((line_number + 1))
@@ -147,27 +153,30 @@ build_inventory() {
       [[ -n "$evidence" ]] || fail "acceptance evidence is empty for $id"
       grep -Fqx "$id" "$ids_file" && fail "duplicate requirement ID: $id"
       printf '%s\n' "$id" >>"$ids_file"
-      requirement_hash="$(printf '%s' "$requirement" | sha256_text)"
-      evidence_hash="$(printf '%s' "$evidence" | sha256_text)"
-      jq -cn \
-        --arg id "$id" \
-        --arg family "$family" \
-        --arg priority "$priority" \
-        --arg requirementHash "$requirement_hash" \
-        --arg acceptanceEvidenceHash "$evidence_hash" \
-        --argjson sourceLine "$line_number" \
-        '{
-          id:$id,
-          family:$family,
-          priority:$priority,
-          requirementHash:$requirementHash,
-          acceptanceEvidenceHash:$acceptanceEvidenceHash,
-          sourceLine:$sourceLine
-        }' >>"$requirements_file"
+      row_number=$((row_number + 1))
+      printf -v cell_prefix '%04d' "$row_number"
+      requirement_cell="$tmp_dir/cell.$cell_prefix.requirement"
+      evidence_cell="$tmp_dir/cell.$cell_prefix.evidence"
+      printf '%s' "$requirement" >"$requirement_cell"
+      printf '%s' "$evidence" >"$evidence_cell"
+      hash_files+=("$requirement_cell" "$evidence_cell")
+      printf '%s\t%s\t%s\t%s\n' "$id" "$family" "$priority" "$line_number" >>"$rows_file"
     fi
   done <"$PRD"
 
   [[ -s "$ids_file" ]] || fail "the PRD contains no requirement rows"
+  shasum -a 256 "${hash_files[@]}" >"$hashes_file"
+  exec 3<"$hashes_file"
+  while IFS=$'\t' read -r id family priority line_number; do
+    IFS=' ' read -r requirement_hash ignored <&3 \
+      || fail "missing requirement hash for $id"
+    IFS=' ' read -r evidence_hash ignored <&3 \
+      || fail "missing acceptance-evidence hash for $id"
+    printf '{"id":"%s","family":"%s","priority":"%s","requirementHash":"%s","acceptanceEvidenceHash":"%s","sourceLine":%s}\n' \
+      "$id" "$family" "$priority" "$requirement_hash" "$evidence_hash" "$line_number" \
+      >>"$requirements_file"
+  done <"$rows_file"
+  exec 3<&-
   local requirements_json requirement_set_json requirement_set_hash base inventory_hash
   requirements_json="$(jq -sc 'sort_by(.sourceLine)' "$requirements_file")"
   requirement_set_json="$(jq -cS '

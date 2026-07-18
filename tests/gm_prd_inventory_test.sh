@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SCRIPT="$ROOT/scripts/gm-prd-inventory"
 CANONICAL_PRD="$ROOT/docs/prd-graymatter-omegarag.md"
+PACKAGED_INVENTORY="$ROOT/references/contracts/release/graymatter_omegarag_prd_inventory_v1.json"
 TMP="$(mktemp -d "${TMPDIR:-/tmp}/gm-prd-inventory-test.XXXXXX")"
 trap 'rm -rf "$TMP"' EXIT
 
@@ -18,6 +19,10 @@ second="$TMP/second.json"
 "$SCRIPT" --out "$second"
 cmp -s "$first" "$second" || fail "inventory generation is not deterministic"
 "$SCRIPT" --validate "$first"
+[[ -f "$PACKAGED_INVENTORY" ]] || fail "packaged canonical inventory is missing"
+"$SCRIPT" --validate "$PACKAGED_INVENTORY"
+cmp -s "$first" "$PACKAGED_INVENTORY" \
+  || fail "packaged canonical inventory differs from the generated PRD projection"
 
 jq -e '
   .schemaVersion == "omegarag-prd-inventory/v1"

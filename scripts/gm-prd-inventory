@@ -1,0 +1,274 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+PRD="$ROOT/docs/prd-graymatter-omegarag.md"
+OUT=""
+VALIDATE=""
+FORMAT="quiet"
+
+usage() {
+  cat <<'EOF'
+Usage:
+  scripts/gm-prd-inventory [--prd PATH] [--out PATH]
+  scripts/gm-prd-inventory --validate PATH [--prd PATH] [--format quiet|projection]
+
+Builds or validates a deterministic, content-free inventory derived directly
+from the canonical OmegaRAG PRD requirement tables. The inventory records IDs,
+priorities, families, source lines, and hashes of requirement/evidence cells. It
+does not assign implementation status or replace the PRD, release evidence, or
+human review.
+EOF
+}
+
+fail() {
+  printf 'gm-prd-inventory failed: %s\n' "$*" >&2
+  exit 1
+}
+
+require_command() {
+  command -v "$1" >/dev/null 2>&1 || fail "missing required command: $1"
+}
+
+canonical_existing_path() {
+  local path="$1"
+  local parent
+  [[ -f "$path" ]] || fail "file does not exist: $path"
+  parent="$(cd "$(dirname "$path")" && pwd -P)"
+  printf '%s/%s\n' "$parent" "$(basename "$path")"
+}
+
+canonical_output_path() {
+  local path="$1"
+  local parent
+  [[ ! -L "$path" ]] || fail "output path must not be a symbolic link"
+  parent="$(dirname "$path")"
+  mkdir -p "$parent"
+  parent="$(cd "$parent" && pwd -P)"
+  printf '%s/%s\n' "$parent" "$(basename "$path")"
+}
+
+sha256_file() {
+  shasum -a 256 "$1" | awk '{print $1}'
+}
+
+sha256_text() {
+  shasum -a 256 | awk '{print $1}'
+}
+
+trim() {
+  local value="$1"
+  value="${value#"${value%%[![:space:]]*}"}"
+  value="${value%"${value##*[![:space:]]}"}"
+  printf '%s' "$value"
+}
+
+source_ref() {
+  local path="$1"
+  if [[ "$path" == "$ROOT/"* ]]; then
+    printf '%s\n' "${path#"$ROOT/"}"
+  else
+    printf 'external:%s\n' "$(basename "$path")"
+  fi
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --prd)
+      shift
+      PRD="${1:-}"
+      [[ -n "$PRD" ]] || fail "--prd requires a path"
+      ;;
+    --out)
+      shift
+      OUT="${1:-}"
+      [[ -n "$OUT" ]] || fail "--out requires a path"
+      ;;
+    --validate)
+      shift
+      VALIDATE="${1:-}"
+      [[ -n "$VALIDATE" ]] || fail "--validate requires a path"
+      ;;
+    --format)
+      shift
+      FORMAT="${1:-}"
+      [[ "$FORMAT" == "quiet" || "$FORMAT" == "projection" ]] \
+        || fail "--format must be quiet or projection"
+      ;;
+    --help|-h)
+      usage
+      exit 0
+      ;;
+    *) fail "unknown option: $1" ;;
+  esac
+  shift
+done
+
+require_command jq
+require_command shasum
+require_command awk
+
+[[ -z "$OUT" || -z "$VALIDATE" ]] || fail "--out cannot be combined with --validate"
+PRD="$(canonical_existing_path "$PRD")"
+if [[ -n "$VALIDATE" ]]; then
+  VALIDATE="$(canonical_existing_path "$VALIDATE")"
+fi
+if [[ -n "$OUT" ]]; then
+  OUT="$(canonical_output_path "$OUT")"
+  [[ "$OUT" != "$PRD" ]] || fail "--out must not overwrite the PRD"
+  [[ ! -e "$OUT" || ! "$OUT" -ef "$PRD" ]] || fail "--out must not alias the PRD"
+fi
+
+tmp_dir="$(mktemp -d "${TMPDIR:-/tmp}/gm-prd-inventory.XXXXXX")"
+trap 'rm -rf "$tmp_dir"' EXIT
+
+build_inventory() {
+  local output="$1"
+  local requirements_file="$tmp_dir/requirements.$RANDOM.jsonl"
+  local ids_file="$tmp_dir/ids.$RANDOM.txt"
+  local line=""
+  local line_number=0
+  local id family priority requirement evidence requirement_hash evidence_hash
+  local row_pattern='^\|[[:space:]]*(OMR-([A-Z]+)-([0-9]{3}))[[:space:]]*\|[[:space:]]*(P[0-2])[[:space:]]*\|[[:space:]]*(.+)[[:space:]]*\|[[:space:]]*(.+)[[:space:]]*\|[[:space:]]*$'
+  : >"$requirements_file"
+  : >"$ids_file"
+
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    line_number=$((line_number + 1))
+    if [[ "$line" =~ ^\|[[:space:]]*OMR- ]]; then
+      [[ "$line" =~ $row_pattern ]] \
+        || fail "invalid requirement row at line $line_number"
+      id="${BASH_REMATCH[1]}"
+      family="${BASH_REMATCH[2]}"
+      priority="${BASH_REMATCH[4]}"
+      requirement="$(trim "${BASH_REMATCH[5]}")"
+      evidence="$(trim "${BASH_REMATCH[6]}")"
+      [[ -n "$requirement" ]] || fail "requirement text is empty for $id"
+      [[ -n "$evidence" ]] || fail "acceptance evidence is empty for $id"
+      grep -Fqx "$id" "$ids_file" && fail "duplicate requirement ID: $id"
+      printf '%s\n' "$id" >>"$ids_file"
+      requirement_hash="$(printf '%s' "$requirement" | sha256_text)"
+      evidence_hash="$(printf '%s' "$evidence" | sha256_text)"
+      jq -cn \
+        --arg id "$id" \
+        --arg family "$family" \
+        --arg priority "$priority" \
+        --arg requirementHash "$requirement_hash" \
+        --arg acceptanceEvidenceHash "$evidence_hash" \
+        --argjson sourceLine "$line_number" \
+        '{
+          id:$id,
+          family:$family,
+          priority:$priority,
+          requirementHash:$requirementHash,
+          acceptanceEvidenceHash:$acceptanceEvidenceHash,
+          sourceLine:$sourceLine
+        }' >>"$requirements_file"
+    fi
+  done <"$PRD"
+
+  [[ -s "$ids_file" ]] || fail "the PRD contains no requirement rows"
+  local requirements_json requirement_set_json requirement_set_hash base inventory_hash
+  requirements_json="$(jq -sc 'sort_by(.sourceLine)' "$requirements_file")"
+  requirement_set_json="$(jq -cS '
+      map({id,family,priority,requirementHash,acceptanceEvidenceHash})
+      | sort_by(.id)
+    ' <<<"$requirements_json")"
+  requirement_set_hash="$(printf '%s' "$requirement_set_json" | sha256_text)"
+  base="$(jq -cnS \
+    --arg schemaVersion "omegarag-prd-inventory/v1" \
+    --arg sourceRef "$(source_ref "$PRD")" \
+    --arg sourceSha256 "$(sha256_file "$PRD")" \
+    --arg requirementSetHash "$requirement_set_hash" \
+    --argjson requirements "$requirements_json" '
+      {
+        schemaVersion:$schemaVersion,
+        sourceRef:$sourceRef,
+        sourceSha256:$sourceSha256,
+        requirementSetHash:$requirementSetHash,
+        requirementCount:($requirements | length),
+        p0P1RequirementCount:([$requirements[] | select(.priority == "P0" or .priority == "P1")] | length),
+        priorityCounts:($requirements | group_by(.priority)
+          | map({key:.[0].priority,value:length}) | from_entries),
+        familyCounts:($requirements | group_by(.family)
+          | map({key:.[0].family,value:length}) | from_entries),
+        requirements:$requirements
+      }
+    ')"
+  inventory_hash="$(printf '%s' "$base" | jq -cS . | sha256_text)"
+  jq -S --arg inventoryHash "$inventory_hash" '. + {inventoryHash:$inventoryHash}' \
+    <<<"$base" >"$output"
+}
+
+validate_shape() {
+  local input="$1"
+  jq -e '
+    def only_keys($allowed): ((keys_unsorted - $allowed) | length) == 0;
+    . as $inventory
+    | type == "object"
+    and only_keys([
+      "schemaVersion","sourceRef","sourceSha256","requirementSetHash","requirementCount",
+      "p0P1RequirementCount","priorityCounts","familyCounts","requirements","inventoryHash"
+    ])
+    and .schemaVersion == "omegarag-prd-inventory/v1"
+    and (.sourceRef | type == "string" and length > 0 and length <= 256)
+    and (.sourceSha256 | type == "string" and test("^[0-9a-f]{64}$"))
+    and (.requirementSetHash | type == "string" and test("^[0-9a-f]{64}$"))
+    and (.inventoryHash | type == "string" and test("^[0-9a-f]{64}$"))
+    and (.requirementCount | type == "number" and floor == . and . > 0 and . <= 1000)
+    and ($inventory.p0P1RequirementCount
+      | type == "number" and floor == . and . >= 0 and . <= $inventory.requirementCount)
+    and (.priorityCounts | type == "object" and (keys_unsorted - ["P0","P1","P2"] | length) == 0)
+    and (.familyCounts | type == "object" and length > 0)
+    and ($inventory.requirements | type == "array" and length == $inventory.requirementCount)
+    and (([$inventory.requirements[].id] | unique | length) == $inventory.requirementCount)
+    and all($inventory.requirements[];
+      . as $requirement
+      | type == "object"
+      and only_keys(["id","family","priority","requirementHash","acceptanceEvidenceHash","sourceLine"])
+      and (.id | type == "string" and test("^OMR-[A-Z]+-[0-9]{3}$"))
+      and (.family | type == "string" and test("^[A-Z]+$"))
+      and (.priority | IN("P0","P1","P2"))
+      and (.requirementHash | type == "string" and test("^[0-9a-f]{64}$"))
+      and (.acceptanceEvidenceHash | type == "string" and test("^[0-9a-f]{64}$"))
+      and (.sourceLine | type == "number" and floor == . and . > 0)
+      and ($requirement.id | startswith("OMR-" + $requirement.family + "-")))
+    and $inventory.priorityCounts == ($inventory.requirements | group_by(.priority)
+      | map({key:.[0].priority,value:length}) | from_entries)
+    and $inventory.familyCounts == ($inventory.requirements | group_by(.family)
+      | map({key:.[0].family,value:length}) | from_entries)
+    and $inventory.p0P1RequirementCount == ([$inventory.requirements[]
+      | select(.priority == "P0" or .priority == "P1")] | length)
+  ' "$input" >/dev/null || fail "inventory contract is invalid"
+}
+
+if [[ -n "$VALIDATE" ]]; then
+  normalized="$tmp_dir/normalized.json"
+  jq -cse '
+    if length == 1 and (.[0] | type == "object") then .[0]
+    else error("expected exactly one JSON object") end
+  ' "$VALIDATE" >"$normalized" 2>/dev/null \
+    || fail "inventory must contain exactly one JSON object"
+  validate_shape "$normalized"
+  provided_hash="$(jq -r '.inventoryHash' "$normalized")"
+  computed_hash="$(jq -cS 'del(.inventoryHash)' "$normalized" | sha256_text)"
+  [[ "$provided_hash" == "$computed_hash" ]] || fail "inventory hash does not match its content"
+  fresh="$tmp_dir/fresh.json"
+  build_inventory "$fresh"
+  diff -u <(jq -cS . "$fresh") <(jq -cS . "$normalized") >/dev/null \
+    || fail "inventory does not match the current PRD"
+  if [[ "$FORMAT" == "projection" ]]; then
+    jq '{schemaVersion,sourceRef,sourceSha256,requirementSetHash,inventoryHash,requirementCount,p0P1RequirementCount,priorityCounts,familyCounts}' \
+      "$normalized"
+  fi
+  exit 0
+fi
+
+generated="$tmp_dir/generated.json"
+build_inventory "$generated"
+validate_shape "$generated"
+if [[ -n "$OUT" ]]; then
+  cp "$generated" "$OUT"
+else
+  cat "$generated"
+fi

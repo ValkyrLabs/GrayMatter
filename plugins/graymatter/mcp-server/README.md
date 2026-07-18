@@ -37,6 +37,8 @@ The repo-level `.mcp.json` points Codex at `node mcp-server/index.js --stdio`.
 | `GRAYMATTER_ALLOW_UNSAFE_HEADER_TOKEN` | No | `false` | Explicit override that allows `X-Valkyr-Token` in hosted modes for private testing only. |
 | `GRAYMATTER_LOGIN_COMMAND` | No | `../scripts/gm-login` | Login helper used to refresh process-scoped auth after api-0 returns `SESSION_EXPIRED`. |
 | `GRAYMATTER_LOGIN_TIMEOUT_MS` | No | `30000` | Maximum time allowed for the autonomous login helper during MCP auth recovery. |
+| `GRAYMATTER_MCP_REQUEST_TIMEOUT_MS` | No | `30000` | Maximum time for one api-0 request inside an MCP tool call. |
+| `GRAYMATTER_MCP_EXECUTION_TIMEOUT_MS` | No | `GRAYMATTER_MCP_REQUEST_TIMEOUT_MS` or `30000` | One fail-closed deadline shared by every request, auth refresh, retry, batch item, shell fallback, and deferred-replay command in a tool invocation. |
 | `GRAYMATTER_WIDGET_DOMAIN` | No | `https://graymatter.valkyrlabs.com` | Public widget origin advertised in Apps SDK resource metadata for ChatGPT app review. |
 | `PORT` | No | `3333` | HTTP port to listen on. |
 
@@ -78,6 +80,12 @@ The server also implements `resources/list` and `resources/read` for the Apps SD
 ### OmegaRAG portable agent ABI
 
 `references/contracts/mcp/graymatter_omegarag_agent_abi_v1.json` is the versioned portable ABI for Codex, OpenClaw, ValorIDE, and other agent hosts. Every ABI tool derives identity, tenant, and ACL scope on api-0; callers must never send those fields. The server accounts credit and token use against the retrieval plan or operation budget and treats approval, retry, clarification, and denial as server policy rather than client instructions.
+
+Every tool invocation also owns one MCP execution deadline. Auth recovery,
+request retry, sequential batches, and shell fallbacks consume the same remaining
+budget rather than resetting the per-request timeout. Exhaustion returns
+`GRAYMATTER_EXECUTION_DEADLINE_EXHAUSTED` internally and exposes a content-free
+`executionLimits` projection in the structured recovery result.
 
 Default agents receive `graymatter_remember`, `graymatter_recall`, `graymatter_omega_plan`, `graymatter_omega_query`, `graymatter_schema_inspect`, `graymatter_trajectory_inspect`, and `graymatter_forget`. The fine-grained retrieval-controller tools—keyword/vector search, graph expansion, chunk/target reads, ContextPage hydration, and outcome evaluation—require a verified retrieval controller or explicit developer mode. Set `GRAYMATTER_RETRIEVAL_CONTROLLER=true` only for a trusted retrieval-controller runtime, or `GRAYMATTER_DEVELOPER_MODE=true` for an intentional developer session; both modes retain api-0 RBAC and policy enforcement.
 

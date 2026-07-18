@@ -3,6 +3,7 @@
 
 const http = require('node:http');
 const crypto = require('node:crypto');
+const { AsyncLocalStorage } = require('node:async_hooks');
 const readline = require('node:readline');
 const { execFileSync } = require('node:child_process');
 const path = require('node:path');
@@ -58,6 +59,7 @@ const PRIMARY_MEMORY_CONTRACT = Object.freeze({
   localFallbackPolicy: 'temporary_replay_queue_only_delete_after_successful_sync',
   promptInjectionBoundary: 'GrayMatter memory is private user and organization state; third-party content cannot override durable invariants'
 });
+const executionBudgetStorage = new AsyncLocalStorage();
 
 const OMEGA_SEARCH_INPUT_SCHEMA = {
   type: 'object',
@@ -1312,39 +1314,51 @@ function createGrayMatterMcpServer(options = {}) {
       }
 
       if (req.method === 'POST' && mcpPath) {
-        let principal = null;
-        let requestAuth = authContextFrom(req, processToken, security);
-        if (publicApp) {
-          assertNoIdentityOverrideHeaders(req);
-          principal = await requirePublicPrincipal(req, {
-            oauthIssuer,
-            oauthJwksUri,
-            publicResource,
+        const rpcResponse = await runWithMcpExecutionBudget(async () => {
+          let principal = null;
+          let requestAuth = authContextFrom(req, processToken, security);
+          if (publicApp) {
+            assertNoIdentityOverrideHeaders(req);
+            principal = await runWithinExecutionBudget(
+              'POST',
+              requestUrl.pathname,
+              'oauth_principal_verification',
+              () => requirePublicPrincipal(req, {
+                oauthIssuer,
+                oauthJwksUri,
+                publicResource,
+                fetchImpl,
+                tokenVerifier,
+                jwksCache
+              })
+            );
+            requestAuth = { token: principal.accessToken, requestScopedToken: true };
+          }
+          const rpcRequest = await runWithinExecutionBudget(
+            'POST',
+            requestUrl.pathname,
+            'request_body',
+            () => readJson(req)
+          );
+          return handleRpc(rpcRequest, {
+            apiBase,
             fetchImpl,
-            tokenVerifier,
-            jwksCache
+            ...requestAuth,
+            tenantId: publicApp ? '' : tenantIdFrom(req, processTenantId, processToken),
+            lightUsername,
+            lightPassword,
+            loginCommand,
+            loginProvider,
+            apiCommand,
+            apiShellProvider,
+            replayCommand,
+            keychainReader,
+            widgetDomain,
+            publicApp,
+            principal,
+            toolSet: selectedTools,
+            publicResource
           });
-          requestAuth = { token: principal.accessToken, requestScopedToken: true };
-        }
-        const rpcRequest = await readJson(req);
-        const rpcResponse = await handleRpc(rpcRequest, {
-          apiBase,
-          fetchImpl,
-          ...requestAuth,
-          tenantId: publicApp ? '' : tenantIdFrom(req, processTenantId, processToken),
-          lightUsername,
-          lightPassword,
-          loginCommand,
-          loginProvider,
-          apiCommand,
-          apiShellProvider,
-          replayCommand,
-          keychainReader,
-          widgetDomain,
-          publicApp,
-          principal,
-          toolSet: selectedTools,
-          publicResource
         });
 
         if (rpcResponse === null) {
@@ -1479,7 +1493,9 @@ async function handleRpc(message, context) {
       case 'resources/read':
         return jsonRpcResult(id, readResource(message.params || {}, context));
       case 'tools/call':
-        return jsonRpcResult(id, await callTool(message.params || {}, context));
+        return jsonRpcResult(id, await runWithMcpExecutionBudget(
+          () => callTool(message.params || {}, context)
+        ));
       default:
         return jsonRpcError(id, -32601, `Unknown method: ${message.method}`);
     }
@@ -2365,7 +2381,12 @@ async function apiRequest(context, method, endpoint, body) {
     }
 
     if (shouldUseShellApiFallback(context, method, authError)) {
-      return context.apiShellProvider(context, method, endpoint, body);
+      return runWithinExecutionBudget(
+        method,
+        endpoint,
+        'stateful_shell_fallback',
+        () => context.apiShellProvider(context, method, endpoint, body)
+      );
     }
 
     throw authError;
@@ -2395,7 +2416,8 @@ async function apiRequestOnce(context, method, endpoint, body) {
     headers['X-Tenant-Id'] = tenantId;
   }
 
-  const timeoutMs = apiRequestTimeoutMs(endpoint);
+  const requestBudget = apiRequestBudget(endpoint);
+  const timeoutMs = requestBudget.timeoutMs;
   const controller = typeof AbortController === 'function' ? new AbortController() : null;
   const timeout = controller && timeoutMs > 0
     ? setTimeout(() => controller.abort(), timeoutMs)
@@ -2410,7 +2432,9 @@ async function apiRequestOnce(context, method, endpoint, body) {
     });
   } catch (error) {
     if (isAbortError(error)) {
-      throw apiTimeoutError(method, endpoint, timeoutMs);
+      throw requestBudget.boundedByExecutionDeadline
+        ? apiExecutionDeadlineError(method, endpoint, requestBudget)
+        : apiTimeoutError(method, endpoint, timeoutMs);
     }
     throw error;
   } finally {
@@ -2437,13 +2461,136 @@ async function apiRequestOnce(context, method, endpoint, body) {
   return payload;
 }
 
-function apiRequestTimeoutMs(endpoint) {
+function configuredApiRequestTimeoutMs(endpoint) {
   const specific = isRetrievalReceiptEndpoint(endpoint)
     ? parsePositiveInteger(process.env.GRAYMATTER_RETRIEVAL_RECEIPT_TIMEOUT_MS)
     : null;
   return specific
     || parsePositiveInteger(process.env.GRAYMATTER_MCP_REQUEST_TIMEOUT_MS)
     || 30000;
+}
+
+function configuredMcpExecutionTimeoutMs() {
+  return parsePositiveInteger(process.env.GRAYMATTER_MCP_EXECUTION_TIMEOUT_MS)
+    || parsePositiveInteger(process.env.GRAYMATTER_MCP_REQUEST_TIMEOUT_MS)
+    || 30000;
+}
+
+function runWithMcpExecutionBudget(requestFn) {
+  const configuredTimeoutMs = configuredMcpExecutionTimeoutMs();
+  const nowMs = Date.now();
+  const parent = executionBudgetStorage.getStore();
+  const configuredDeadlineMs = nowMs + configuredTimeoutMs;
+  const deadlineMs = parent && Number.isFinite(parent.deadlineMs)
+    ? Math.min(parent.deadlineMs, configuredDeadlineMs)
+    : configuredDeadlineMs;
+  return executionBudgetStorage.run({ configuredTimeoutMs, deadlineMs, startedAtMs: nowMs }, requestFn);
+}
+
+function apiRequestBudget(endpoint) {
+  const configuredRequestTimeoutMs = configuredApiRequestTimeoutMs(endpoint);
+  const executionBudget = executionBudgetStorage.getStore();
+  if (!executionBudget) {
+    return {
+      timeoutMs: configuredRequestTimeoutMs,
+      configuredRequestTimeoutMs,
+      configuredExecutionTimeoutMs: null,
+      deadlineMs: null,
+      remainingMs: null,
+      boundedByExecutionDeadline: false
+    };
+  }
+
+  const remainingMs = executionBudget.deadlineMs - Date.now();
+  if (remainingMs <= 0) {
+    throw apiExecutionDeadlineError('REQUEST', endpoint, {
+      configuredRequestTimeoutMs,
+      configuredExecutionTimeoutMs: executionBudget.configuredTimeoutMs,
+      deadlineMs: executionBudget.deadlineMs,
+      remainingMs: 0,
+      boundedByExecutionDeadline: true
+    });
+  }
+
+  return {
+    timeoutMs: Math.max(1, Math.min(configuredRequestTimeoutMs, remainingMs)),
+    configuredRequestTimeoutMs,
+    configuredExecutionTimeoutMs: executionBudget.configuredTimeoutMs,
+    deadlineMs: executionBudget.deadlineMs,
+    remainingMs,
+    boundedByExecutionDeadline: remainingMs <= configuredRequestTimeoutMs
+  };
+}
+
+async function runWithinExecutionBudget(method, endpoint, phase, requestFn) {
+  const executionBudget = executionBudgetStorage.getStore();
+  if (!executionBudget) {
+    return requestFn();
+  }
+  const remainingMs = executionBudget.deadlineMs - Date.now();
+  const requestBudget = {
+    configuredRequestTimeoutMs: null,
+    configuredExecutionTimeoutMs: executionBudget.configuredTimeoutMs,
+    deadlineMs: executionBudget.deadlineMs,
+    remainingMs: Math.max(0, remainingMs),
+    boundedByExecutionDeadline: true,
+    phase
+  };
+  if (remainingMs <= 0) {
+    throw apiExecutionDeadlineError(method, endpoint, requestBudget);
+  }
+
+  let timeout;
+  try {
+    return await Promise.race([
+      Promise.resolve().then(requestFn),
+      new Promise((_, reject) => {
+        timeout = setTimeout(
+          () => reject(apiExecutionDeadlineError(method, endpoint, requestBudget)),
+          remainingMs
+        );
+      })
+    ]);
+  } finally {
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+  }
+}
+
+function executionCommandBudget(configuredTimeoutMs, method, endpoint, phase) {
+  const executionBudget = executionBudgetStorage.getStore();
+  if (!executionBudget) {
+    return { timeoutMs: configuredTimeoutMs, boundedByExecutionDeadline: false };
+  }
+  const remainingMs = executionBudget.deadlineMs - Date.now();
+  const requestBudget = {
+    configuredRequestTimeoutMs: configuredTimeoutMs,
+    configuredExecutionTimeoutMs: executionBudget.configuredTimeoutMs,
+    deadlineMs: executionBudget.deadlineMs,
+    remainingMs: Math.max(0, remainingMs),
+    boundedByExecutionDeadline: true,
+    phase
+  };
+  if (remainingMs <= 0) {
+    throw apiExecutionDeadlineError(method, endpoint, requestBudget);
+  }
+  return {
+    timeoutMs: Math.max(1, Math.min(configuredTimeoutMs, remainingMs)),
+    boundedByExecutionDeadline: remainingMs <= configuredTimeoutMs,
+    requestBudget
+  };
+}
+
+function rethrowCommandTimeout(error, method, endpoint, commandBudget) {
+  const timedOut = error && error.code === 'ETIMEDOUT';
+  if (!timedOut) {
+    throw error;
+  }
+  if (commandBudget.boundedByExecutionDeadline) {
+    throw apiExecutionDeadlineError(method, endpoint, commandBudget.requestBudget);
+  }
+  throw apiTimeoutError(method, endpoint, commandBudget.timeoutMs);
 }
 
 function isRetrievalReceiptEndpoint(endpoint) {
@@ -2474,6 +2621,29 @@ function apiTimeoutError(method, endpoint, timeoutMs) {
   return error;
 }
 
+function apiExecutionDeadlineError(method, endpoint, requestBudget) {
+  const configuredTimeoutMs = requestBudget.configuredExecutionTimeoutMs;
+  const error = new Error(`GrayMatter MCP execution deadline exhausted after ${configuredTimeoutMs}ms`);
+  error.name = 'ApiRequestError';
+  error.status = 504;
+  error.payload = {
+    code: 'GRAYMATTER_EXECUTION_DEADLINE_EXHAUSTED',
+    message: error.message,
+    endpoint,
+    executionLimits: {
+      configuredTimeoutMs,
+      deadlineEpochMs: requestBudget.deadlineMs,
+      remainingMs: 0,
+      sharedAcrossRequests: true,
+      onExhaustion: 'FAIL_CLOSED',
+      phase: requestBudget.phase || 'api_request'
+    }
+  };
+  error.method = method;
+  error.endpoint = endpoint;
+  return error;
+}
+
 function hydrateLocalAuth(context) {
   if (!context || context.requestScopedToken || context.token || typeof context.keychainReader !== 'function') {
     return false;
@@ -2486,7 +2656,10 @@ function hydrateLocalAuth(context) {
     }
     context.token = token.trim();
     return Boolean(context.token);
-  } catch {
+  } catch (error) {
+    if (isExecutionDeadlineError(error)) {
+      throw error;
+    }
     return false;
   }
 }
@@ -2497,15 +2670,30 @@ async function refreshAuth(context) {
   }
 
   try {
-    const token = await context.loginProvider(context);
+    const token = await runWithinExecutionBudget(
+      'POST',
+      process.env.GRAYMATTER_LOGIN_PATH || DEFAULT_LOGIN_PATH,
+      'auth_refresh',
+      () => context.loginProvider(context)
+    );
     if (!token || typeof token !== 'string') {
       return false;
     }
     context.token = token;
     return true;
-  } catch {
+  } catch (error) {
+    if (isExecutionDeadlineError(error)) {
+      throw error;
+    }
     return false;
   }
+}
+
+function isExecutionDeadlineError(error) {
+  return Boolean(error)
+    && error.name === 'ApiRequestError'
+    && error.payload
+    && error.payload.code === 'GRAYMATTER_EXECUTION_DEADLINE_EXHAUSTED';
 }
 
 function isRefreshableAuthError(error) {
@@ -2541,6 +2729,12 @@ function readTokenFromKeychain() {
 
   for (const account of accounts) {
     for (const candidateService of services) {
+      const commandBudget = executionCommandBudget(
+        1000,
+        'GET',
+        `keychain/${candidateService}`,
+        'keychain_lookup'
+      );
       try {
         const token = execFileSync('security', [
           'find-generic-password',
@@ -2552,12 +2746,15 @@ function readTokenFromKeychain() {
         ], {
           encoding: 'utf8',
           stdio: ['ignore', 'pipe', 'ignore'],
-          timeout: 1000
+          timeout: commandBudget.timeoutMs
         }).trim();
         if (token) {
           return token;
         }
-      } catch {
+      } catch (error) {
+        if (error && error.code === 'ETIMEDOUT' && commandBudget.boundedByExecutionDeadline) {
+          rethrowCommandTimeout(error, 'GET', `keychain/${candidateService}`, commandBudget);
+        }
         // Try the next account/service pair.
       }
     }
@@ -2568,15 +2765,26 @@ function readTokenFromKeychain() {
 
 function runLoginCommand(context) {
   const loginCommand = context.loginCommand || process.env.GRAYMATTER_LOGIN_COMMAND || path.join(__dirname, '..', 'scripts', 'gm-login');
-  const output = execFileSync(loginCommand, ['env'], {
-    encoding: 'utf8',
-    env: {
-      ...process.env,
-      VALKYR_API_BASE: context.apiBase
-    },
-    stdio: ['ignore', 'pipe', 'pipe'],
-    timeout: Number(process.env.GRAYMATTER_LOGIN_TIMEOUT_MS || 30000)
-  });
+  const commandBudget = executionCommandBudget(
+    parsePositiveInteger(process.env.GRAYMATTER_LOGIN_TIMEOUT_MS) || 30000,
+    'POST',
+    process.env.GRAYMATTER_LOGIN_PATH || DEFAULT_LOGIN_PATH,
+    'auth_refresh_command'
+  );
+  let output;
+  try {
+    output = execFileSync(loginCommand, ['env'], {
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        VALKYR_API_BASE: context.apiBase
+      },
+      stdio: ['ignore', 'pipe', 'pipe'],
+      timeout: commandBudget.timeoutMs
+    });
+  } catch (error) {
+    rethrowCommandTimeout(error, 'POST', process.env.GRAYMATTER_LOGIN_PATH || DEFAULT_LOGIN_PATH, commandBudget);
+  }
   return parseExportedToken(output);
 }
 
@@ -2589,17 +2797,32 @@ function runShellApiCommand(context, method, endpoint, body) {
   if (body !== undefined) {
     args.push(JSON.stringify(body));
   }
-  const output = execFileSync(apiCommand, args, {
-    encoding: 'utf8',
-    env: {
-      ...process.env,
-      VALKYR_API_BASE: context.apiBase,
-      VALKYR_AUTH_TOKEN: context.token || process.env.VALKYR_AUTH_TOKEN || '',
-      GRAYMATTER_SKIP_SELF_UPDATE: 'true'
-    },
-    stdio: ['ignore', 'pipe', 'pipe'],
-    timeout: Number(process.env.GRAYMATTER_API_COMMAND_TIMEOUT_MS || 90000)
-  });
+  const executionBudget = executionBudgetStorage.getStore();
+  const commandBudget = executionCommandBudget(
+    parsePositiveInteger(process.env.GRAYMATTER_API_COMMAND_TIMEOUT_MS) || 90000,
+    method,
+    endpoint,
+    'stateful_shell_command'
+  );
+  let output;
+  try {
+    output = execFileSync(apiCommand, args, {
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        VALKYR_API_BASE: context.apiBase,
+        VALKYR_AUTH_TOKEN: context.token || process.env.VALKYR_AUTH_TOKEN || '',
+        GRAYMATTER_SKIP_SELF_UPDATE: 'true',
+        GRAYMATTER_EXECUTION_DEADLINE_EPOCH: executionBudget
+          ? String(Math.floor(executionBudget.deadlineMs / 1000))
+          : (process.env.GRAYMATTER_EXECUTION_DEADLINE_EPOCH || '')
+      },
+      stdio: ['ignore', 'pipe', 'pipe'],
+      timeout: commandBudget.timeoutMs
+    });
+  } catch (error) {
+    rethrowCommandTimeout(error, method, endpoint, commandBudget);
+  }
   return output ? parseJson(output) : null;
 }
 
@@ -2663,6 +2886,7 @@ function buildRecoveryResult(error, operation, context) {
   }
 
   const details = recoveryDetails(error.payload);
+  const executionLimits = recoveryExecutionLimits(error.payload);
   const attribution = recoveryAttribution(error, operation, context, details);
   const buyCreditsUrl = attributedRecoveryUrl(process.env.VALKYR_BUY_CREDITS_URL || DEFAULT_BUY_CREDITS_URL, {
     ...attribution,
@@ -2693,6 +2917,7 @@ function buildRecoveryResult(error, operation, context) {
     traceId: details.traceId,
     workspaceId: details.workspaceId,
     accountId: details.accountId,
+    executionLimits,
     retryGuidance: retryable ? 'Complete the recovery action, then call this tool again with the same arguments.' : 'Switch credentials or workspace access before retrying.',
     retryable
   };
@@ -2722,6 +2947,22 @@ function buildRecoveryResult(error, operation, context) {
         }
       }
     }
+  };
+}
+
+function recoveryExecutionLimits(payload) {
+  const source = payload && typeof payload === 'object' && !Array.isArray(payload) ? payload : {};
+  const limits = source.executionLimits;
+  if (!limits || typeof limits !== 'object' || Array.isArray(limits)) {
+    return undefined;
+  }
+  return {
+    configuredTimeoutMs: Number.isFinite(limits.configuredTimeoutMs) ? limits.configuredTimeoutMs : undefined,
+    deadlineEpochMs: Number.isFinite(limits.deadlineEpochMs) ? limits.deadlineEpochMs : undefined,
+    remainingMs: Number.isFinite(limits.remainingMs) ? Math.max(0, limits.remainingMs) : undefined,
+    sharedAcrossRequests: limits.sharedAcrossRequests === true,
+    onExhaustion: limits.onExhaustion === 'FAIL_CLOSED' ? 'FAIL_CLOSED' : undefined,
+    phase: typeof limits.phase === 'string' ? limits.phase.slice(0, 80) : undefined
   };
 }
 
@@ -3255,15 +3496,31 @@ function replayDeferredMemory(context, args = {}) {
   if (args.limit !== undefined && args.limit !== null) {
     commandArgs.push('--limit', String(clampInteger(args.limit, 1000, 1, 1000)));
   }
-  const output = execFileSync(replayCommand, commandArgs, {
-    cwd: path.join(__dirname, '..'),
-    env: {
-      ...process.env,
-      GRAYMATTER_API_SCRIPT: context.apiCommand || process.env.GRAYMATTER_API_COMMAND || path.join(__dirname, '..', 'scripts', 'graymatter_api.sh')
-    },
-    encoding: 'utf8',
-    stdio: ['ignore', 'pipe', 'pipe']
-  });
+  const executionBudget = executionBudgetStorage.getStore();
+  const commandBudget = executionCommandBudget(
+    parsePositiveInteger(process.env.GRAYMATTER_REPLAY_TIMEOUT_MS) || 90000,
+    'POST',
+    'memory/replay-deferred',
+    'deferred_replay_command'
+  );
+  let output;
+  try {
+    output = execFileSync(replayCommand, commandArgs, {
+      cwd: path.join(__dirname, '..'),
+      env: {
+        ...process.env,
+        GRAYMATTER_API_SCRIPT: context.apiCommand || process.env.GRAYMATTER_API_COMMAND || path.join(__dirname, '..', 'scripts', 'graymatter_api.sh'),
+        GRAYMATTER_EXECUTION_DEADLINE_EPOCH: executionBudget
+          ? String(Math.floor(executionBudget.deadlineMs / 1000))
+          : (process.env.GRAYMATTER_EXECUTION_DEADLINE_EPOCH || '')
+      },
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+      timeout: commandBudget.timeoutMs
+    });
+  } catch (error) {
+    rethrowCommandTimeout(error, 'POST', 'memory/replay-deferred', commandBudget);
+  }
   const lines = output.split(/\r?\n/u).map((line) => line.trim()).filter(Boolean);
   const replayed = lines.filter((line) => line.startsWith('Replayed deferred operation ')).length;
   const noDeferred = lines.some((line) => line === 'No deferred operations found.');

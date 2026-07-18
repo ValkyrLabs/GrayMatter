@@ -328,6 +328,114 @@ test('receipt-backed retrieval times out with retryable recovery instead of hang
   });
 });
 
+test('auth refresh cannot reset the shared MCP execution deadline', async () => {
+  await withActivationEnv({
+    GRAYMATTER_MCP_EXECUTION_TIMEOUT_MS: '40',
+    GRAYMATTER_MCP_REQUEST_TIMEOUT_MS: '200'
+  }, async () => {
+    let apiCalls = 0;
+    let loginCalls = 0;
+    const server = createGrayMatterMcpServer({
+      apiBase: 'https://api-0.example.test/v1',
+      token: 'expired-token',
+      fetch: async () => {
+        apiCalls += 1;
+        return new Response(JSON.stringify({ error: 'SESSION_EXPIRED' }), {
+          status: 401,
+          headers: { 'content-type': 'application/json' }
+        });
+      },
+      loginProvider: async () => {
+        loginCalls += 1;
+        await new Promise((resolve) => setTimeout(resolve, 200));
+        return 'late-token';
+      },
+      apiShellProvider: null
+    });
+    const baseUrl = await listen(server);
+    const startedAt = Date.now();
+
+    try {
+      const body = await postRpc(baseUrl, {
+        jsonrpc: '2.0',
+        id: 'shared-auth-deadline',
+        method: 'tools/call',
+        params: { name: 'memory_read', arguments: { id: 'memory-1' } }
+      });
+
+      const out = body.result.structuredContent;
+      assert.equal(out.reason, 'request_timeout');
+      assert.equal(out.executionLimits.configuredTimeoutMs, 40);
+      assert.equal(out.executionLimits.sharedAcrossRequests, true);
+      assert.equal(out.executionLimits.onExhaustion, 'FAIL_CLOSED');
+      assert.equal(out.executionLimits.phase, 'auth_refresh');
+      assert.equal(apiCalls, 1);
+      assert.equal(loginCalls, 1);
+      assert.ok(Date.now() - startedAt < 150);
+    } finally {
+      await closeServer(server);
+    }
+  });
+});
+
+test('batch calls consume one shared MCP execution deadline', async () => {
+  await withActivationEnv({
+    GRAYMATTER_MCP_EXECUTION_TIMEOUT_MS: '60',
+    GRAYMATTER_MCP_REQUEST_TIMEOUT_MS: '200'
+  }, async () => {
+    let apiCalls = 0;
+    const server = createGrayMatterMcpServer({
+      apiBase: 'https://api-0.example.test/v1',
+      token: 'write-token',
+      fetch: async (_url, options) => {
+        apiCalls += 1;
+        if (apiCalls === 1) {
+          await new Promise((resolve) => setTimeout(resolve, 20));
+          return new Response(JSON.stringify({ id: 'memory-1' }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' }
+          });
+        }
+        await new Promise((resolve, reject) => {
+          options.signal.addEventListener('abort', () => {
+            const error = new Error('aborted');
+            error.name = 'AbortError';
+            reject(error);
+          }, { once: true });
+        });
+        throw new Error('unreachable');
+      }
+    });
+    const baseUrl = await listen(server);
+
+    try {
+      const body = await postRpc(baseUrl, {
+        jsonrpc: '2.0',
+        id: 'shared-batch-deadline',
+        method: 'tools/call',
+        params: {
+          name: 'memory_put_batch',
+          arguments: {
+            items: [
+              { type: 'context', text: 'first' },
+              { type: 'context', text: 'second' }
+            ]
+          }
+        }
+      });
+
+      const out = body.result.structuredContent;
+      assert.equal(out.reason, 'request_timeout');
+      assert.equal(out.executionLimits.configuredTimeoutMs, 60);
+      assert.equal(out.executionLimits.sharedAcrossRequests, true);
+      assert.equal(out.executionLimits.phase, 'api_request');
+      assert.equal(apiCalls, 2);
+    } finally {
+      await closeServer(server);
+    }
+  });
+});
+
 test('success path remains plain toolResult content shape', async () => {
   const fakeApi = createFakeApi(200, { results: [{ id: 'mem-1' }] });
   const apiBase = await listen(fakeApi);

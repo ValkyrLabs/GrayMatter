@@ -136,10 +136,12 @@ fi
 
 if [[ -f "$ROOT/mcp-server/index.js" ]] \
   && jq -e '.scripts.stdio == "node index.js --stdio"' "$ROOT/mcp-server/package.json" >/dev/null \
+  && grep -q 'GRAYMATTER_MCP_EXECUTION_TIMEOUT_MS' "$ROOT/mcp-server/index.js" \
+  && grep -q 'GRAYMATTER_EXECUTION_DEADLINE_EXHAUSTED' "$ROOT/mcp-server/index.js" \
   && all_files .mcp.json .codex-plugin/plugin.json; then
-  record_stage "mcp_readiness" "pass" "MCP stdio/server and Codex plugin launch surfaces are present."
+  record_stage "mcp_readiness" "pass" "MCP stdio/server and Codex plugin launch surfaces are present with one fail-closed deadline per tool invocation."
 else
-  record_stage "mcp_readiness" "fail" "MCP or Codex plugin launch surfaces are missing."
+  record_stage "mcp_readiness" "fail" "MCP, Codex plugin launch, or shared tool execution deadline surfaces are missing."
 fi
 
 schema_docs=()

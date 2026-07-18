@@ -39,7 +39,7 @@ The repo-level `.mcp.json` points Codex at `node mcp-server/index.js --stdio`.
 | `GRAYMATTER_LOGIN_TIMEOUT_MS` | No | `30000` | Maximum time allowed for the autonomous login helper during MCP auth recovery. |
 | `GRAYMATTER_MCP_REQUEST_TIMEOUT_MS` | No | `30000` | Maximum time for one api-0 request inside an MCP tool call. |
 | `GRAYMATTER_MCP_EXECUTION_TIMEOUT_MS` | No | `GRAYMATTER_MCP_REQUEST_TIMEOUT_MS` or `30000` | One fail-closed deadline shared by every request, auth refresh, retry, batch item, shell fallback, and deferred-replay command in a tool invocation. |
-| `GRAYMATTER_MCP_MAX_REQUEST_BYTES` | No | `1048576` | Maximum HTTP MCP request-body bytes accepted before JSON parsing; configuration is capped at 16 MiB. Oversized or stalled bodies close the connection after a bounded error response. |
+| `GRAYMATTER_MCP_MAX_REQUEST_BYTES` | No | `1048576` | Maximum HTTP request-body or stdio message bytes accepted before JSON parsing; configuration is capped at 16 MiB. Oversized HTTP bodies close after a bounded response; oversized stdio lines are discarded through the next newline. |
 | `GRAYMATTER_WIDGET_DOMAIN` | No | `https://graymatter.valkyrlabs.com` | Public widget origin advertised in Apps SDK resource metadata for ChatGPT app review. |
 | `PORT` | No | `3333` | HTTP port to listen on. |
 
@@ -92,7 +92,9 @@ machine-readable limit. Exhaustion returns
 `executionLimits` projection in the structured recovery result. `/health`
 publishes the same timeout and request-body ceiling. HTTP bodies are counted
 before JSON parsing, stopped when the shared deadline expires, and rejected with
-`PAYLOAD_TOO_LARGE` when the byte ceiling is crossed.
+`PAYLOAD_TOO_LARGE` when the byte ceiling is crossed. Stdio input uses the same
+ceiling, discards an oversized line without retaining it, emits a content-free
+JSON-RPC error with `maxStdioMessageBytes`, and resumes at the next newline.
 
 Default agents receive `graymatter_remember`, `graymatter_recall`, `graymatter_omega_plan`, `graymatter_omega_query`, `graymatter_schema_inspect`, `graymatter_trajectory_inspect`, and `graymatter_forget`. The fine-grained retrieval-controller tools—keyword/vector search, graph expansion, chunk/target reads, ContextPage hydration, and outcome evaluation—require a verified retrieval controller or explicit developer mode. Set `GRAYMATTER_RETRIEVAL_CONTROLLER=true` only for a trusted retrieval-controller runtime, or `GRAYMATTER_DEVELOPER_MODE=true` for an intentional developer session; both modes retain api-0 RBAC and policy enforcement.
 

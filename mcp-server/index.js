@@ -5,6 +5,7 @@ const http = require('node:http');
 const crypto = require('node:crypto');
 const { AsyncLocalStorage } = require('node:async_hooks');
 const readline = require('node:readline');
+const { Transform } = require('node:stream');
 const { execFileSync } = require('node:child_process');
 const path = require('node:path');
 const { URL } = require('node:url');
@@ -1449,8 +1450,30 @@ function selectPrivateToolSet(options = {}) {
 
 function startStdioServer(options = {}) {
   const context = createRpcContext(options);
+  const output = options.output || process.stdout;
+  const maxRequestBytes = configuredMcpMaxRequestBytes();
+  const boundedInput = boundedLineInput(
+    options.input || process.stdin,
+    maxRequestBytes,
+    () => output.write(`${JSON.stringify(jsonRpcError(
+      null,
+      -32001,
+      'GrayMatter MCP stdio message exceeded the configured byte limit.',
+      {
+        code: 'GRAYMATTER_MCP_PAYLOAD_TOO_LARGE',
+        executionLimits: {
+          maxRequestBodyBytes: maxRequestBytes,
+          maxStdioMessageBytes: maxRequestBytes,
+          sharedAcrossRequests: true,
+          onExhaustion: 'FAIL_CLOSED',
+          phase: 'stdio_message',
+          requestBodyPolicy: 'REJECT_BEFORE_PARSE'
+        }
+      }
+    ))}\n`)
+  );
   const lines = readline.createInterface({
-    input: process.stdin,
+    input: boundedInput,
     crlfDelay: Infinity
   });
 
@@ -1464,12 +1487,75 @@ function startStdioServer(options = {}) {
       const message = JSON.parse(trimmed);
       const response = await handleRpc(message, context);
       if (response !== null) {
-        process.stdout.write(`${JSON.stringify(response)}\n`);
+        output.write(`${JSON.stringify(response)}\n`);
       }
     } catch (error) {
-      process.stdout.write(`${JSON.stringify(jsonRpcError(null, -32700, `Invalid JSON-RPC message: ${error.message}`))}\n`);
+      output.write(`${JSON.stringify(jsonRpcError(null, -32700, `Invalid JSON-RPC message: ${error.message}`))}\n`);
     }
   });
+}
+
+function boundedLineInput(input, maxBytes, onOversizedLine) {
+  let pending = [];
+  let pendingBytes = 0;
+  let discarding = false;
+
+  const reset = () => {
+    pending = [];
+    pendingBytes = 0;
+  };
+
+  const stream = new Transform({
+    transform(chunk, encoding, callback) {
+      try {
+        const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk, encoding);
+        let cursor = 0;
+        for (let index = 0; index < buffer.length; index += 1) {
+          if (buffer[index] !== 0x0a) continue;
+          const segment = buffer.subarray(cursor, index);
+          if (!discarding) {
+            if (pendingBytes + segment.length > maxBytes) {
+              reset();
+              discarding = true;
+              onOversizedLine();
+            } else {
+              pending.push(segment);
+              pendingBytes += segment.length;
+              this.push(Buffer.concat([...pending, Buffer.from('\n')], pendingBytes + 1));
+            }
+          }
+          reset();
+          discarding = false;
+          cursor = index + 1;
+        }
+
+        if (cursor < buffer.length && !discarding) {
+          const segment = buffer.subarray(cursor);
+          if (pendingBytes + segment.length > maxBytes) {
+            reset();
+            discarding = true;
+            onOversizedLine();
+          } else {
+            pending.push(segment);
+            pendingBytes += segment.length;
+          }
+        }
+        callback();
+      } catch (error) {
+        callback(error);
+      }
+    },
+    flush(callback) {
+      if (!discarding && pendingBytes > 0) {
+        this.push(Buffer.concat(pending, pendingBytes));
+      }
+      reset();
+      callback();
+    }
+  });
+
+  input.pipe(stream);
+  return stream;
 }
 
 async function handleRpc(message, context) {
@@ -2502,6 +2588,7 @@ function mcpExecutionLimits(maxRequestBodyBytes = configuredMcpMaxRequestBytes()
   return {
     configuredTimeoutMs: configuredMcpExecutionTimeoutMs(),
     maxRequestBodyBytes,
+    maxStdioMessageBytes: maxRequestBodyBytes,
     sharedAcrossRequests: true,
     onExhaustion: 'FAIL_CLOSED',
     requestBodyPolicy: 'REJECT_BEFORE_PARSE'
@@ -2670,6 +2757,7 @@ function apiExecutionDeadlineError(method, endpoint, requestBudget) {
     executionLimits: {
       configuredTimeoutMs,
       maxRequestBodyBytes: configuredMcpMaxRequestBytes(),
+      maxStdioMessageBytes: configuredMcpMaxRequestBytes(),
       deadlineEpochMs: requestBudget.deadlineMs,
       remainingMs: 0,
       sharedAcrossRequests: true,
@@ -2997,6 +3085,7 @@ function recoveryExecutionLimits(payload) {
   return {
     configuredTimeoutMs: Number.isFinite(limits.configuredTimeoutMs) ? limits.configuredTimeoutMs : undefined,
     maxRequestBodyBytes: Number.isFinite(limits.maxRequestBodyBytes) ? limits.maxRequestBodyBytes : undefined,
+    maxStdioMessageBytes: Number.isFinite(limits.maxStdioMessageBytes) ? limits.maxStdioMessageBytes : undefined,
     deadlineEpochMs: Number.isFinite(limits.deadlineEpochMs) ? limits.deadlineEpochMs : undefined,
     remainingMs: Number.isFinite(limits.remainingMs) ? Math.max(0, limits.remainingMs) : undefined,
     sharedAcrossRequests: limits.sharedAcrossRequests === true,
@@ -4817,11 +4906,13 @@ function jsonRpcResult(id, result) {
   };
 }
 
-function jsonRpcError(id, code, message) {
+function jsonRpcError(id, code, message, data) {
+  const error = { code, message };
+  if (data !== undefined) error.data = data;
   return {
     jsonrpc: '2.0',
     id,
-    error: { code, message }
+    error
   };
 }
 

@@ -176,6 +176,7 @@ test('health reports server readiness without api-0 auth', async () => {
     assert.ok(body.tools.includes('schema_summary'));
     assert.equal(body.executionLimits.configuredTimeoutMs, 30000);
     assert.equal(body.executionLimits.maxRequestBodyBytes, 1024 * 1024);
+    assert.equal(body.executionLimits.maxStdioMessageBytes, 1024 * 1024);
     assert.equal(body.executionLimits.sharedAcrossRequests, true);
     assert.equal(body.executionLimits.onExhaustion, 'FAIL_CLOSED');
     assert.equal(body.executionLimits.requestBodyPolicy, 'REJECT_BEFORE_PARSE');
@@ -260,6 +261,43 @@ test('stdio mode exposes the GrayMatter MCP tools for Codex plugin launch', asyn
     ]);
     child.stdout.destroy();
     child.stderr.destroy();
+  }
+});
+
+test('stdio mode rejects oversized messages before parsing and resynchronizes at newline', async () => {
+  const exactLimitMessage = {
+    jsonrpc: '2.0', id: 'after-oversize', method: 'initialize', padding: ''
+  };
+  const unpaddedBytes = Buffer.byteLength(JSON.stringify(exactLimitMessage));
+  exactLimitMessage.padding = 'x'.repeat(128 - unpaddedBytes);
+  const exactLimitLine = JSON.stringify(exactLimitMessage);
+  assert.equal(Buffer.byteLength(exactLimitLine), 128);
+  const child = spawn(process.execPath, [path.join(__dirname, '..', 'index.js'), '--stdio'], {
+    cwd: path.join(__dirname, '..'),
+    env: {
+      ...process.env,
+      GRAYMATTER_MCP_MAX_REQUEST_BYTES: '128',
+      VALKYR_API_BASE: 'https://api-0.example.test/v1'
+    },
+    stdio: ['pipe', 'pipe', 'pipe']
+  });
+
+  try {
+    child.stdin.write(`${'x'.repeat(256)}\n`);
+    const rejected = await readJsonLine(child.stdout);
+    assert.equal(rejected.error.code, -32001);
+    assert.equal(rejected.error.data.code, 'GRAYMATTER_MCP_PAYLOAD_TOO_LARGE');
+    assert.equal(rejected.error.data.executionLimits.maxRequestBodyBytes, 128);
+    assert.equal(rejected.error.data.executionLimits.maxStdioMessageBytes, 128);
+    assert.equal(rejected.error.data.executionLimits.phase, 'stdio_message');
+    assert.equal(rejected.error.data.executionLimits.requestBodyPolicy, 'REJECT_BEFORE_PARSE');
+
+    child.stdin.write(`${exactLimitLine}\n`);
+    const recovered = await readJsonLine(child.stdout);
+    assert.equal(recovered.id, 'after-oversize');
+    assert.equal(recovered.result.serverInfo.name, 'graymatter');
+  } finally {
+    child.kill('SIGTERM');
   }
 });
 

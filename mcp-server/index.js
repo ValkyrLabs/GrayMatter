@@ -1298,14 +1298,20 @@ function createGrayMatterMcpServer(options = {}) {
       const mcpPath = isMcpRequestPath(requestUrl.pathname, publicMcpPath, publicApp);
       if (req.method === 'GET' && mcpPath) {
         if (publicApp) {
-          await requirePublicPrincipal(req, {
-            oauthIssuer,
-            oauthJwksUri,
-            publicResource,
-            fetchImpl,
-            tokenVerifier,
-            jwksCache
-          });
+          await runWithMcpExecutionBudget(() => runWithinExecutionBudget(
+            'GET',
+            requestUrl.pathname,
+            'oauth_principal_verification',
+            (signal) => requirePublicPrincipal(req, {
+              oauthIssuer,
+              oauthJwksUri,
+              publicResource,
+              fetchImpl,
+              tokenVerifier,
+              jwksCache,
+              signal
+            })
+          ));
         }
         sendJson(req, res, 405, publicApp
           ? publicErrorEnvelope('METHOD_NOT_ALLOWED', 'Use HTTP POST for this MCP endpoint.', false)
@@ -1323,13 +1329,14 @@ function createGrayMatterMcpServer(options = {}) {
               'POST',
               requestUrl.pathname,
               'oauth_principal_verification',
-              () => requirePublicPrincipal(req, {
+              (signal) => requirePublicPrincipal(req, {
                 oauthIssuer,
                 oauthJwksUri,
                 publicResource,
                 fetchImpl,
                 tokenVerifier,
-                jwksCache
+                jwksCache,
+                signal
               })
             );
             requestAuth = { token: principal.accessToken, requestScopedToken: true };
@@ -2541,12 +2548,16 @@ async function runWithinExecutionBudget(method, endpoint, phase, requestFn) {
   }
 
   let timeout;
+  const controller = typeof AbortController === 'function' ? new AbortController() : null;
   try {
     return await Promise.race([
-      Promise.resolve().then(requestFn),
+      Promise.resolve().then(() => requestFn(controller ? controller.signal : undefined)),
       new Promise((_, reject) => {
         timeout = setTimeout(
-          () => reject(apiExecutionDeadlineError(method, endpoint, requestBudget)),
+          () => {
+            if (controller) controller.abort();
+            reject(apiExecutionDeadlineError(method, endpoint, requestBudget));
+          },
           remainingMs
         );
       })
@@ -4193,10 +4204,11 @@ async function requirePublicPrincipal(req, config) {
       jwksUri: config.oauthJwksUri,
       audience: config.publicResource,
       fetchImpl: config.fetchImpl,
-      jwksCache: config.jwksCache
+      jwksCache: config.jwksCache,
+      signal: config.signal
     });
   } catch (error) {
-    if (error && error.name === 'PublicAuthError') throw error;
+    if ((error && error.name === 'PublicAuthError') || isExecutionDeadlineError(error)) throw error;
     throw publicAuthError('invalid_token', 'The OAuth access token could not be validated.');
   }
   const claims = verified && verified.claims ? verified.claims : verified;
@@ -4261,7 +4273,8 @@ async function loadPublicJwks(config) {
   let jwksUri = config.jwksUri;
   if (!jwksUri) {
     const metadataResponse = await config.fetchImpl(`${withoutTrailingSlash(config.issuer)}/.well-known/oauth-authorization-server`, {
-      headers: { accept: 'application/json' }
+      headers: { accept: 'application/json' },
+      signal: config.signal
     });
     if (!metadataResponse.ok) throw publicAuthError('invalid_token', 'OAuth authorization metadata is unavailable.');
     const metadata = await metadataResponse.json();
@@ -4270,7 +4283,10 @@ async function loadPublicJwks(config) {
   if (!hasNonEmptyString(jwksUri) || !jwksUri.startsWith('https://')) {
     throw publicAuthError('invalid_token', 'OAuth JWKS metadata is unavailable.');
   }
-  const response = await config.fetchImpl(jwksUri, { headers: { accept: 'application/json' } });
+  const response = await config.fetchImpl(jwksUri, {
+    headers: { accept: 'application/json' },
+    signal: config.signal
+  });
   if (!response.ok) throw publicAuthError('invalid_token', 'OAuth signing keys are unavailable.');
   const payload = await response.json();
   const keys = payload && Array.isArray(payload.keys) ? payload.keys : [];
@@ -4365,6 +4381,15 @@ function publicHttpError(error, publicResource) {
   if (error && error.name === 'PublicArgumentError') {
     return { status: 400, body: publicErrorEnvelope('INVALID_ARGUMENT', error.message, false), headers: {} };
   }
+  if (isExecutionDeadlineError(error)) {
+    const body = publicErrorEnvelope(
+      'EXECUTION_DEADLINE_EXHAUSTED',
+      'GrayMatter did not finish the request within its shared execution deadline.',
+      true
+    );
+    body.executionLimits = recoveryExecutionLimits(error.payload);
+    return { status: 504, body, headers: {} };
+  }
   return { status: 500, body: publicErrorEnvelope('INTERNAL_ERROR', 'GrayMatter could not process the request.', true), headers: {} };
 }
 
@@ -4385,7 +4410,11 @@ function publicToolErrorFromException(error, publicResource) {
   let message = 'GrayMatter could not complete the operation.';
   let retryable = false;
   const status = Number(error && (error.status || error.statusCode));
-  if (error && error.name === 'PublicArgumentError') {
+  if (isExecutionDeadlineError(error)) {
+    code = 'EXECUTION_DEADLINE_EXHAUSTED';
+    message = 'GrayMatter did not finish the operation within its shared execution deadline.';
+    retryable = true;
+  } else if (error && error.name === 'PublicArgumentError') {
     code = 'INVALID_ARGUMENT';
     message = error.message;
   } else if (error && error.name === 'PublicScopeError') {
@@ -4416,6 +4445,9 @@ function publicToolErrorFromException(error, publicResource) {
     retryable = true;
   }
   const result = publicToolError(code, message, retryable);
+  if (isExecutionDeadlineError(error)) {
+    result.structuredContent.executionLimits = recoveryExecutionLimits(error.payload);
+  }
   if (code === 'AUTH_REQUIRED') {
     result._meta = { 'mcp/www_authenticate': [publicAuthChallenge(publicResource, 'invalid_token', message)] };
   }

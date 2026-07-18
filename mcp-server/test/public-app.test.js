@@ -45,6 +45,28 @@ function rpc(method, params, id = 1) {
   return { jsonrpc: '2.0', id, method, ...(params ? { params } : {}) };
 }
 
+async function withEnv(values, operation) {
+  const previous = {};
+  for (const [name, value] of Object.entries(values)) {
+    previous[name] = process.env[name];
+    if (value === undefined) delete process.env[name];
+    else process.env[name] = value;
+  }
+  try {
+    return await operation();
+  } finally {
+    for (const [name, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+  }
+}
+
+function signedShapeJwt(payload) {
+  const encode = (value) => Buffer.from(JSON.stringify(value)).toString('base64url');
+  return `${encode({ alg: 'RS256', typ: 'JWT', kid: 'public-key-1' })}.${encode(payload)}.c2lnbmF0dXJl`;
+}
+
 function verifier(token) {
   const tenant = token === 'token-b' ? 'tenant-b' : 'tenant-a';
   return {
@@ -112,6 +134,92 @@ test('public endpoint publishes protected-resource metadata and challenges unaut
   assert.equal(denied.body.error.code, 'AUTH_REQUIRED');
   assert.match(denied.headers['www-authenticate'], /oauth-protected-resource/);
   assert.match(denied.headers['www-authenticate'], /memory:read/);
+});
+
+test('public GET verification aborts JWKS fetches at the shared execution deadline', async () => {
+  await withEnv({
+    GRAYMATTER_MCP_EXECUTION_TIMEOUT_MS: '40',
+    GRAYMATTER_MCP_REQUEST_TIMEOUT_MS: '200'
+  }, async () => {
+    let fetchAborted = false;
+    const server = publicServer('https://api.example.test/v1', {
+      tokenVerifier: undefined,
+      oauthJwksUri: 'https://identity.example.test/oauth2/jwks',
+      fetch: async (_url, options) => new Promise((_resolve, reject) => {
+        options.signal.addEventListener('abort', () => {
+          fetchAborted = true;
+          const error = new Error('aborted');
+          error.name = 'AbortError';
+          reject(error);
+        }, { once: true });
+      })
+    });
+    const port = await listen(server);
+    const token = signedShapeJwt({
+      iss: 'https://identity.example.test',
+      aud: 'https://graymatter.example.test',
+      exp: Math.floor(Date.now() / 1000) + 300,
+      sub: 'user-a',
+      organizationId: 'org-a',
+      tenantId: 'tenant-a',
+      scope: 'memory:read'
+    });
+    const startedAt = Date.now();
+
+    try {
+      const response = await request(port, 'GET', '/graymatter/mcp', undefined, {
+        authorization: `Bearer ${token}`
+      });
+
+      assert.equal(response.status, 504);
+      assert.equal(response.body.error.code, 'EXECUTION_DEADLINE_EXHAUSTED');
+      assert.equal(response.body.executionLimits.configuredTimeoutMs, 40);
+      assert.equal(response.body.executionLimits.sharedAcrossRequests, true);
+      assert.equal(response.body.executionLimits.onExhaustion, 'FAIL_CLOSED');
+      assert.equal(response.body.executionLimits.phase, 'oauth_principal_verification');
+      assert.equal(fetchAborted, true);
+      assert.ok(Date.now() - startedAt < 160);
+    } finally {
+      await close(server);
+    }
+  });
+});
+
+test('public tool timeout preserves machine-readable shared execution limits', async () => {
+  await withEnv({
+    GRAYMATTER_MCP_EXECUTION_TIMEOUT_MS: '40',
+    GRAYMATTER_MCP_REQUEST_TIMEOUT_MS: '200'
+  }, async () => {
+    let fetchAborted = false;
+    const server = publicServer('https://api.example.test/v1', {
+      fetch: async (_url, options) => new Promise((_resolve, reject) => {
+        options.signal.addEventListener('abort', () => {
+          fetchAborted = true;
+          const error = new Error('aborted');
+          error.name = 'AbortError';
+          reject(error);
+        }, { once: true });
+      })
+    });
+    const port = await listen(server);
+
+    try {
+      const response = await request(port, 'POST', '/graymatter/mcp', rpc('tools/call', {
+        name: 'memory_search', arguments: { query: 'bounded public search' }
+      }), { authorization: 'Bearer token-a' });
+
+      const out = response.body.result.structuredContent;
+      assert.equal(response.status, 200);
+      assert.equal(out.error.code, 'EXECUTION_DEADLINE_EXHAUSTED');
+      assert.equal(out.error.retryable, true);
+      assert.equal(out.executionLimits.configuredTimeoutMs, 40);
+      assert.equal(out.executionLimits.sharedAcrossRequests, true);
+      assert.equal(out.executionLimits.onExhaustion, 'FAIL_CLOSED');
+      assert.equal(fetchAborted, true);
+    } finally {
+      await close(server);
+    }
+  });
 });
 
 test('canonical and compatibility MCP routes initialize and discover only public tools', async (t) => {

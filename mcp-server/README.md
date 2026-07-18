@@ -81,9 +81,12 @@ The server also implements `resources/list` and `resources/read` for the Apps SD
 
 `references/contracts/mcp/graymatter_omegarag_agent_abi_v1.json` is the versioned portable ABI for Codex, OpenClaw, ValorIDE, and other agent hosts. Every ABI tool derives identity, tenant, and ACL scope on api-0; callers must never send those fields. The server accounts credit and token use against the retrieval plan or operation budget and treats approval, retry, clarification, and denial as server policy rather than client instructions.
 
-Every tool invocation also owns one MCP execution deadline. Auth recovery,
-request retry, sequential batches, and shell fallbacks consume the same remaining
-budget rather than resetting the per-request timeout. Exhaustion returns
+Every tool invocation also owns one MCP execution deadline. Public OAuth/JWKS
+verification, auth recovery, request retry, sequential batches, and shell
+fallbacks consume the same remaining budget rather than resetting the
+per-request timeout. Deadline expiry aborts cooperative network work, including
+JWKS discovery, and public as well as private surfaces return a content-free
+machine-readable limit. Exhaustion returns
 `GRAYMATTER_EXECUTION_DEADLINE_EXHAUSTED` internally and exposes a content-free
 `executionLimits` projection in the structured recovery result.
 

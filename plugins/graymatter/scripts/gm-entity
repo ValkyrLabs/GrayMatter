@@ -4,6 +4,7 @@ set -euo pipefail
 ENTITY="${1:-}"
 ARG2="${2:-}"
 ARG3="${3:-}"
+ARG4="${4:-}"
 
 usage() {
   echo "Usage:" >&2
@@ -12,6 +13,9 @@ usage() {
   echo "  gm-entity <Entity> POST '<json>'  # create via POST /<Entity>" >&2
   echo "  gm-entity <Entity> PUT  '<json>'  # replace via PUT /<Entity>" >&2
   echo "  gm-entity <Entity> PATCH '<json>' # patch via PATCH /<Entity>" >&2
+  echo "  gm-entity <Entity> <id> PUT '<json>'   # replace via PUT /<Entity>/<id>" >&2
+  echo "  gm-entity <Entity> <id> PATCH '<json>' # patch via PATCH /<Entity>/<id>" >&2
+  echo "  gm-entity <Entity> <id> DELETE         # delete via DELETE /<Entity>/<id>" >&2
 }
 
 if [[ -z "$ENTITY" || "$ENTITY" == "-h" || "$ENTITY" == "--help" ]]; then
@@ -62,6 +66,21 @@ case "$ARG2" in
     exec "${SCRIPT_DIR}/graymatter_api.sh" "$METHOD" "/${ENTITY}" "$BODY"
     ;;
   *)
-    exec "${SCRIPT_DIR}/graymatter_api.sh" GET "/${ENTITY}/${ARG2}"
+    if [[ -z "$ARG3" ]]; then
+      exec "${SCRIPT_DIR}/graymatter_api.sh" GET "/${ENTITY}/${ARG2}"
+    fi
+
+    case "$ARG3" in
+      PUT|put|PATCH|patch|DELETE|delete)
+        METHOD="$(printf '%s' "$ARG3" | tr '[:lower:]' '[:upper:]')"
+        BODY="${ARG4:-}"
+        validate_entity_payload "$ENTITY" "$BODY"
+        exec "${SCRIPT_DIR}/graymatter_api.sh" "$METHOD" "/${ENTITY}/${ARG2}" "$BODY"
+        ;;
+      *)
+        usage
+        exit 64
+        ;;
+    esac
     ;;
 esac

@@ -3,6 +3,7 @@
 
 const http = require('node:http');
 const crypto = require('node:crypto');
+const fs = require('node:fs');
 const readline = require('node:readline');
 const { execFileSync } = require('node:child_process');
 const path = require('node:path');
@@ -1222,6 +1223,8 @@ function createGrayMatterMcpServer(options = {}) {
     : runShellApiCommand;
   const apiCommand = options.apiCommand || process.env.GRAYMATTER_API_COMMAND || path.join(__dirname, '..', 'scripts', 'graymatter_api.sh');
   const replayCommand = options.replayCommand || process.env.GRAYMATTER_REPLAY_COMMAND || path.join(__dirname, '..', 'scripts', 'gm-replay-deferred');
+  const schemaRefreshCommand = options.schemaRefreshCommand || process.env.GRAYMATTER_SCHEMA_REFRESH_COMMAND || path.join(__dirname, '..', 'scripts', 'gm-openapi-sync');
+  const schemaCachePath = options.schemaCachePath || process.env.GRAYMATTER_OPENAPI_CACHE_PATH || '';
   const keychainReader = options.keychainReader || readTokenFromKeychain;
   const deploymentMode = normalizeDeploymentMode(options.deploymentMode || process.env.GRAYMATTER_MCP_MODE || 'local-dev');
   const allowedOrigins = parseAllowedOrigins(options.allowedOrigins || process.env.GRAYMATTER_ALLOWED_ORIGINS || widgetDomain);
@@ -1331,6 +1334,11 @@ function createGrayMatterMcpServer(options = {}) {
           apiCommand,
           apiShellProvider,
           replayCommand,
+          schemaRefreshCommand,
+          schemaRefreshProvider: options.schemaRefreshProvider,
+          schemaCachePath,
+          schemaCacheProvider: options.schemaCacheProvider,
+          schemaRevision: options.schemaRevision || process.env.GRAYMATTER_SCHEMA_REVISION || '',
           keychainReader,
           widgetDomain,
           publicApp,
@@ -1374,6 +1382,8 @@ function createRpcContext(options = {}) {
     : runShellApiCommand;
   const apiCommand = options.apiCommand || process.env.GRAYMATTER_API_COMMAND || path.join(__dirname, '..', 'scripts', 'graymatter_api.sh');
   const replayCommand = options.replayCommand || process.env.GRAYMATTER_REPLAY_COMMAND || path.join(__dirname, '..', 'scripts', 'gm-replay-deferred');
+  const schemaRefreshCommand = options.schemaRefreshCommand || process.env.GRAYMATTER_SCHEMA_REFRESH_COMMAND || path.join(__dirname, '..', 'scripts', 'gm-openapi-sync');
+  const schemaCachePath = options.schemaCachePath || process.env.GRAYMATTER_OPENAPI_CACHE_PATH || '';
 
   if (typeof fetchImpl !== 'function') {
     throw new Error('Global fetch is required. Use Node 20 or newer.');
@@ -1392,6 +1402,11 @@ function createRpcContext(options = {}) {
     apiCommand,
     apiShellProvider,
     replayCommand,
+    schemaRefreshCommand,
+    schemaRefreshProvider: options.schemaRefreshProvider,
+    schemaCachePath,
+    schemaCacheProvider: options.schemaCacheProvider,
+    schemaRevision: options.schemaRevision || process.env.GRAYMATTER_SCHEMA_REVISION || '',
     keychainReader: options.keychainReader || readTokenFromKeychain,
     widgetDomain,
     toolSet: selectPrivateToolSet(options)
@@ -1866,7 +1881,24 @@ async function callTool(params, context) {
     case 'show_graymatter_overview':
       return overviewToolResult();
     case 'schema_summary':
-      return execute('schema_summary', async () => summarizeOpenApi(await apiRequest(context, 'GET', 'api-docs')));
+      return execute('schema_summary', async () => {
+        try {
+          return summarizeOpenApi(await apiRequest(context, 'GET', 'api-docs'));
+        } catch (error) {
+          if (!isDiscoveryOutage(error)) {
+            throw error;
+          }
+          const cached = await readDiscoverySchemaCache(context);
+          if (!cached) {
+            throw error;
+          }
+          return {
+            ...summarizeOpenApi(cached),
+            schemaSource: 'cached',
+            schemaCacheState: 'stale'
+          };
+        }
+      });
     default:
       throw new Error(`Unknown tool: ${name}`);
   }
@@ -2301,14 +2333,29 @@ async function apiRequest(context, method, endpoint, body) {
   if (!context.requestScopedToken && !context.token) {
     hydrateLocalAuth(context);
   }
+  let requestError;
   try {
     return await apiRequestOnce(context, method, endpoint, body);
   } catch (error) {
-    if (!isRefreshableAuthError(error)) {
-      throw error;
-    }
+    requestError = error;
+  }
 
-    let authError = error;
+  if (shouldResyncSchema(requestError)) {
+    const refreshed = await refreshSchemaCache(context);
+    if (refreshed) {
+      try {
+        return await apiRequestOnce(context, method, endpoint, body);
+      } catch (retryError) {
+        requestError = retryError;
+      }
+    }
+  }
+
+  if (!isRefreshableAuthError(requestError)) {
+    throw requestError;
+  }
+
+  let authError = requestError;
     if (await refreshAuth(context)) {
       try {
         return await apiRequestOnce(context, method, endpoint, body);
@@ -2325,6 +2372,85 @@ async function apiRequest(context, method, endpoint, body) {
     }
 
     throw authError;
+}
+
+function shouldResyncSchema(error) {
+  if (!error || error.name !== 'ApiRequestError') {
+    return false;
+  }
+  if ([404, 405, 409, 412, 428].includes(error.status)) {
+    return true;
+  }
+  const text = JSON.stringify(error.payload || error.message || '').toLowerCase();
+  return /schema[_ -]?revision|endpoint[_ -]?(not[_ -]?found|changed)|unknown endpoint|route changed/.test(text);
+}
+
+function isDiscoveryOutage(error) {
+  if (!error || error.name !== 'ApiRequestError') {
+    return true;
+  }
+  return [408, 429, 500, 502, 503, 504].includes(error.status);
+}
+
+async function readDiscoverySchemaCache(context) {
+  if (!context) {
+    return null;
+  }
+  if (typeof context.schemaCacheProvider === 'function') {
+    try {
+      const provided = await context.schemaCacheProvider(context);
+      return provided && typeof provided === 'object' && !Array.isArray(provided) && provided.paths && typeof provided.paths === 'object'
+        ? provided
+        : null;
+    } catch {
+      return null;
+    }
+  }
+  if (!context.schemaCachePath) {
+    return null;
+  }
+  try {
+    const spec = JSON.parse(fs.readFileSync(context.schemaCachePath, 'utf8'));
+    if (!spec || typeof spec !== 'object' || Array.isArray(spec) || !spec.paths || typeof spec.paths !== 'object') {
+      return null;
+    }
+    return spec;
+  } catch {
+    return null;
+  }
+}
+
+async function refreshSchemaCache(context) {
+  if (!context || context.requestScopedToken) {
+    return false;
+  }
+  if (typeof context.schemaRefreshProvider === 'function') {
+    try {
+      return Boolean(await context.schemaRefreshProvider(context));
+    } catch {
+      return false;
+    }
+  }
+  const command = context.schemaRefreshCommand;
+  if (!command) {
+    return false;
+  }
+  try {
+    execFileSync(command, [], {
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        VALKYR_API_BASE: context.apiBase,
+        VALKYR_AUTH_TOKEN: context.token || process.env.VALKYR_AUTH_TOKEN || '',
+        GRAYMATTER_SKIP_SELF_UPDATE: 'true',
+        GRAYMATTER_OPENAPI_SYNC_CURL_MAX_TIME: String(process.env.GRAYMATTER_SCHEMA_RESYNC_TIMEOUT_SECONDS || 10)
+      },
+      stdio: ['ignore', 'ignore', 'ignore'],
+      timeout: Number(process.env.GRAYMATTER_SCHEMA_RESYNC_TIMEOUT_MS || 12000)
+    });
+    return true;
+  } catch {
+    return false;
   }
 }
 
@@ -2376,6 +2502,21 @@ async function apiRequestOnce(context, method, endpoint, body) {
   }
   const raw = await response.text();
   const payload = raw ? parseJson(raw) : null;
+
+  const responseRevision = response.headers && (
+    response.headers.get('x-schema-revision')
+    || response.headers.get('x-server-revision')
+    || response.headers.get('x-build-revision')
+  );
+  if (responseRevision && context.schemaRevision && responseRevision !== context.schemaRevision) {
+    const error = new Error('api-0 schema revision changed from ' + context.schemaRevision + ' to ' + responseRevision);
+    error.name = 'ApiRequestError';
+    error.status = 409;
+    error.payload = { code: 'SCHEMA_REVISION_MISMATCH', expected: context.schemaRevision, actual: responseRevision };
+    error.method = method;
+    error.endpoint = endpoint;
+    throw error;
+  }
 
   if (!response.ok) {
     const message = payload && typeof payload.message === 'string'

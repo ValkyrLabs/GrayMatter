@@ -8,14 +8,8 @@ have() {
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="${ROOT_DIR:-$(cd "${SCRIPT_DIR}/.." && pwd)}"
 FALLBACK_PATH="$ROOT_DIR/memory/graymatter-fallback.json"
-OPENAPI_PATH="${OPENAPI_PATH:-}"
-if [[ -z "$OPENAPI_PATH" ]]; then
-  if [[ -f "$ROOT_DIR/tmp/api-docs.json" ]]; then
-    OPENAPI_PATH="$ROOT_DIR/tmp/api-docs.json"
-  else
-    OPENAPI_PATH="$ROOT_DIR/tmp/openapi.json"
-  fi
-fi
+OPENAPI_PATH_OVERRIDE="${OPENAPI_PATH:-${GRAYMATTER_OPENAPI_CACHE_PATH:-}}"
+source "${SCRIPT_DIR}/gm-schema-cache-lib"
 KEYCHAIN_SERVICE="${VALKYR_KEYCHAIN_SERVICE:-VALKYR_AUTH}"
 API_BASE="${VALKYR_API_BASE:-https://api-0.valkyrlabs.com/v1}"
 API_BASE="${API_BASE%/}"
@@ -252,11 +246,19 @@ fallback_status_json() {
 openapi_layer_state() {
   local path="$1"
   local query="$2"
-  if [[ ! -f "$OPENAPI_PATH" ]]; then
-    printf 'missing\n'
+  if [[ "$OPENAPI_CACHE_STATE" == "missing" || "$OPENAPI_CACHE_STATE" == "invalid" ]]; then
+    printf 'unknown\n'
+    return 0
+  fi
+  if ! jq -e '.paths | type == "object"' "$OPENAPI_PATH" >/dev/null 2>&1; then
+    printf 'unknown\n'
     return 0
   fi
   jq -e "$query" "$OPENAPI_PATH" >/dev/null 2>&1 && printf 'ready\n' || printf 'missing\n'
+}
+
+openapi_cache_state() {
+  gm_schema_cache_state "$OPENAPI_PATH" "$API_BASE" "$TOKEN"
 }
 
 TOKEN="${VALKYR_AUTH_TOKEN:-${VALKYR_JWT_SESSION:-}}"
@@ -287,11 +289,35 @@ TENANT_CONTEXT_SOURCE="$(jq -r '.source // ""' <<<"$TENANT_CONTEXT_JSON")"
 FALLBACK_JSON="$(fallback_status_json)"
 FALLBACK_STATE="$(jq -r '.state' <<<"$FALLBACK_JSON")"
 PENDING_WRITES="$(jq -r '.pendingWrites' <<<"$FALLBACK_JSON")"
+OPENAPI_PATH="$(gm_schema_cache_path "$ROOT_DIR" "$API_BASE" "$TOKEN" "$OPENAPI_PATH_OVERRIDE")"
+OPENAPI_CACHE_STATE="$(openapi_cache_state)"
+GRAPH_LAYER="$(openapi_layer_state graph '.paths | keys | any(.[]; test("^(/v1)?/(SwarmOps/graph|swarm-ops/graph|swarm/agents|Agent)(/|$)"))')"
+STRATEGIC_LAYER="$(openapi_layer_state strategic '.paths | keys | any(.[]; test("^(/v1)?/(StrategicRecord|StrategicPriority|Goal)(/|$)"))')"
+KPI_LAYER="$(openapi_layer_state kpi '.paths | keys | any(.[]; test("^(/v1)?/(KPIRecord|KeyMetric)(/|$)"))')"
 
 HEALTH="ok"
 if [[ "$FALLBACK_STATE" == "invalid" ]]; then
   HEALTH="error"
-elif [[ "$AUTH_STATE" == "missing" || "$PENDING_WRITES" != "0" || "$TOKEN_STATE" =~ ^(expired|invalid|read_only)$ || "$TOKEN_LIVE_STATE" == "invalid" || "$TOKEN_PERMISSION_STATE" == "read_only" || "$TENANT_CONTEXT_READY" != "true" ]]; then
+elif [[ "$AUTH_STATE" == "missing" || "$PENDING_WRITES" != "0" || "$TOKEN_STATE" =~ ^(expired|invalid|read_only)$ || "$TOKEN_LIVE_STATE" == "invalid" || "$TOKEN_PERMISSION_STATE" == "read_only" || "$TENANT_CONTEXT_READY" != "true" || "$OPENAPI_CACHE_STATE" == "invalid" ]]; then
+  HEALTH="degraded"
+fi
+
+SCHEMA_AGE_SECONDS="$(gm_schema_cache_age_seconds "$(gm_schema_cache_meta_path "$OPENAPI_PATH")")"
+SCHEMA_REVISION="unknown"
+SCHEMA_SOURCE="cached"
+if [[ -f "$(gm_schema_cache_meta_path "$OPENAPI_PATH")" ]]; then
+  SCHEMA_REVISION="$(jq -r '.schemaRevision // .serverBuildRevision // "unknown"' "$(gm_schema_cache_meta_path "$OPENAPI_PATH")" 2>/dev/null || printf 'unknown')"
+  SCHEMA_SOURCE="$(jq -r '.schemaSource // "cached"' "$(gm_schema_cache_meta_path "$OPENAPI_PATH")" 2>/dev/null || printf 'cached')"
+fi
+SERVICE_STATUS="offline"
+if [[ "$TOKEN_LIVE_STATE" == "valid" ]]; then
+  SERVICE_STATUS="online"
+elif [[ "$TOKEN_LIVE_STATE" == "missing" || "$TOKEN_LIVE_STATE" == "invalid" || "$AUTH_STATE" == "missing" ]]; then
+  SERVICE_STATUS="unauthorized"
+fi
+[[ "$SERVICE_STATUS" == "online" ]] || SCHEMA_SOURCE="cached"
+[[ "$OPENAPI_CACHE_STATE" == "ready" ]] || SCHEMA_SOURCE="cached"
+if [[ "$SERVICE_STATUS" != "online" || "$OPENAPI_CACHE_STATE" != "ready" ]]; then
   HEALTH="degraded"
 fi
 
@@ -303,6 +329,15 @@ if [[ "$GM_STATUS_FORMAT" == "json" ]]; then
     --arg permission "$TOKEN_PERMISSION_STATE" \
     --arg path "$FALLBACK_PATH" \
     --arg state "$FALLBACK_STATE" \
+    --arg openapiPath "$OPENAPI_PATH" \
+    --arg openapiState "$OPENAPI_CACHE_STATE" \
+    --arg graphLayer "$GRAPH_LAYER" \
+    --arg strategicLayer "$STRATEGIC_LAYER" \
+    --arg kpiLayer "$KPI_LAYER" \
+    --arg serviceStatus "$SERVICE_STATUS" \
+    --arg schemaSource "$SCHEMA_SOURCE" \
+    --arg schemaAgeSeconds "$SCHEMA_AGE_SECONDS" \
+    --arg schemaRevision "$SCHEMA_REVISION" \
     --argjson tenantContext "$TENANT_CONTEXT_JSON" \
     --argjson pending "$PENDING_WRITES" \
     '{
@@ -311,7 +346,16 @@ if [[ "$GM_STATUS_FORMAT" == "json" ]]; then
         auth:$auth,
         token:{liveState:$live, permissionState:$permission},
         tenantSchemaContext:$tenantContext,
-        fallback:{path:$path, state:$state, pendingWrites:$pending}
+        fallback:{path:$path, state:$state, pendingWrites:$pending},
+        service_status:$serviceStatus,
+        schema_source:$schemaSource,
+        schema_age_seconds:$schemaAgeSeconds,
+        schema_revision:$schemaRevision,
+        schemaCache:{
+          path:$openapiPath,
+          state:$openapiState,
+          layers:{graph:$graphLayer, strategic:$strategicLayer, kpi:$kpiLayer}
+        }
       }
     }'
 else
@@ -335,11 +379,18 @@ else
 
   printf 'graymatter_auth=%s\n' "$AUTH_KV"
   printf 'graymatter_token_state=%s\n' "$TOKEN_STATE"
+  printf 'service_status=%s\n' "$SERVICE_STATUS"
   printf 'tenant_schema_context=%s\n' "$TENANT_CONTEXT_STATE"
   [[ -n "$TENANT_CONTEXT_SCHEMA" ]] && printf 'tenant_schema_name=%s\n' "$TENANT_CONTEXT_SCHEMA"
   [[ -n "$TENANT_CONTEXT_SOURCE" ]] && printf 'tenant_schema_source=%s\n' "$TENANT_CONTEXT_SOURCE"
   printf 'memory_layer=%s\n' "$MEMORY_LAYER"
-  printf 'graph_layer=%s\n' "$(openapi_layer_state graph '.paths | keys | any(.[]; test("^(/v1)?/(SwarmOps/graph|swarm-ops/graph|swarm/agents|Agent)(/|$)"))')"
-  printf 'strategic_layer=%s\n' "$(openapi_layer_state strategic '.paths | keys | any(.[]; test("^(/v1)?/(StrategicRecord|StrategicPriority|Goal)(/|$)"))')"
-  printf 'kpi_layer=%s\n' "$(openapi_layer_state kpi '.paths | keys | any(.[]; test("^(/v1)?/(KPIRecord|KeyMetric)(/|$)"))')"
+  printf 'openapi_schema_cache=%s\n' "$OPENAPI_CACHE_STATE"
+  printf 'openapi_schema_cache_path=%s\n' "$OPENAPI_PATH"
+  printf 'schema_source=%s\n' "$SCHEMA_SOURCE"
+  printf 'schema_cache=%s\n' "$OPENAPI_CACHE_STATE"
+  printf 'schema_age_seconds=%s\n' "$SCHEMA_AGE_SECONDS"
+  printf 'schema_revision=%s\n' "$SCHEMA_REVISION"
+  printf 'graph_layer=%s\n' "$GRAPH_LAYER"
+  printf 'strategic_layer=%s\n' "$STRATEGIC_LAYER"
+  printf 'kpi_layer=%s\n' "$KPI_LAYER"
 fi

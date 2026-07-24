@@ -238,6 +238,84 @@ test('memory_query falls back to lexical MemoryEntry list when embeddings quota 
   }
 });
 
+test('unexpected endpoint failure performs one bounded schema resync and retries the live operation', async () => {
+  let writeAttempts = 0;
+  let resyncs = 0;
+  const fakeApi = http.createServer(async (req, res) => {
+    await readBody(req);
+    if (req.method === 'POST' && req.url === '/v1/MemoryEntry/write') {
+      writeAttempts += 1;
+      if (writeAttempts === 1) {
+        res.writeHead(404, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ code: 'ENDPOINT_NOT_FOUND', message: 'route changed' }));
+        return;
+      }
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ id: 'memory-after-resync' }));
+      return;
+    }
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ ok: true }));
+  });
+  const apiBase = await listen(fakeApi);
+  const server = createGrayMatterMcpServer({
+    apiBase: apiBase + '/v1',
+    token: 'test-token',
+    schemaRefreshProvider: async () => {
+      resyncs += 1;
+      return true;
+    }
+  });
+  const baseUrl = await listen(server);
+
+  try {
+    const body = await postRpc(baseUrl, {
+      jsonrpc: '2.0',
+      id: 'resync',
+      method: 'tools/call',
+      params: {
+        name: 'memory_write',
+        arguments: { type: 'context', text: 'retry after schema refresh' }
+      }
+    });
+    assert.equal(body.result.content[0].text, JSON.stringify({ id: 'memory-after-resync' }));
+    assert.equal(writeAttempts, 2);
+    assert.equal(resyncs, 1);
+  } finally {
+    await closeServers(server, fakeApi);
+  }
+});
+
+test('schema discovery falls back to a stale cache only during an api-0 outage', async () => {
+  const fakeApi = createFakeApi(503, { message: 'api-0 unavailable' });
+  const apiBase = await listen(fakeApi);
+  const server = createGrayMatterMcpServer({
+    apiBase: `${apiBase}/v1`,
+    schemaCacheProvider: async () => ({
+      info: { title: 'Cached API', version: '2026.06' },
+      tags: [{ name: 'MemoryEntry' }],
+      paths: { '/MemoryEntry': {}, '/MemoryEntry/{id}': {} }
+    })
+  });
+  const baseUrl = await listen(server);
+
+  try {
+    const body = await postRpc(baseUrl, {
+      jsonrpc: '2.0',
+      id: 'cached-schema',
+      method: 'tools/call',
+      params: { name: 'schema_summary', arguments: {} }
+    });
+    const summary = JSON.parse(body.result.content[0].text);
+    assert.equal(summary.schemaSource, 'cached');
+    assert.equal(summary.schemaCacheState, 'stale');
+    assert.equal(summary.pathCount, 2);
+    assert.deepEqual(summary.entities, ['MemoryEntry']);
+  } finally {
+    await closeServers(server, fakeApi);
+  }
+});
+
 test('memory_query returns auth recovery for 401', async () => {
   const fakeApi = createFakeApi(401, { message: 'token expired' });
   const apiBase = await listen(fakeApi);

@@ -43,7 +43,9 @@ clear_degraded_activation() {
 
 export VALKYR_API_BASE="$BASE"
 if [[ -x "${SCRIPT_DIR}/gm-self-update" ]]; then
-  "${SCRIPT_DIR}/gm-self-update" "$SELF_UPDATE_MODE" || true
+  if ! "${SCRIPT_DIR}/gm-self-update" "$SELF_UPDATE_MODE"; then
+    echo "GrayMatter activation: signed release check failed; continuing with the current installed version" >&2
+  fi
 fi
 if [[ -z "$USERNAME_ENV" || -z "$PASSWORD_ENV" ]]; then
   echo "GrayMatter username/password not found in environment; gm-login will attempt keychain-based reauth before interactive fallback" >&2

@@ -277,14 +277,17 @@ After that, GrayMatter is ready to use as primary durable memory and schema cont
 
 ## Startup and self-healing
 
+The MCP entrypoint is `scripts/gm-mcp-launcher`. It performs a bounded signed-release check, auth/connectivity check, conditional OpenAPI refresh, and authenticated tenant-context replay check before it execs Node. Startup failures are surfaced on stderr; the MCP protocol stream remains clean, and a valid stale schema is discovery-only.
+
 Every Codex/OpenClaw/agent process using GrayMatter should:
 
-1. run `scripts/gm-self-update maybe` on startup
-2. run `scripts/gm-activate` on first install, auth failure, suspicious transport behavior, or after a weekly refresh is due
+1. use `scripts/gm-mcp-launcher` for MCP startup
+2. run `scripts/gm-activate` on first install, auth failure, suspicious transport behavior, or after a refresh is due
 3. rely on `scripts/gm-login` to store reusable auth in the OS keychain when available
 4. let `scripts/graymatter_api.sh` and the MCP server refresh expired process-scoped auth automatically
-5. run `scripts/gm-doctor --quick` after startup, plugin updates, or suspicious auth/transport behavior
-6. run `scripts/gm-replay-deferred` after auth, credits, or connectivity are restored
+5. use `scripts/gm-openapi-sync` for online-first ETag validation; scoped metadata must report freshness, revision, API base, tenant/principal fingerprints, and document SHA-256
+6. run `scripts/gm-doctor --quick` after startup, plugin updates, or suspicious auth/transport behavior
+7. run `scripts/gm-replay-deferred` only after authenticated connectivity and authorized tenant context are restored
 
 User-facing progress should stay simple:
 

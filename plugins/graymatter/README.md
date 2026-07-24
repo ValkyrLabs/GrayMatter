@@ -227,7 +227,9 @@ Rule:
 - `scripts/gm-login` — login helper
 - `scripts/gm-activate` — one-shot auth + install + agent registration + schema sync bootstrap
 - `scripts/gm-activation-fastlane` — first-run readiness, one-shot activation, non-secret telemetry, and reviewer-safe demo runner
-- `scripts/gm-self-update` — repo/plugin self-update check for startup, weekly refresh, and auth/connectivity recovery
+- `scripts/gm-mcp-launcher` — portable MCP startup sequence for signed release checks, auth, conditional schema refresh, replay gating, and clean stdio handoff
+- `scripts/gm-schema-cache-lib` — scoped OpenAPI cache identity, metadata, freshness, and lock helpers
+- `scripts/gm-self-update` — signed stable-release staging, atomic version switching, keyed state/locks, and rollback
 - `scripts/gm-install-check` — dependency and auth readiness check
 - `scripts/gm-doctor` — full readiness report for self-update, auth, memory, schema, MCP, replay, and smoke status
 - `scripts/gm-smoke` — production smoke test for write/query validation
@@ -239,7 +241,7 @@ Rule:
 - `scripts/gm-fallback-append` — append failed writes to local replay queue at `memory/graymatter-fallback.json`
 - `scripts/gm-replay-deferred` — replay operations that were locally deferred during credit/connectivity/auth outages
 - `scripts/gm-graph` — inspect Swarm graph endpoints
-- `scripts/gm-openapi-sync` — fetch and cache the live OpenAPI spec locally
+- `scripts/gm-openapi-sync` — online-first conditional OpenAPI refresh with ETag, private scoped cache metadata, validation, and atomic replacement
 - `scripts/gm-openapi-summary` — summarize live schema domains and endpoints
 - `scripts/gm-status` — quick health/status surface for auth source, fallback queue, and OpenAPI cache
 - `scripts/gm-agent-smoke-matrix` — install/read-search/write/MCP/schema/safe-response readiness matrix for OpenClaw and Codex-style agents
@@ -328,9 +330,9 @@ Supported env inputs:
 
 `scripts/gm-register-agent` is part of the expected startup handshake. When an OpenClaw server connects to api-0, it should create or refresh an Agent record for itself before proceeding with normal work.
 
-`scripts/gm-self-update` is the normal plugin/repo update path. Agents should run it on startup and when auth or transport looks suspicious. It updates clean git checkouts with a fast-forward pull and updates packaged installs from `https://github.com/ValkyrLabs/GrayMatter.git` when the weekly interval is due or `force` is requested; activation uses `force` unless overridden. Dirty git checkouts are never overwritten.
+`scripts/gm-mcp-launcher` is the normal MCP entrypoint. It runs a bounded `gm-self-update startup`, auth/connectivity check, conditional schema refresh, and replay preflight before handing stdout to Node. `scripts/gm-self-update` accepts only signed stable manifests with content-addressed, signature-verified artifacts; it stages into a versioned installation root, switches state atomically, preserves rollback, and never rewrites a running Codex plugin-cache directory. Update failures are recorded and surfaced.
 
-`scripts/graymatter_api.sh` and the MCP server perform autonomous auth refresh when the stored token expires or api-0 returns a refreshable auth failure. Replay-safe write operations blocked by credits or transport can be deferred and retried with `scripts/gm-replay-deferred`.
+`scripts/graymatter_api.sh` and the MCP server perform autonomous auth refresh when the stored token expires or api-0 returns a refreshable auth failure. A schema revision/route failure gets one bounded online schema resync and retry. Replay-safe write operations blocked by credits or transport can be deferred and retried with `scripts/gm-replay-deferred` only after authenticated connectivity and authorized tenant context are restored.
 
 At that point the install should be immediately usable.
 

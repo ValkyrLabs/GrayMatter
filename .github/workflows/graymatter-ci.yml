@@ -1,0 +1,45 @@
+name: GrayMatter CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  shell-and-mcp:
+    name: Shell Suite And MCP Contracts
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install system tools
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y jq zip unzip
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Verify test scripts are directly executable
+        run: |
+          set -euo pipefail
+          find tests -maxdepth 1 -name '*.sh' -type f -print | sort | while IFS= read -r test_script; do
+            test -x "$test_script"
+          done
+
+      - name: Run direct shell test sweep
+        run: |
+          set -euo pipefail
+          for test_script in tests/*.sh; do
+            "$test_script"
+          done
+
+      - name: Run MCP server tests
+        run: |
+          set -euo pipefail
+          npm test --prefix mcp-server

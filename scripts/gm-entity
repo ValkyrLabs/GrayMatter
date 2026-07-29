@@ -12,6 +12,10 @@ usage() {
   echo "  gm-entity <Entity> <id>           # get via GET /<Entity>/<id>" >&2
   echo "  gm-entity <Entity> POST '<json>'  # create via POST /<Entity>" >&2
   echo "  gm-entity <Entity> PUT  '<json>'  # replace via PUT /<Entity>" >&2
+  echo "  gm-entity <Entity> PATCH '<json>' # patch via PATCH /<Entity>" >&2
+  echo "  gm-entity <Entity> <id> PUT  '<json>'  # replace via PUT /<Entity>/<id>" >&2
+  echo "  gm-entity <Entity> <id> PATCH '<json>' # patch via PATCH /<Entity>/<id>" >&2
+  echo "  gm-entity <Entity> <id> DELETE          # delete via DELETE /<Entity>/<id>" >&2
   echo "  gm-entity <Entity> PATCH '<json>'      # patch via PATCH /<Entity>" >&2
   echo "  gm-entity <Entity> PATCH <id> '<json>' # patch via PATCH /<Entity>/<id>" >&2
 }
@@ -69,6 +73,16 @@ case "$ARG2" in
     exec "${SCRIPT_DIR}/graymatter_api.sh" "$METHOD" "$TARGET" "$BODY"
     ;;
   *)
-    exec "${SCRIPT_DIR}/graymatter_api.sh" GET "/${ENTITY}/${ARG2}"
+    case "$ARG3" in
+      GET|get|POST|post|PUT|put|PATCH|patch|DELETE|delete)
+        METHOD="$(printf '%s' "$ARG3" | tr '[:lower:]' '[:upper:]')"
+        BODY="${ARG4:-}"
+        validate_entity_payload "$ENTITY" "$BODY"
+        exec "${SCRIPT_DIR}/graymatter_api.sh" "$METHOD" "/${ENTITY}/${ARG2}" "$BODY"
+        ;;
+      *)
+        exec "${SCRIPT_DIR}/graymatter_api.sh" GET "/${ENTITY}/${ARG2}"
+        ;;
+    esac
     ;;
 esac

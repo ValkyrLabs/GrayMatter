@@ -40,6 +40,8 @@ REQUIRED=(
   scripts/gm-mcp-contract
   scripts/gm-agent-smoke-matrix
   scripts/gm-status
+  scripts/gm-schema-cache-lib
+  scripts/gm-mcp-launcher
   scripts/smoke-test-public-mcp.sh
   scripts/gm-write
   scripts/gm-record

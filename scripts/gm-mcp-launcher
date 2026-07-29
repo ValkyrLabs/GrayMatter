@@ -1,0 +1,76 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PLUGIN_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+NODE_BIN="${GRAYMATTER_NODE:-node}"
+STARTUP_TIMEOUT="${GRAYMATTER_MCP_STARTUP_TIMEOUT_SECONDS:-35}"
+export GRAYMATTER_MCP_STARTUP="true"
+# Keep startup network work bounded even on macOS, where `timeout` is usually
+# unavailable and the child scripts otherwise use their normal request budget.
+export GRAYMATTER_CURL_CONNECT_TIMEOUT="${GRAYMATTER_MCP_STARTUP_CONNECT_TIMEOUT_SECONDS:-3}"
+export GRAYMATTER_CURL_MAX_TIME="${GRAYMATTER_MCP_STARTUP_CURL_MAX_TIME_SECONDS:-8}"
+
+if [[ -z "${GRAYMATTER_OPENAPI_CACHE_PATH:-}" ]]; then
+  SCHEMA_API_BASE="${VALKYR_API_BASE:-https://api-0.valkyrlabs.com/v1}"
+  SCHEMA_API_BASE="${SCHEMA_API_BASE%/}"
+  SCHEMA_TOKEN="$(source "$SCRIPT_DIR/gm-schema-cache-lib"; gm_schema_current_token)"
+  export GRAYMATTER_OPENAPI_CACHE_PATH="$(source "$SCRIPT_DIR/gm-schema-cache-lib"; gm_schema_cache_path "$PLUGIN_ROOT" "$SCHEMA_API_BASE" "$SCHEMA_TOKEN")"
+fi
+
+log() {
+  printf 'graymatter-mcp-startup: %s\n' "$*" >&2
+}
+
+run_bounded() {
+  local label="$1"
+  shift
+  if command -v timeout >/dev/null 2>&1; then
+    timeout "$STARTUP_TIMEOUT" "$@"
+    return $?
+  fi
+  "$@"
+}
+
+if [[ "${GRAYMATTER_SKIP_SELF_UPDATE:-false}" != "true" && -x "$SCRIPT_DIR/gm-self-update" ]]; then
+  if ! run_bounded release-check "$SCRIPT_DIR/gm-self-update" startup >/dev/null; then
+    log "release check failed; continuing with the last installed version"
+  fi
+fi
+
+if [[ "${GRAYMATTER_UPDATE_RESTART:-false}" != "true" && -x "$SCRIPT_DIR/gm-self-update" ]]; then
+  ACTIVE_ROOT="$("$SCRIPT_DIR/gm-self-update" active-root 2>/dev/null || true)"
+  if [[ -n "$ACTIVE_ROOT" && "$ACTIVE_ROOT" != "$PLUGIN_ROOT" && -x "$ACTIVE_ROOT/scripts/gm-mcp-launcher" ]]; then
+    exec env GRAYMATTER_UPDATE_RESTART=true "$ACTIVE_ROOT/scripts/gm-mcp-launcher" "$@"
+  fi
+fi
+
+AUTH_READY=false
+if [[ "${GRAYMATTER_SKIP_STARTUP_AUTH:-false}" != "true" ]]; then
+  AUTH_LOG="$(mktemp "${TMPDIR:-/tmp}/graymatter-auth-check.XXXXXX")"
+  if run_bounded auth-check "$SCRIPT_DIR/graymatter_api.sh" GET auth/me >/dev/null 2>"$AUTH_LOG"; then
+    AUTH_READY=true
+    log "authentication ready"
+    rm -f "$AUTH_LOG"
+  else
+    log "authentication unavailable; MCP will expose recovery/degraded behavior"
+    rm -f "$AUTH_LOG"
+  fi
+fi
+
+if [[ "${GRAYMATTER_SKIP_OPENAPI_SYNC:-false}" != "true" && -x "$SCRIPT_DIR/gm-openapi-sync" ]]; then
+  if ! run_bounded schema-refresh "$SCRIPT_DIR/gm-openapi-sync" >/dev/null; then
+    log "OpenAPI refresh failed; cached discovery remains available only when valid and stale"
+  else
+    log "OpenAPI cache checked"
+  fi
+fi
+
+if [[ "$AUTH_READY" == "true" && -x "$SCRIPT_DIR/gm-replay-deferred" ]]; then
+  if ! run_bounded deferred-replay "$SCRIPT_DIR/gm-replay-deferred" --limit "${GRAYMATTER_STARTUP_REPLAY_LIMIT:-25}" >/dev/null; then
+    log "deferred replay did not complete; queued writes were preserved"
+  fi
+fi
+
+cd "$PLUGIN_ROOT"
+exec "$NODE_BIN" "$PLUGIN_ROOT/mcp-server/index.js" --stdio "$@"

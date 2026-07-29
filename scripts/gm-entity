@@ -16,6 +16,8 @@ usage() {
   echo "  gm-entity <Entity> <id> PUT  '<json>'  # replace via PUT /<Entity>/<id>" >&2
   echo "  gm-entity <Entity> <id> PATCH '<json>' # patch via PATCH /<Entity>/<id>" >&2
   echo "  gm-entity <Entity> <id> DELETE          # delete via DELETE /<Entity>/<id>" >&2
+  echo "  gm-entity <Entity> PATCH '<json>'      # patch via PATCH /<Entity>" >&2
+  echo "  gm-entity <Entity> PATCH <id> '<json>' # patch via PATCH /<Entity>/<id>" >&2
 }
 
 if [[ -z "$ENTITY" || "$ENTITY" == "-h" || "$ENTITY" == "--help" ]]; then
@@ -61,9 +63,14 @@ fi
 case "$ARG2" in
   GET|get|POST|post|PUT|put|PATCH|patch|DELETE|delete)
     METHOD="$(printf '%s' "$ARG2" | tr '[:lower:]' '[:upper:]')"
-    BODY="${ARG3:-}"
+    TARGET="/${ENTITY}"
+    BODY="$ARG3"
+    if [[ "$METHOD" == "PATCH" && -n "$ARG4" ]]; then
+      TARGET="/${ENTITY}/${ARG3}"
+      BODY="$ARG4"
+    fi
     validate_entity_payload "$ENTITY" "$BODY"
-    exec "${SCRIPT_DIR}/graymatter_api.sh" "$METHOD" "/${ENTITY}" "$BODY"
+    exec "${SCRIPT_DIR}/graymatter_api.sh" "$METHOD" "$TARGET" "$BODY"
     ;;
   *)
     case "$ARG3" in

@@ -33,4 +33,20 @@ fi
 grep -q "Note.content is 256 characters" /tmp/gm-entity-long-note.out
 grep -q "MemoryEntry/ContentData" /tmp/gm-entity-long-note.out
 
+TMP_DIR="$(mktemp -d)"
+trap 'rm -rf "$TMP_DIR"' EXIT
+cp "$ROOT_DIR/scripts/gm-entity" "$TMP_DIR/gm-entity"
+cat >"$TMP_DIR/graymatter_api.sh" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$@"
+EOF
+chmod +x "$TMP_DIR/gm-entity" "$TMP_DIR/graymatter_api.sh"
+
+patch_output="$(bash "$TMP_DIR/gm-entity" Lead PATCH lead-123 '{"stage":"QUALIFIED"}')"
+expected_patch_output=$'PATCH\n/Lead/lead-123\n{"stage":"QUALIFIED"}'
+[[ "$patch_output" == "$expected_patch_output" ]] || {
+  echo "expected object PATCH route, got: $patch_output" >&2
+  exit 1
+}
+
 echo "gm_entity_test: ok"

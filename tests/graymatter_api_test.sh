@@ -741,6 +741,21 @@ test_curl_requests_use_default_timeouts() {
   assert_contains "${curl_log}" "--max-time 60" "graymatter_api should set a default total request timeout"
 }
 
+test_entity_posts_send_json_content_type() {
+  local temp_root="$1"
+  local fake_bin="$2"
+  local script_copy="$3"
+
+  export TEST_CURL_SCENARIO="success"
+
+  PATH="${fake_bin}:/usr/local/bin:/usr/bin:/bin" \
+  TMPDIR="${temp_root}" \
+  VALKYR_AUTH_TOKEN=test-token \
+  "${script_copy}" POST /ContentData '{"title":"transport contract"}' >/dev/null 2>&1
+
+  assert_contains "$(cat "${temp_root}/curl.log")" "-H content-type: application/json" "entity POST requests must declare JSON content type"
+}
+
 test_success_uses_fallback_tempdir_when_default_tmp_fails() {
   local _temp_root="$1"
   local fake_bin="$2"
@@ -1004,6 +1019,7 @@ with_fixture test_unauthorized_refreshes_token_from_keychain_credentials
 with_fixture test_missing_token_runs_login_before_request
 with_fixture test_expired_keychain_token_refreshes_before_original_request
 with_fixture test_curl_requests_use_default_timeouts
+with_fixture test_entity_posts_send_json_content_type
 with_fixture test_success_uses_fallback_tempdir_when_default_tmp_fails
 with_fixture test_write_uses_stateful_cookie_and_xsrf_after_login
 with_fixture test_memory_write_access_denied_names_missing_permission

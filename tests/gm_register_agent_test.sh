@@ -42,6 +42,7 @@ EOF
 chmod +x "${script_dir}/graymatter_api.sh"
 
 export TEST_API_LOG="${temp_root}/api.log"
+export GRAYMATTER_PLUGIN_VERSION="0.3.1-test"
 
 "${script_dir}/gm-register-agent" "codex-test-instance" "Codex" "coding-agent"
 
@@ -55,6 +56,7 @@ assert_jq "${body}" '.metadata | type == "string"' "gm-register-agent should JSO
 assert_jq "${metadata}" '.name == "Codex"' "gm-register-agent should identify the agent runtime"
 assert_jq "${metadata}" '.role == "coding-agent"' "gm-register-agent should include the agent role"
 assert_jq "${metadata}" '.primaryMemory == "GrayMatter"' "gm-register-agent should advertise GrayMatter as the memory layer"
+assert_jq "${metadata}" '.version == "0.3.1-test"' "gm-register-agent should advertise its installed plugin version"
 
 export GRAYMATTER_SWARM_ID="codex-env-instance"
 export GRAYMATTER_AGENT_NAME="Env Codex"

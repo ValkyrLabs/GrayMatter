@@ -2,25 +2,138 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-OUT_JSON="${1:-${ROOT}/tmp/api-docs.json}"
+ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+REQUESTED_OUT="${1-}"
+BASE="${VALKYR_API_BASE-https://api-0.valkyrlabs.com/v1}"
+BASE="$(printf '%s' "$BASE" | sed 's:/*$::')"
+source "$SCRIPT_DIR/gm-schema-cache-lib"
+TOKEN="$(gm_schema_current_token)"
+OUT_JSON="$(gm_schema_cache_path "$ROOT" "$BASE" "$TOKEN" "$REQUESTED_OUT")"
+META_JSON="$(gm_schema_cache_meta_path "$OUT_JSON")"
+LOCK_PATH="$(gm_schema_cache_lock_path "$OUT_JSON")"
 mkdir -p "$(dirname "$OUT_JSON")"
 
-OPENAPI_SYNC_CURL_MAX_TIME="${GRAYMATTER_OPENAPI_SYNC_CURL_MAX_TIME:-120}"
-export GRAYMATTER_CURL_MAX_TIME="${GRAYMATTER_CURL_MAX_TIME:-$OPENAPI_SYNC_CURL_MAX_TIME}"
+OPENAPI_SYNC_CURL_MAX_TIME="${GRAYMATTER_OPENAPI_SYNC_CURL_MAX_TIME-30}"
+export GRAYMATTER_CURL_MAX_TIME="${GRAYMATTER_CURL_MAX_TIME-$OPENAPI_SYNC_CURL_MAX_TIME}"
 
-TMP_JSON="$(mktemp -t graymatter-api-docs.XXXXXX)"
+if ! gm_schema_cache_lock_acquire "$LOCK_PATH" "${GRAYMATTER_OPENAPI_LOCK_WAIT_SECONDS-20}"; then
+  echo "gm-openapi-sync: another startup holds the schema cache lock" >&2
+  exit 75
+fi
+BODY_TMP=""
+HEADERS_TMP=""
+STATUS_TMP=""
+META_TMP=""
 cleanup() {
-  rm -f "$TMP_JSON"
+  gm_schema_cache_lock_release "$LOCK_PATH"
+  rm -f "$BODY_TMP" "$HEADERS_TMP" "$STATUS_TMP" "$META_TMP"
 }
 trap cleanup EXIT
 
-"${SCRIPT_DIR}/graymatter_api.sh" GET /api-docs >"$TMP_JSON"
-
-if command -v jq >/dev/null 2>&1; then
-  jq . "$TMP_JSON" >"$OUT_JSON"
-else
-  cp "$TMP_JSON" "$OUT_JSON"
+ETAG=""
+LAST_MODIFIED=""
+if [[ -f "$META_JSON" ]]; then
+  ETAG="$(jq -r '.etag // empty' "$META_JSON" 2>/dev/null || true)"
+  LAST_MODIFIED="$(jq -r '.lastModified // empty' "$META_JSON" 2>/dev/null || true)"
 fi
 
+BODY_TMP="$(mktemp "$(dirname "$OUT_JSON")/.api-docs.XXXXXX")"
+HEADERS_TMP="$(mktemp "$(dirname "$OUT_JSON")/.api-docs-headers.XXXXXX")"
+STATUS_TMP="$(mktemp "$(dirname "$OUT_JSON")/.api-docs-status.XXXXXX")"
+export GRAYMATTER_API_RESPONSE_HEADERS="$HEADERS_TMP"
+export GRAYMATTER_API_RESPONSE_STATUS="$STATUS_TMP"
+export GRAYMATTER_OPENAPI_IF_NONE_MATCH="$ETAG"
+export GRAYMATTER_OPENAPI_IF_MODIFIED_SINCE="$LAST_MODIFIED"
+
+set +e
+"$SCRIPT_DIR/graymatter_api.sh" GET /api-docs >"$BODY_TMP"
+REQUEST_STATUS=$?
+set -e
+HTTP_STATUS="$(cat "$STATUS_TMP" 2>/dev/null || true)"
+
+if [[ "$REQUEST_STATUS" -ne 0 && "$HTTP_STATUS" != "304" ]]; then
+  if [[ -f "$META_JSON" ]]; then
+    META_TMP="$(mktemp "$(dirname "$META_JSON")/.api-docs-meta.XXXXXX")"
+    jq --arg checkedAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --argjson checkedAtEpoch "$(date +%s)" \
+      '.lastCheckedAt=$checkedAt | .lastCheckedAtEpoch=$checkedAtEpoch | .lastOutcome="offline" | .schemaSource="cached"' \
+      "$META_JSON" >"$META_TMP"
+    chmod 600 "$META_TMP"
+    mv -f "$META_TMP" "$META_JSON"
+    META_TMP=""
+  fi
+  echo "gm-openapi-sync: api-0 unavailable; preserving last valid schema cache at $OUT_JSON" >&2
+  exit "$REQUEST_STATUS"
+fi
+
+if [[ "$HTTP_STATUS" == "304" ]]; then
+  if ! gm_schema_cache_json_valid "$OUT_JSON" || ! gm_schema_cache_metadata_matches "$META_JSON" "$BASE" "$TOKEN"; then
+    echo "gm-openapi-sync: api-0 returned 304 but the scoped cache is not valid" >&2
+    exit 65
+  fi
+  NOW="$(date +%s)"
+  META_TMP="$(mktemp "$(dirname "$META_JSON")/.api-docs-meta.XXXXXX")"
+  jq --arg checkedAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --argjson checkedAtEpoch "$NOW" \
+    --arg fetchedAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --argjson fetchedAtEpoch "$NOW" \
+    '.lastCheckedAt=$checkedAt | .lastCheckedAtEpoch=$checkedAtEpoch | .fetchedAt=$fetchedAt | .fetchedAtEpoch=$fetchedAtEpoch | .lastOutcome="304" | .schemaSource="live"' \
+    "$META_JSON" >"$META_TMP"
+  chmod 600 "$META_TMP"
+  mv -f "$META_TMP" "$META_JSON"
+  printf '%s\n' "$OUT_JSON"
+  exit 0
+fi
+
+if [[ "$HTTP_STATUS" != 2* || ! -s "$BODY_TMP" ]] || ! gm_schema_cache_json_valid "$BODY_TMP"; then
+  CACHE_OUTCOME="invalid"
+  if [[ "$HTTP_STATUS" == "401" || "$HTTP_STATUS" == "403" ]]; then
+    CACHE_OUTCOME="unauthorized"
+  fi
+  if [[ -f "$META_JSON" ]]; then
+    META_TMP="$(mktemp "$(dirname "$META_JSON")/.api-docs-meta.XXXXXX")"
+    jq --arg checkedAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --argjson checkedAtEpoch "$(date +%s)" --arg outcome "$CACHE_OUTCOME" \
+      '.lastCheckedAt=$checkedAt | .lastCheckedAtEpoch=$checkedAtEpoch | .lastOutcome=$outcome | .schemaSource="cached"' \
+      "$META_JSON" >"$META_TMP"
+    chmod 600 "$META_TMP"
+    mv -f "$META_TMP" "$META_JSON"
+    META_TMP=""
+  fi
+  echo "gm-openapi-sync: api-0 returned an invalid OpenAPI document; preserving the previous cache" >&2
+  exit 65
+fi
+
+IDENTITY="$(gm_schema_identity "$BASE" "$TOKEN")"
+NOW="$(date +%s)"
+DOC_SHA="$(gm_schema_sha256 "$BODY_TMP")"
+ETAG_RESPONSE="$(tr -d '\r' <"$HEADERS_TMP" | awk 'tolower($1)=="etag:" {$1=""; sub(/^[[:space:]]+/, ""); print; exit}')"
+LAST_MODIFIED_RESPONSE="$(tr -d '\r' <"$HEADERS_TMP" | awk 'tolower($1)=="last-modified:" {$1=""; sub(/^[[:space:]]+/, ""); print; exit}')"
+BUILD_REVISION="$(tr -d '\r' <"$HEADERS_TMP" | awk 'tolower($1) ~ /^x-(server-)?(build-)?revision:/ {$1=""; sub(/^[[:space:]]+/, ""); print; exit}')"
+SCHEMA_REVISION="$(tr -d '\r' <"$HEADERS_TMP" | awk 'tolower($1)=="x-schema-revision:" {$1=""; sub(/^[[:space:]]+/, ""); print; exit}')"
+SPEC_VERSION="$(jq -r '.openapi // .swagger // .info.version // "unknown"' "$BODY_TMP")"
+[[ -n "$SCHEMA_REVISION" ]] || SCHEMA_REVISION="$(jq -r '."x-schema-revision" // .info."x-schema-revision" // .info.version // "unknown"' "$BODY_TMP")"
+[[ -n "$BUILD_REVISION" ]] || BUILD_REVISION="$(jq -r '."x-build-revision" // .info."x-build-revision" // "unknown"' "$BODY_TMP")"
+
+chmod 600 "$BODY_TMP"
+mv -f "$BODY_TMP" "$OUT_JSON"
+BODY_TMP=""
+
+META_TMP="$(mktemp "$(dirname "$META_JSON")/.api-docs-meta.XXXXXX")"
+jq -n \
+  --arg fetchedAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+  --argjson fetchedAtEpoch "$NOW" \
+  --arg checkedAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+  --argjson checkedAtEpoch "$NOW" \
+  --arg apiBase "$BASE" \
+  --arg environmentFingerprint "$(jq -r '.environmentFingerprint' <<<"$IDENTITY")" \
+  --arg tenantFingerprint "$(jq -r '.tenantFingerprint' <<<"$IDENTITY")" \
+  --arg principalFingerprint "$(jq -r '.principalFingerprint' <<<"$IDENTITY")" \
+  --arg scopeFingerprint "$(jq -r '.scopeFingerprint' <<<"$IDENTITY")" \
+  --arg etag "$ETAG_RESPONSE" \
+  --arg lastModified "$LAST_MODIFIED_RESPONSE" \
+  --arg serverBuildRevision "$BUILD_REVISION" \
+  --arg schemaRevision "$SCHEMA_REVISION" \
+  --arg documentSha256 "$DOC_SHA" \
+  --arg specVersion "$SPEC_VERSION" \
+  '{fetchedAt:$fetchedAt,fetchedAtEpoch:$fetchedAtEpoch,lastCheckedAt:$checkedAt,lastCheckedAtEpoch:$checkedAtEpoch,lastOutcome:"200",schemaSource:"live",apiBase:$apiBase,environmentFingerprint:$environmentFingerprint,tenantFingerprint:$tenantFingerprint,principalFingerprint:$principalFingerprint,scopeFingerprint:$scopeFingerprint,etag:$etag,lastModified:$lastModified,serverBuildRevision:$serverBuildRevision,schemaRevision:$schemaRevision,documentSha256:$documentSha256,specVersion:$specVersion}' \
+  >"$META_TMP"
+chmod 600 "$META_TMP"
+mv -f "$META_TMP" "$META_JSON"
 printf '%s\n' "$OUT_JSON"

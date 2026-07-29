@@ -32,6 +32,7 @@ output="$(
   GRAYMATTER_DEFERRED_DIR="$deferred_dir" \
   GRAYMATTER_CREDIT_EVENTS_PATH="${tmp}/credit-events.jsonl" \
   GRAYMATTER_API_SCRIPT="$api_stub" \
+  GRAYMATTER_SKIP_REPLAY_PREFLIGHT=true \
   "$SCRIPT"
 )"
 
@@ -58,6 +59,7 @@ fail_output="$(
   GRAYMATTER_DEFERRED_DIR="$deferred_dir" \
   GRAYMATTER_CREDIT_EVENTS_PATH="${tmp}/credit-events-fail.jsonl" \
   GRAYMATTER_API_SCRIPT="$api_fail_stub" \
+  GRAYMATTER_SKIP_REPLAY_PREFLIGHT=true \
   "$SCRIPT" 2>&1
 )"
 fail_status=$?

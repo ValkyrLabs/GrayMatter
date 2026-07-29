@@ -1,0 +1,177 @@
+#!/usr/bin/env bash
+
+# Shared OpenAPI cache identity and freshness helpers. This file is sourced by
+# gm-openapi-sync and gm-status; it never prints credentials.
+
+gm_schema_sha256() {
+  local path="$1"
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$path" | awk '{print $1}'
+  else
+    shasum -a 256 "$path" | awk '{print $1}'
+  fi
+}
+
+gm_schema_hash_text() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    printf '%s' "$1" | sha256sum | awk '{print $1}'
+  else
+    printf '%s' "$1" | shasum -a 256 | awk '{print $1}'
+  fi
+}
+
+gm_schema_token_claims() {
+  local token="${1:-}"
+  local payload=""
+  local padded=""
+  local remainder=0
+  [[ -n "$token" ]] || return 1
+  payload="$(printf '%s' "$token" | cut -d'.' -f2)"
+  [[ -n "$payload" && "$payload" != "$token" ]] || return 1
+  padded="$payload"
+  remainder=$(( ${#padded} % 4 ))
+  case "$remainder" in
+    2) padded="${padded}==" ;;
+    3) padded="${padded}=" ;;
+    1) padded="${padded}===" ;;
+  esac
+  padded="$(printf '%s' "$padded" | tr '_-' '/+')"
+  printf '%s' "$padded" | base64 --decode 2>/dev/null || printf '%s' "$padded" | base64 -D 2>/dev/null
+}
+
+gm_schema_current_token() {
+  local token="${VALKYR_AUTH_TOKEN:-${VALKYR_JWT_SESSION:-}}"
+  local service="${VALKYR_KEYCHAIN_SERVICE:-VALKYR_AUTH}"
+  if [[ -z "$token" ]] && command -v security >/dev/null 2>&1; then
+    token="$(security find-generic-password -a default -s "$service" -w 2>/dev/null || true)"
+    [[ -n "$token" ]] || token="$(security find-generic-password -a default -s VALKYR_AUTH -w 2>/dev/null || true)"
+  fi
+  printf '%s' "$token"
+}
+
+gm_schema_identity() {
+  local api_base="$1"
+  local token="${2:-}"
+  local claims='{}'
+  local tenant="anonymous"
+  local principal="anonymous"
+  if [[ -n "$token" ]]; then
+    claims="$(gm_schema_token_claims "$token" 2>/dev/null || printf '{}')"
+    jq -e 'type == "object"' <<<"$claims" >/dev/null 2>&1 || claims='{}'
+    tenant="$(jq -r '.tenantId // .organizationId // .orgId // "anonymous" | tostring' <<<"$claims" 2>/dev/null || printf 'anonymous')"
+    principal="$(jq -r '.sub // .userId // .user_id // .principalId // .principal_id // .username // "anonymous" | tostring' <<<"$claims" 2>/dev/null || printf 'anonymous')"
+  fi
+  [[ -n "$tenant" && "$tenant" != "null" ]] || tenant="anonymous"
+  [[ -n "$principal" && "$principal" != "null" ]] || principal="anonymous"
+  local environment_fp tenant_fp principal_fp scope_fp
+  environment_fp="$(gm_schema_hash_text "${api_base%/}")"
+  tenant_fp="$(gm_schema_hash_text "$tenant")"
+  principal_fp="$(gm_schema_hash_text "$principal")"
+  scope_fp="$(gm_schema_hash_text "${tenant_fp}:${principal_fp}")"
+  jq -nc \
+    --arg apiBase "${api_base%/}" \
+    --arg environmentFingerprint "$environment_fp" \
+    --arg tenantFingerprint "$tenant_fp" \
+    --arg principalFingerprint "$principal_fp" \
+    --arg scopeFingerprint "$scope_fp" \
+    '{apiBase:$apiBase,environmentFingerprint:$environmentFingerprint,tenantFingerprint:$tenantFingerprint,principalFingerprint:$principalFingerprint,scopeFingerprint:$scopeFingerprint}'
+}
+
+gm_schema_cache_path() {
+  local root="$1"
+  local api_base="$2"
+  local token="${3:-}"
+  local explicit="${4:-${GRAYMATTER_OPENAPI_CACHE_PATH:-}}"
+  if [[ -n "$explicit" ]]; then
+    printf '%s\n' "$explicit"
+    return 0
+  fi
+  local identity environment_fp scope_fp
+  identity="$(gm_schema_identity "$api_base" "$token")"
+  environment_fp="$(jq -r '.environmentFingerprint' <<<"$identity")"
+  scope_fp="$(jq -r '.scopeFingerprint' <<<"$identity")"
+  printf '%s/tmp/schema-cache/%s/%s/api-docs.json\n' "${root%/}" "$environment_fp" "$scope_fp"
+}
+
+gm_schema_cache_meta_path() { printf '%s.meta.json\n' "$1"; }
+gm_schema_cache_lock_path() { printf '%s.lock\n' "$1"; }
+
+gm_schema_cache_ttl_seconds() {
+  local value="${GRAYMATTER_OPENAPI_TTL_SECONDS:-${GRAYMATTER_SCHEMA_CACHE_TTL_SECONDS:-86400}}"
+  [[ "$value" =~ ^[0-9]+$ ]] || value=86400
+  printf '%s\n' "$value"
+}
+
+gm_schema_cache_age_seconds() {
+  local meta="$1"
+  local fetched="0"
+  local now="$(date +%s)"
+  [[ -f "$meta" ]] && fetched="$(jq -r '.fetchedAtEpoch // 0' "$meta" 2>/dev/null || printf '0')"
+  [[ "$fetched" =~ ^[0-9]+$ ]] || fetched=0
+  if (( fetched <= 0 || now < fetched )); then
+    printf 'unknown\n'
+  else
+    printf '%s\n' "$((now - fetched))"
+  fi
+}
+
+gm_schema_cache_json_valid() {
+  jq -e 'type == "object" and (.paths | type == "object")' "$1" >/dev/null 2>&1
+}
+
+gm_schema_cache_metadata_matches() {
+  local meta="$1"
+  local api_base="$2"
+  local token="$3"
+  local identity="$(gm_schema_identity "$api_base" "$token")"
+  jq -e \
+    --arg apiBase "${api_base%/}" \
+    --arg environment "$(jq -r '.environmentFingerprint' <<<"$identity")" \
+    --arg scope "$(jq -r '.scopeFingerprint' <<<"$identity")" \
+    '.apiBase == $apiBase and .environmentFingerprint == $environment and .scopeFingerprint == $scope' \
+    "$meta" >/dev/null 2>&1
+}
+
+gm_schema_cache_state() {
+  local path="$1"
+  local api_base="$2"
+  local token="$3"
+  local meta="$(gm_schema_cache_meta_path "$path")"
+  if [[ ! -f "$path" || ! -f "$meta" ]]; then
+    printf 'missing\n'
+    return 0
+  fi
+  if ! gm_schema_cache_json_valid "$path" || ! gm_schema_cache_metadata_matches "$meta" "$api_base" "$token"; then
+    printf 'invalid\n'
+    return 0
+  fi
+  local age="$(gm_schema_cache_age_seconds "$meta")"
+  local ttl="$(gm_schema_cache_ttl_seconds)"
+  local outcome="$(jq -r '.lastOutcome // "unknown"' "$meta" 2>/dev/null || printf 'unknown')"
+  if [[ "$outcome" != "200" && "$outcome" != "304" ]]; then
+    printf 'stale\n'
+  elif [[ "$age" == "unknown" || "$age" -gt "$ttl" ]]; then
+    printf 'stale\n'
+  else
+    printf 'ready\n'
+  fi
+}
+
+gm_schema_cache_lock_acquire() {
+  local lock_path="$1"
+  local wait_seconds="${2:-15}"
+  local started="$(date +%s)"
+  mkdir -p "$(dirname "$lock_path")"
+  while ! mkdir "$lock_path" 2>/dev/null; do
+    if (( $(date +%s) - started >= wait_seconds )); then
+      return 1
+    fi
+    sleep 0.1
+  done
+  printf '%s\n' "$$" >"$lock_path/pid"
+}
+
+gm_schema_cache_lock_release() {
+  rm -f "$1/pid" 2>/dev/null || true
+  rmdir "$1" 2>/dev/null || true
+}

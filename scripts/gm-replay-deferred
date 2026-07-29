@@ -41,6 +41,28 @@ if [[ -n "$LIMIT" && ! "$LIMIT" =~ ^[0-9]+$ ]]; then
   exit 1
 fi
 
+replay_preflight() {
+  if [[ "${GRAYMATTER_SKIP_REPLAY_PREFLIGHT:-false}" == "true" ]]; then
+    return 0
+  fi
+  local auth_probe tenant_probe
+  auth_probe="$(mktemp "${TMPDIR:-/tmp}/graymatter-replay-auth.XXXXXX")"
+  tenant_probe="$(mktemp "${TMPDIR:-/tmp}/graymatter-replay-tenant.XXXXXX")"
+  trap 'rm -f "$auth_probe" "$tenant_probe"' RETURN
+  if ! "$API_SCRIPT" GET auth/me >"$auth_probe" 2>/dev/null; then
+    echo "gm-replay-deferred: authenticated connectivity is not restored; queued writes are preserved" >&2
+    return 1
+  fi
+  if ! "$API_SCRIPT" GET 'tenant-schemas/preflight/graymatter_status?operation=memory.query' >"$tenant_probe" 2>/dev/null; then
+    echo "gm-replay-deferred: authorized tenant context is not restored; queued writes are preserved" >&2
+    return 1
+  fi
+  if [[ -s "$tenant_probe" ]] && ! jq -e '.ready == true or .tenantSchemaContext == "ready" or .schemaName != null' "$tenant_probe" >/dev/null 2>&1; then
+    echo "gm-replay-deferred: api-0 did not confirm the authorized tenant context; queued writes are preserved" >&2
+    return 1
+  fi
+}
+
 emit_replay_event() {
   local event="$1"
   local id="$2"
@@ -84,6 +106,8 @@ if [[ "${#files[@]}" -eq 0 ]]; then
   echo "No deferred operations found."
   exit 0
 fi
+
+replay_preflight
 
 processed=0
 for file in "${files[@]}"; do

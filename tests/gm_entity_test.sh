@@ -36,6 +36,23 @@ put_output="$(bash "$tmp_dir/gm-entity" Task "$record_id" PUT '{"name":"replaced
 
 delete_output="$(bash "$tmp_dir/gm-entity" Task "$record_id" DELETE)"
 [[ "$delete_output" == "DELETE /Task/$record_id " ]]
+mock_dir="$(mktemp -d)"
+trap 'rm -rf "$mock_dir"' EXIT
+cp "$ROOT_DIR/scripts/gm-entity" "$mock_dir/gm-entity"
+cat >"$mock_dir/graymatter_api.sh" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$@"
+EOF
+chmod +x "$mock_dir/graymatter_api.sh"
+
+patch_output="$(bash "$mock_dir/gm-entity" Task task-123 PATCH '{"name":"Updated task"}')"
+[[ "$(printf '%s\n' "$patch_output" | sed -n '1p')" == "PATCH" ]]
+[[ "$(printf '%s\n' "$patch_output" | sed -n '2p')" == "/Task/task-123" ]]
+[[ "$(printf '%s\n' "$patch_output" | sed -n '3p')" == '{"name":"Updated task"}' ]]
+
+delete_output="$(bash "$mock_dir/gm-entity" Task task-123 DELETE)"
+[[ "$(printf '%s\n' "$delete_output" | sed -n '1p')" == "DELETE" ]]
+[[ "$(printf '%s\n' "$delete_output" | sed -n '2p')" == "/Task/task-123" ]]
 
 long_description="$(printf 'x%.0s' {1..256})"
 if bash "$ROOT_DIR/scripts/gm-entity" StrategicPriority POST "{\"description\":\"$long_description\"}" >/tmp/gm-entity-long-strategy.out 2>&1; then
@@ -52,5 +69,21 @@ if bash "$ROOT_DIR/scripts/gm-entity" Note POST "{\"content\":\"$long_note\"}" >
 fi
 grep -q "Note.content is 256 characters" /tmp/gm-entity-long-note.out
 grep -q "MemoryEntry/ContentData" /tmp/gm-entity-long-note.out
+
+TMP_DIR="$(mktemp -d)"
+trap 'rm -rf "$TMP_DIR"' EXIT
+cp "$ROOT_DIR/scripts/gm-entity" "$TMP_DIR/gm-entity"
+cat >"$TMP_DIR/graymatter_api.sh" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$@"
+EOF
+chmod +x "$TMP_DIR/gm-entity" "$TMP_DIR/graymatter_api.sh"
+
+patch_output="$(bash "$TMP_DIR/gm-entity" Lead PATCH lead-123 '{"stage":"QUALIFIED"}')"
+expected_patch_output=$'PATCH\n/Lead/lead-123\n{"stage":"QUALIFIED"}'
+[[ "$patch_output" == "$expected_patch_output" ]] || {
+  echo "expected object PATCH route, got: $patch_output" >&2
+  exit 1
+}
 
 echo "gm_entity_test: ok"

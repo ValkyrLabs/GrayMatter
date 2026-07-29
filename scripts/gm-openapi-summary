@@ -3,9 +3,10 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-SPEC="${1:-${ROOT}/tmp/api-docs.json}"
-
-if [[ ! -f "$SPEC" ]]; then
+SPEC="${1:-}"
+if [[ -z "$SPEC" ]]; then
+  SPEC="$("${SCRIPT_DIR}/gm-openapi-sync")"
+elif [[ ! -f "$SPEC" ]]; then
   "${SCRIPT_DIR}/gm-openapi-sync" "$SPEC" >/dev/null
 fi
 

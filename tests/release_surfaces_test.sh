@@ -35,8 +35,8 @@ if [[ "$CLAW_HUB_VERSION" != "$PLUGIN_VERSION" ]]; then
   exit 1
 fi
 
-require jq -e '.mcpServers.graymatter.command == "node"' "$ROOT/.mcp.json" >/dev/null
-require jq -e '.mcpServers.graymatter.args == ["mcp-server/index.js", "--stdio"]' "$ROOT/.mcp.json" >/dev/null
+require jq -e '.mcpServers.graymatter.command == "scripts/gm-mcp-launcher"' "$ROOT/.mcp.json" >/dev/null
+require jq -e '.mcpServers.graymatter.args == ["--stdio"]' "$ROOT/.mcp.json" >/dev/null
 require jq -e '.apps == {}' "$ROOT/.app.json" >/dev/null
 
 if find "$ROOT/scripts" "$ROOT/plugins/graymatter/scripts" -maxdepth 1 -type f -name '*.py' | grep -q .; then
@@ -62,7 +62,8 @@ require jq -e '.keywords | index("graymatter-light")' "$ROOT/plugins/graymatter/
 require jq -e '.keywords | index("valoride")' "$ROOT/plugins/graymatter/.codex-plugin/plugin.json" >/dev/null
 require jq -e '.interface.longDescription | contains("GrayMatter Light")' "$ROOT/plugins/graymatter/.codex-plugin/plugin.json" >/dev/null
 require jq -e '.apps == {}' "$ROOT/plugins/graymatter/.app.json" >/dev/null
-require jq -e '.mcpServers.graymatter.args == ["mcp-server/index.js", "--stdio"]' "$ROOT/plugins/graymatter/.mcp.json" >/dev/null
+require jq -e '.mcpServers.graymatter.command == "scripts/gm-mcp-launcher"' "$ROOT/plugins/graymatter/.mcp.json" >/dev/null
+require jq -e '.mcpServers.graymatter.args == ["--stdio"]' "$ROOT/plugins/graymatter/.mcp.json" >/dev/null
 [[ -f "$ROOT/plugins/graymatter/skills/graymatter/SKILL.md" ]] || {
   echo "Codex marketplace plugin skill missing" >&2
   exit 1
@@ -184,6 +185,14 @@ grep -q 'Normalized object writes' "$ROOT/plugins/graymatter/skills/graymatter/S
 }
 [[ -x "$ROOT/plugins/graymatter/scripts/gm-activate" ]] || {
   echo "Codex marketplace plugin activation script missing or not executable" >&2
+  exit 1
+}
+[[ -x "$ROOT/plugins/graymatter/scripts/gm-mcp-launcher" ]] || {
+  echo "Codex marketplace MCP startup launcher missing or not executable" >&2
+  exit 1
+}
+[[ -x "$ROOT/plugins/graymatter/scripts/gm-schema-cache-lib" ]] || {
+  echo "Codex marketplace schema cache helper missing or not executable" >&2
   exit 1
 }
 [[ -x "$ROOT/plugins/graymatter/scripts/gm-claude-install" ]] || {

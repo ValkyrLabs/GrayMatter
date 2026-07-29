@@ -906,6 +906,16 @@ perform_request() {
       -H "X-XSRF-TOKEN: ${STATEFUL_XSRF_TOKEN}"
     )
   fi
+  if [[ -n "${GRAYMATTER_OPENAPI_IF_NONE_MATCH:-}" && "$PATH_PART" == "api-docs" ]]; then
+    COMMON_HEADERS+=(
+      -H "If-None-Match: ${GRAYMATTER_OPENAPI_IF_NONE_MATCH}"
+    )
+  fi
+  if [[ -n "${GRAYMATTER_OPENAPI_IF_MODIFIED_SINCE:-}" && "$PATH_PART" == "api-docs" ]]; then
+    COMMON_HEADERS+=(
+      -H "If-Modified-Since: ${GRAYMATTER_OPENAPI_IF_MODIFIED_SINCE}"
+    )
+  fi
   local tenant_id
   tenant_id="$(resolve_tenant_id)"
   if [[ -n "$tenant_id" ]]; then
@@ -972,6 +982,13 @@ if (( CURL_STATUS != 0 )); then
     echo >&2
   fi
   exit "$CURL_STATUS"
+fi
+
+if [[ -n "${GRAYMATTER_API_RESPONSE_HEADERS:-}" ]]; then
+  cp "$RESPONSE_HEADERS" "$GRAYMATTER_API_RESPONSE_HEADERS"
+fi
+if [[ -n "${GRAYMATTER_API_RESPONSE_STATUS:-}" ]]; then
+  printf '%s\n' "$HTTP_STATUS" >"$GRAYMATTER_API_RESPONSE_STATUS"
 fi
 
 if [[ "$HTTP_STATUS" =~ ^[0-9]{3}$ ]] && (( HTTP_STATUS >= 400 )); then

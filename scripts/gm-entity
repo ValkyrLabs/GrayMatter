@@ -73,6 +73,9 @@ case "$ARG2" in
     exec "${SCRIPT_DIR}/graymatter_api.sh" "$METHOD" "$TARGET" "$BODY"
     ;;
   *)
+    if [[ -z "$ARG3" ]]; then
+      exec "${SCRIPT_DIR}/graymatter_api.sh" GET "/${ENTITY}/${ARG2}"
+    fi
     case "$ARG3" in
       GET|get|POST|post|PUT|put|PATCH|patch|DELETE|delete)
         METHOD="$(printf '%s' "$ARG3" | tr '[:lower:]' '[:upper:]')"
@@ -81,6 +84,8 @@ case "$ARG2" in
         exec "${SCRIPT_DIR}/graymatter_api.sh" "$METHOD" "/${ENTITY}/${ARG2}" "$BODY"
         ;;
       *)
+        usage
+        exit 64
         exec "${SCRIPT_DIR}/graymatter_api.sh" GET "/${ENTITY}/${ARG2}"
         ;;
     esac

@@ -13,8 +13,9 @@
 - Support email: `support@valkyrlabs.com`
 - Privacy policy: `https://valkyrlabs.com/v1/Legal/privacy/`
 - Privacy-policy missing-item flag: `NO`; live coverage verified for memory content, retrieval/context queries, OAuth processing, retention, deletion, and tenant isolation on 2026-07-11.
-- Terms: `https://valkyrlabs.com/terms`
+- Terms: `https://valkyrlabs.com/v1/Legal/tos/`
 - Terms missing-item flag: `NO`
+- Demo video: `https://api-0.valkyrlabs.com/openai-plugin-media/graymatter-plugin-demo.mov`
 - Production MCP URL target: `https://api-0.valkyrlabs.com/graymatter/mcp`
 - Compatibility MCP URL target: `https://api-0.valkyrlabs.com/mcp`
 - Protected-resource metadata target: `https://api-0.valkyrlabs.com/.well-known/oauth-protected-resource`
@@ -24,7 +25,7 @@
 - Token endpoint target: `https://api-0.valkyrlabs.com/oauth2/token`
 - JWKS endpoint target: `https://api-0.valkyrlabs.com/oauth2/jwks`
 
-These are target production URLs. Do not submit until each returns the expected live response over HTTPS and the MCP endpoint completes an OAuth-linked tool call.
+These production URLs were verified over HTTPS and the MCP endpoint completed OAuth-linked tool discovery on 2026-07-30.
 
 ## Tool explanations and annotations
 
@@ -130,8 +131,11 @@ Deletion:
 
 ## Known submission blockers
 
-- **VERIFIED — production MCP and OAuth:** the public MCP routes, OAuth discovery, PKCE authorization-code server, JWKS, audience binding, reviewer receipt, and tenant-isolation checks are deployed and verified.
-- **VERIFIED — live ContextPage contract:** production api-docs advertises `/v1/graymatter_ops/context_page/compile` and the related ContextPage operations.
-- **VERIFIED — reviewer accounts and privacy:** two isolated non-admin reviewers, an authorized receipt fixture, and the published privacy coverage are ready.
-- **BLOCKER — app ID pending:** `.app.json` intentionally contains an empty `apps` mapping until the developer/submission portal assigns the final app ID.
-- **BLOCKER — platform administration:** confirm business verification, Apps Management permissions, a global-data-residency project, and production domain verification.
+- **PARTIAL — production MCP and OAuth:** reviewer OAuth login, PKCE, exact eight-tool discovery, memory save/search/get, and negative authorization guards passed live. Full mutation/context coverage is currently blocked by api-0 runtime failures below.
+- **PARTIAL — live ContextPage contract:** production api-docs advertises `/v1/graymatter_ops/context_page/compile`, but reviewer execution currently returns a sanitized `UPSTREAM_UNAVAILABLE`; api-0 logs identify a missing `credit_pricing_matrix` relation in the reviewer tenant schema.
+- **PASS — reviewer accounts and privacy:** reviewer A is production-renamed to the submitted username `gm-reviewer-a-20260711-1abf65`, and the submitted username/password now authenticate through `/v1/auth/login`. Reviewer B remains the working `20260730` account.
+- **VERIFIED — app mapping:** OpenAI assigned app ID `asdk_app_6a590a1720808191b3909ed57132a25d`; both `.app.json` surfaces and the packaged skill contain the required mapping.
+- **VERIFIED — platform administration:** Valkyr Labs Inc. business verification, submission permissions, the Default global project, and production domain verification were accepted by the portal.
+- **SUBMITTED — marketplace review:** version `0.3.1` (`asdk_app_v_6a590a17abc88191893f15a284ad5619`) entered OpenAI review on 2026-07-30.
+- **RESOLVED — reviewer password correction:** the password was submitted through the authenticated Principal API, allowing SecureField's BCrypt setter to hash it; `/v1/auth/login` returned `200` for the exact submitted username/password. The current review version remains locked, but no form change was required.
+- **BLOCKER — reviewer E2E runtime:** the submitted five-case contract is not yet fully passing. `memory_update` rolls back on transient unsaved Tag normalization, and confirmed `memory_forget` fails while releasing semantic-index references because the reviewer tenant schema lacks required permission. The seeded release-review fixture was also not found. Exact tagged E2E records created during diagnosis require cleanup after the runtime fix.

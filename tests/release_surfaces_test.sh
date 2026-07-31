@@ -37,7 +37,10 @@ fi
 
 require jq -e '.mcpServers.graymatter.command == "scripts/gm-mcp-launcher"' "$ROOT/.mcp.json" >/dev/null
 require jq -e '.mcpServers.graymatter.args == ["--stdio"]' "$ROOT/.mcp.json" >/dev/null
-require jq -e '.apps == {}' "$ROOT/.app.json" >/dev/null
+require jq -e '.apps.graymatter == {
+  "id": "asdk_app_6a590a1720808191b3909ed57132a25d",
+  "required": true
+}' "$ROOT/.app.json" >/dev/null
 
 if find "$ROOT/scripts" "$ROOT/plugins/graymatter/scripts" -maxdepth 1 -type f -name '*.py' | grep -q .; then
   echo "GrayMatter product scripts must stay portable bash; Python scripts are not allowed in shipped script surfaces" >&2
@@ -61,7 +64,10 @@ require jq -e '.keywords | index("retrieval-receipts")' "$ROOT/plugins/graymatte
 require jq -e '.keywords | index("graymatter-light")' "$ROOT/plugins/graymatter/.codex-plugin/plugin.json" >/dev/null
 require jq -e '.keywords | index("valoride")' "$ROOT/plugins/graymatter/.codex-plugin/plugin.json" >/dev/null
 require jq -e '.interface.longDescription | contains("GrayMatter Light")' "$ROOT/plugins/graymatter/.codex-plugin/plugin.json" >/dev/null
-require jq -e '.apps == {}' "$ROOT/plugins/graymatter/.app.json" >/dev/null
+require jq -e '.apps.graymatter == {
+  "id": "asdk_app_6a590a1720808191b3909ed57132a25d",
+  "required": true
+}' "$ROOT/plugins/graymatter/.app.json" >/dev/null
 require jq -e '.mcpServers.graymatter.command == "scripts/gm-mcp-launcher"' "$ROOT/plugins/graymatter/.mcp.json" >/dev/null
 require jq -e '.mcpServers.graymatter.args == ["--stdio"]' "$ROOT/plugins/graymatter/.mcp.json" >/dev/null
 [[ -f "$ROOT/plugins/graymatter/skills/graymatter/SKILL.md" ]] || {
@@ -305,6 +311,18 @@ cmp -s "$ROOT/mcp-server/test/recovery.test.js" "$ROOT/plugins/graymatter/mcp-se
 }
 cmp -s "$ROOT/scripts/graymatter_api.sh" "$ROOT/plugins/graymatter/scripts/graymatter_api.sh" || {
   echo "Codex marketplace plugin API transport is stale; sync scripts/graymatter_api.sh" >&2
+  exit 1
+}
+cmp -s "$ROOT/scripts/gm-replay-deferred" "$ROOT/plugins/graymatter/scripts/gm-replay-deferred" || {
+  echo "Codex marketplace plugin deferred replay helper is stale; sync scripts/gm-replay-deferred" >&2
+  exit 1
+}
+cmp -s "$ROOT/scripts/gm-fallback-append" "$ROOT/plugins/graymatter/scripts/gm-fallback-append" || {
+  echo "Codex marketplace plugin fallback queue helper is stale; sync scripts/gm-fallback-append" >&2
+  exit 1
+}
+cmp -s "$ROOT/scripts/gm-hook-event" "$ROOT/plugins/graymatter/scripts/gm-hook-event" || {
+  echo "Codex marketplace plugin hook event helper is stale; sync scripts/gm-hook-event" >&2
   exit 1
 }
 cmp -s "$ROOT/scripts/gm-graph" "$ROOT/plugins/graymatter/scripts/gm-graph" || {

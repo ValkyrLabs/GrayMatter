@@ -17,7 +17,7 @@ shift 2
 
 OWNER="${GRAYMATTER_OWNER:-valor}"
 SESSION="${OPENCLAW_SESSION_KEY:-unknown}"
-SPOOL="memory/graymatter-fallback.json"
+SPOOL="memory/graymatter-hook-events.json"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in

@@ -39,6 +39,11 @@ GRAYMATTER_ACTIVATION_RETURN_TO="${GRAYMATTER_ACTIVATION_RETURN_TO:-graymatter:/
 GRAYMATTER_DEFERRED_DIR="${GRAYMATTER_DEFERRED_DIR:-${SCRIPT_DIR}/../memory/deferred-ops}"
 GRAYMATTER_SKIP_DEFERRED="${GRAYMATTER_SKIP_DEFERRED:-false}"
 GRAYMATTER_CREDIT_EVENTS_PATH="${GRAYMATTER_CREDIT_EVENTS_PATH:-${SCRIPT_DIR}/../memory/credit-recovery-events.jsonl}"
+GRAYMATTER_FALLBACK_SPOOL="${GRAYMATTER_FALLBACK_SPOOL:-${SCRIPT_DIR}/../memory/graymatter-fallback.json}"
+GRAYMATTER_REPLAY_COMMAND="${GRAYMATTER_REPLAY_COMMAND:-${SCRIPT_DIR}/gm-replay-deferred}"
+GRAYMATTER_AUTO_REPLAY="${GRAYMATTER_AUTO_REPLAY:-true}"
+GRAYMATTER_SKIP_AUTO_REPLAY="${GRAYMATTER_SKIP_AUTO_REPLAY:-false}"
+GRAYMATTER_AUTO_REPLAY_LIMIT="${GRAYMATTER_AUTO_REPLAY_LIMIT:-25}"
 
 portable_mktemp() {
   local template="${1:-graymatter.XXXXXX}"
@@ -962,6 +967,39 @@ perform_request() {
   set -e
 }
 
+replay_queue_present() {
+  if [[ -d "$GRAYMATTER_DEFERRED_DIR" ]] \
+      && find "$GRAYMATTER_DEFERRED_DIR" -maxdepth 1 -type f -name '*.json' -print -quit \
+          | grep -q .; then
+    return 0
+  fi
+  if [[ -f "$GRAYMATTER_FALLBACK_SPOOL" ]] && command -v jq >/dev/null 2>&1; then
+    jq -e '
+      if type == "array" then length > 0
+      elif type == "object" then ((.items // []) | type == "array" and length > 0)
+      else false
+      end
+    ' "$GRAYMATTER_FALLBACK_SPOOL" >/dev/null 2>&1
+    return $?
+  fi
+  return 1
+}
+
+maybe_auto_replay() {
+  [[ "$GRAYMATTER_AUTO_REPLAY" == "true" ]] || return 0
+  [[ "$GRAYMATTER_SKIP_AUTO_REPLAY" != "true" ]] || return 0
+  [[ "$GRAYMATTER_SKIP_DEFERRED" != "true" ]] || return 0
+  [[ "$LIGHT_MODE" != "true" ]] || return 0
+  [[ -x "$GRAYMATTER_REPLAY_COMMAND" ]] || return 0
+  [[ -n "$TOKEN" ]] || return 0
+  token_is_clearly_read_only "$TOKEN" && return 0
+  replay_queue_present || return 0
+
+  GRAYMATTER_SKIP_AUTO_REPLAY=true \
+    "$GRAYMATTER_REPLAY_COMMAND" --limit "$GRAYMATTER_AUTO_REPLAY_LIMIT" \
+    >/dev/null 2>&1 || true
+}
+
 if method_requires_write_access; then
   prepare_stateful_auth_for_write || true
 fi
@@ -1010,4 +1048,5 @@ if [[ "$HTTP_STATUS" =~ ^[0-9]{3}$ ]] && (( HTTP_STATUS >= 400 )); then
   exit 22
 fi
 
+maybe_auto_replay
 cat "$RESPONSE_FILE"

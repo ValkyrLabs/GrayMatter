@@ -5,6 +5,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEFERRED_DIR="${GRAYMATTER_DEFERRED_DIR:-${SCRIPT_DIR}/../memory/deferred-ops}"
 API_SCRIPT="${GRAYMATTER_API_SCRIPT:-${SCRIPT_DIR}/graymatter_api.sh}"
 GRAYMATTER_CREDIT_EVENTS_PATH="${GRAYMATTER_CREDIT_EVENTS_PATH:-${SCRIPT_DIR}/../memory/credit-recovery-events.jsonl}"
+FALLBACK_SPOOL="${GRAYMATTER_FALLBACK_SPOOL:-${SCRIPT_DIR}/../memory/graymatter-fallback.json}"
+FALLBACK_LOCK_DIR="${GRAYMATTER_FALLBACK_LOCK_DIR:-${FALLBACK_SPOOL}.lock}"
+REPLAY_LOCK_DIR="${GRAYMATTER_REPLAY_LOCK_DIR:-${SCRIPT_DIR}/../memory/.replay.lock}"
 LIMIT=""
 
 usage() {
@@ -41,6 +44,52 @@ if [[ -n "$LIMIT" && ! "$LIMIT" =~ ^[0-9]+$ ]]; then
   exit 1
 fi
 
+acquire_lock() {
+  local lock_dir="$1"
+  local wait_attempts="${2:-0}"
+  local attempt=0
+  local owner=""
+
+  mkdir -p "$(dirname "$lock_dir")"
+  while ! mkdir "$lock_dir" 2>/dev/null; do
+    owner="$(cat "$lock_dir/pid" 2>/dev/null || true)"
+    if [[ "$owner" =~ ^[0-9]+$ ]] && ! kill -0 "$owner" 2>/dev/null; then
+      rm -f "$lock_dir/pid"
+      rmdir "$lock_dir" 2>/dev/null || true
+      continue
+    fi
+    if (( attempt >= wait_attempts )); then
+      return 1
+    fi
+    attempt=$((attempt + 1))
+    sleep 0.02
+  done
+  printf '%s\n' "$$" >"$lock_dir/pid"
+}
+
+release_lock() {
+  local lock_dir="$1"
+  local owner=""
+  owner="$(cat "$lock_dir/pid" 2>/dev/null || true)"
+  if [[ "$owner" == "$$" ]]; then
+    rm -f "$lock_dir/pid"
+    rmdir "$lock_dir" 2>/dev/null || true
+  fi
+}
+
+fallback_count() {
+  if [[ ! -f "$FALLBACK_SPOOL" ]] || ! command -v jq >/dev/null 2>&1; then
+    printf '0\n'
+    return 0
+  fi
+  jq -r '
+    if type == "array" then length
+    elif type == "object" then ((.items // []) | if type == "array" then length else 0 end)
+    else 0
+    end
+  ' "$FALLBACK_SPOOL" 2>/dev/null || printf '0\n'
+}
+
 replay_preflight() {
   if [[ "${GRAYMATTER_SKIP_REPLAY_PREFLIGHT:-false}" == "true" ]]; then
     return 0
@@ -49,11 +98,11 @@ replay_preflight() {
   auth_probe="$(mktemp "${TMPDIR:-/tmp}/graymatter-replay-auth.XXXXXX")"
   tenant_probe="$(mktemp "${TMPDIR:-/tmp}/graymatter-replay-tenant.XXXXXX")"
   trap 'rm -f "$auth_probe" "$tenant_probe"' RETURN
-  if ! "$API_SCRIPT" GET auth/me >"$auth_probe" 2>/dev/null; then
+  if ! GRAYMATTER_SKIP_AUTO_REPLAY=true "$API_SCRIPT" GET auth/me >"$auth_probe" 2>/dev/null; then
     echo "gm-replay-deferred: authenticated connectivity is not restored; queued writes are preserved" >&2
     return 1
   fi
-  if ! "$API_SCRIPT" GET 'tenant-schemas/preflight/graymatter_status?operation=memory.query' >"$tenant_probe" 2>/dev/null; then
+  if ! GRAYMATTER_SKIP_AUTO_REPLAY=true "$API_SCRIPT" GET 'tenant-schemas/preflight/graymatter_status?operation=memory.query' >"$tenant_probe" 2>/dev/null; then
     echo "gm-replay-deferred: authorized tenant context is not restored; queued writes are preserved" >&2
     return 1
   fi
@@ -93,16 +142,31 @@ emit_replay_event() {
     "$path" >>"$GRAYMATTER_CREDIT_EVENTS_PATH"
 }
 
-if [[ ! -d "$DEFERRED_DIR" ]]; then
+files=()
+if [[ -d "$DEFERRED_DIR" ]]; then
+  while IFS= read -r file; do
+    files+=("$file")
+  done < <(find "$DEFERRED_DIR" -maxdepth 1 -type f -name '*.json' | sort)
+fi
+if [[ "${#files[@]}" -eq 0 && "$(fallback_count)" -eq 0 ]]; then
   echo "No deferred operations found."
   exit 0
 fi
 
+if ! acquire_lock "$REPLAY_LOCK_DIR" 0; then
+  echo "GrayMatter replay is already in progress."
+  exit 0
+fi
+trap 'release_lock "$FALLBACK_LOCK_DIR"; release_lock "$REPLAY_LOCK_DIR"' EXIT
+
+# Another replayer may have drained the queues before this process acquired the lock.
 files=()
-while IFS= read -r file; do
-  files+=("$file")
-done < <(find "$DEFERRED_DIR" -maxdepth 1 -type f -name '*.json' | sort)
-if [[ "${#files[@]}" -eq 0 ]]; then
+if [[ -d "$DEFERRED_DIR" ]]; then
+  while IFS= read -r file; do
+    files+=("$file")
+  done < <(find "$DEFERRED_DIR" -maxdepth 1 -type f -name '*.json' | sort)
+fi
+if [[ "${#files[@]}" -eq 0 && "$(fallback_count)" -eq 0 ]]; then
   echo "No deferred operations found."
   exit 0
 fi
@@ -110,7 +174,8 @@ fi
 replay_preflight
 
 processed=0
-for file in "${files[@]}"; do
+for file in "${files[@]-}"; do
+  [[ -n "$file" ]] || continue
   if [[ -n "$LIMIT" && "$processed" -ge "$LIMIT" ]]; then
     break
   fi
@@ -124,10 +189,100 @@ for file in "${files[@]}"; do
     continue
   fi
   emit_replay_event "replay_started" "$id" "$operation" "$path"
-  if GRAYMATTER_SKIP_DEFERRED=true "$API_SCRIPT" "$method" "$path" "$body" >/dev/null; then
+  if GRAYMATTER_SKIP_DEFERRED=true GRAYMATTER_SKIP_AUTO_REPLAY=true \
+      "$API_SCRIPT" "$method" "$path" "$body" >/dev/null; then
     rm -f "$file"
     emit_replay_event "replay_succeeded" "$id" "$operation" "$path"
     echo "Replayed deferred operation ${id}"
+    processed=$((processed + 1))
+  else
+    echo "Replay failed for ${id}; stopping." >&2
+    exit 1
+  fi
+done
+
+while [[ "$(fallback_count)" -gt 0 ]]; do
+  if [[ -n "$LIMIT" && "$processed" -ge "$LIMIT" ]]; then
+    break
+  fi
+
+  if ! acquire_lock "$FALLBACK_LOCK_DIR" 100; then
+    echo "gm-replay-deferred: fallback queue is busy; queued writes are preserved" >&2
+    exit 1
+  fi
+  item="$(jq -c '
+    if type == "array" then .[0]
+    elif type == "object" then (.items // [])[0]
+    else null
+    end
+  ' "$FALLBACK_SPOOL" 2>/dev/null || true)"
+  release_lock "$FALLBACK_LOCK_DIR"
+
+  if [[ -z "$item" || "$item" == "null" ]]; then
+    break
+  fi
+
+  type="$(jq -r '.type // empty' <<<"$item")"
+  text="$(jq -r '.text // empty' <<<"$item")"
+  owner="$(jq -r '.owner // empty' <<<"$item")"
+  if [[ -z "$type" || -z "$text" || -z "$owner" ]]; then
+    echo "gm-replay-deferred: invalid legacy fallback record; queued writes are preserved" >&2
+    exit 1
+  fi
+
+  id="fallback-$(printf '%s\0%s\0%s' "$type" "$owner" "$text" | shasum -a 256 | awk '{print $1}')"
+  body="$(jq -nc \
+    --arg type "$type" \
+    --arg text "$text" \
+    --arg sourceChannel "$owner" \
+    '{type:$type,text:$text,source:$sourceChannel,sourceChannel:$sourceChannel}')"
+
+  emit_replay_event "replay_started" "$id" "memory_write" "/MemoryEntry/write"
+  response=""
+  if response="$(GRAYMATTER_SKIP_DEFERRED=true GRAYMATTER_SKIP_AUTO_REPLAY=true \
+      "$API_SCRIPT" POST /MemoryEntry/write "$body")"; then
+    if ! acquire_lock "$FALLBACK_LOCK_DIR" 100; then
+      echo "gm-replay-deferred: durable write succeeded but fallback queue is busy; preserving the local record" >&2
+      exit 1
+    fi
+    tmp="${FALLBACK_SPOOL}.$$"
+    jq \
+      --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+      --arg type "$type" \
+      --arg text "$text" \
+      --arg owner "$owner" '
+        if type == "array" then
+          {timestamp:$now,source:"chat",status:"pending_replay",items:.}
+        elif type == "object" then
+          . | .items = ((.items // []) | if type == "array" then . else [] end)
+        else
+          {timestamp:$now,source:"chat",status:"pending_replay",items:[]}
+        end
+        | (.items as $items
+          | reduce $items[] as $item (
+              {removed:false,values:[]};
+              if (.removed == false
+                  and $item.type == $type
+                  and $item.text == $text
+                  and $item.owner == $owner) then
+                .removed = true
+              else
+                .values += [$item]
+              end
+            )) as $result
+        | .items = $result.values
+        | .timestamp = $now
+        | .status = (if (.items | length) == 0 then "synced" else "pending_replay" end)
+      ' "$FALLBACK_SPOOL" >"$tmp"
+    mv "$tmp" "$FALLBACK_SPOOL"
+    release_lock "$FALLBACK_LOCK_DIR"
+    memory_id="$(jq -r '.id // empty' <<<"$response" 2>/dev/null || true)"
+    emit_replay_event "replay_succeeded" "$id" "memory_write" "/MemoryEntry/write"
+    if [[ -n "$memory_id" ]]; then
+      echo "Replayed fallback record ${id} as MemoryEntry ${memory_id}"
+    else
+      echo "Replayed fallback record ${id}"
+    fi
     processed=$((processed + 1))
   else
     echo "Replay failed for ${id}; stopping." >&2

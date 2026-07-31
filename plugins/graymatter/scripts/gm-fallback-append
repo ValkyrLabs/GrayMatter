@@ -10,8 +10,10 @@ TYPE="$1"
 TEXT="$2"
 OWNER="$3"
 REASON="${4:-GrayMatter write fallback}"
-ROOT_DIR="${ROOT_DIR:-$(pwd)}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="${ROOT_DIR:-$(cd "${SCRIPT_DIR}/.." && pwd)}"
 SPOOL="${GRAYMATTER_FALLBACK_SPOOL:-${ROOT_DIR}/memory/graymatter-fallback.json}"
+LOCK_DIR="${GRAYMATTER_FALLBACK_LOCK_DIR:-${SPOOL}.lock}"
 NOW="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
 
 command -v jq >/dev/null 2>&1 || {
@@ -20,6 +22,38 @@ command -v jq >/dev/null 2>&1 || {
 }
 
 mkdir -p "$(dirname "$SPOOL")"
+
+acquire_lock() {
+  local attempt=0
+  local owner=""
+  while ! mkdir "$LOCK_DIR" 2>/dev/null; do
+    owner="$(cat "$LOCK_DIR/pid" 2>/dev/null || true)"
+    if [[ "$owner" =~ ^[0-9]+$ ]] && ! kill -0 "$owner" 2>/dev/null; then
+      rm -f "$LOCK_DIR/pid"
+      rmdir "$LOCK_DIR" 2>/dev/null || true
+      continue
+    fi
+    if (( attempt >= 100 )); then
+      echo "gm-fallback-append: fallback queue is busy" >&2
+      exit 1
+    fi
+    attempt=$((attempt + 1))
+    sleep 0.02
+  done
+  printf '%s\n' "$$" >"$LOCK_DIR/pid"
+}
+
+release_lock() {
+  local owner=""
+  owner="$(cat "$LOCK_DIR/pid" 2>/dev/null || true)"
+  if [[ "$owner" == "$$" ]]; then
+    rm -f "$LOCK_DIR/pid"
+    rmdir "$LOCK_DIR" 2>/dev/null || true
+  fi
+}
+
+acquire_lock
+trap release_lock EXIT
 TMP="${SPOOL}.$$"
 
 if [[ -f "$SPOOL" ]]; then

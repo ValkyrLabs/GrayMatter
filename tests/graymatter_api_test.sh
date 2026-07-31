@@ -457,6 +457,40 @@ test_success_passthrough() {
   assert_contains "${output}" '{"ok":true}' "graymatter_api should print response body on success"
 }
 
+test_success_triggers_bounded_auto_replay() {
+  local temp_root="$1"
+  local fake_bin="$2"
+  local script_copy="$3"
+  local replay_command="${temp_root}/gm-replay-deferred"
+  local fallback_spool="${temp_root}/graymatter-fallback.json"
+  local replay_log="${temp_root}/auto-replay.log"
+
+  cat >"$fallback_spool" <<'JSON'
+{"status":"pending_replay","items":[{"type":"context","text":"queued","owner":"codex:workspace:test"}]}
+JSON
+  cat >"$replay_command" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%s|skip=%s\n' "$*" "${GRAYMATTER_SKIP_AUTO_REPLAY:-false}" >>"${TEST_AUTO_REPLAY_LOG}"
+EOF
+  chmod +x "$replay_command"
+
+  export TEST_CURL_SCENARIO="success"
+  TEST_AUTO_REPLAY_LOG="$replay_log" \
+  PATH="${fake_bin}:/usr/local/bin:/usr/bin:/bin" \
+  TMPDIR="${temp_root}" \
+  VALKYR_AUTH_TOKEN=test-token \
+  GRAYMATTER_FALLBACK_SPOOL="$fallback_spool" \
+  GRAYMATTER_REPLAY_COMMAND="$replay_command" \
+  GRAYMATTER_AUTO_REPLAY_LIMIT=7 \
+  "$script_copy" GET /MemoryEntry/stats >"${temp_root}/auto-replay-response.json"
+
+  assert_contains "$(cat "${temp_root}/auto-replay-response.json")" '{"ok":true}' \
+    "automatic replay must not corrupt the successful API response"
+  assert_contains "$(cat "$replay_log")" "--limit 7|skip=true" \
+    "the first healthy API request should trigger bounded recursion-safe replay"
+}
+
 test_insufficient_funds_shows_links_and_uses_macos_prompt() {
   local temp_root="$1"
   local fake_bin="$2"
@@ -515,6 +549,7 @@ test_insufficient_funds_falls_back_to_windows_prompt() {
 }
 
 with_fixture test_success_passthrough
+with_fixture test_success_triggers_bounded_auto_replay
 with_fixture test_insufficient_funds_shows_links_and_uses_macos_prompt
 with_fixture test_insufficient_funds_falls_back_to_windows_prompt
 test_insufficient_funds_query_preserves_query_operation() {

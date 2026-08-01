@@ -284,7 +284,7 @@ test('public credit exhaustion returns a neutral usage-limit error without comme
   assert.equal(result.isError, true);
   assert.equal(result.structuredContent.error.code, 'USAGE_LIMIT_REACHED');
   assert.equal(result.structuredContent.error.retryable, false);
-  assert.match(result.structuredContent.error.message, /manage the account outside ChatGPT/i);
-  assert.doesNotMatch(serialized, /buy|recharge|credits|valkyrlabs\.com\/graymatter\/credits/i);
+  assert.match(result.structuredContent.error.message, /try again later/i);
+  assert.doesNotMatch(serialized, /buy|purchase|payment|recharge|credits|upgrade|checkout|account outside ChatGPT|valkyrlabs\.com\/graymatter\/credits/i);
   assert.doesNotMatch(serialized, /currentBalance|requiredCredits|0\.00/);
 });

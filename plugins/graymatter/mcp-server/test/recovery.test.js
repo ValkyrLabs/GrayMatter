@@ -86,16 +86,15 @@ async function withActivationEnv(env, fn) {
   }
 }
 
-test('memory_query returns structured recovery for insufficient credits', async () => {
+test('memory_query returns neutral recovery for a usage limit without commerce actions', async () => {
   await withActivationEnv({
-    VALKYR_BUY_CREDITS_URL: undefined,
     VALKYR_HUMAN_SIGNUP_URL: undefined,
     GRAYMATTER_ACTIVATION_SOURCE: undefined,
     GRAYMATTER_INSTALL_ID: 'install-123'
   }, async () => {
     const fakeApi = createFakeApi(402, {
       code: 'INSUFFICIENT_FUNDS',
-      message: 'insufficient credits',
+      message: 'usage limit reached',
       requiredCredits: 25,
       currentBalance: '0.00',
       traceId: 'trace-credits',
@@ -114,8 +113,6 @@ test('memory_query returns structured recovery for insufficient credits', async 
       });
 
       const out = body.result.structuredContent;
-      const buyCreditsUrl = new URL(out.buyCreditsUrl);
-      const signupUrl = new URL(out.signupUrl);
       assert.equal(out.reason, 'insufficient_credits');
       assert.equal(out.blockedOperation, 'memory_query');
       assert.equal(out.retryable, true);
@@ -123,17 +120,10 @@ test('memory_query returns structured recovery for insufficient credits', async 
       assert.equal(out.currentBalance, '0.00');
       assert.equal(out.traceId, 'trace-credits');
       assert.equal(out.workspaceId, 'workspace-7');
-      assert.equal(`${buyCreditsUrl.origin}${buyCreditsUrl.pathname}`, 'https://valkyrlabs.com/graymatter/credits');
-      assert.equal(`${signupUrl.origin}${signupUrl.pathname}`, 'https://valkyrlabs.com/graymatter/activate');
-      assert.equal(buyCreditsUrl.searchParams.get('source'), 'graymatter');
-      assert.equal(buyCreditsUrl.searchParams.get('intent'), 'recharge');
-      assert.equal(buyCreditsUrl.searchParams.get('operation'), 'memory_query');
-      assert.equal(buyCreditsUrl.searchParams.get('install_id'), 'install-123');
-      assert.equal(buyCreditsUrl.searchParams.get('workspace_id'), 'workspace-7');
-      assert.equal(signupUrl.searchParams.get('intent'), 'signup');
-      assert.deepEqual(out.recoveryActions.map((action) => action.id), ['buy_credits', 'create_account', 'sign_in']);
+      assert.deepEqual(out.recoveryActions.map((action) => action.id), ['retry', 'sign_in']);
       assert.equal(out.recoveryActions[0].primary, true);
-      assert.match(body.result.content[0].text, /Buy GrayMatter credits: https:\/\//);
+      assert.match(body.result.content[0].text, /usage limit has been reached/i);
+      assert.doesNotMatch(JSON.stringify(out), /buy|purchase|payment|recharge|upgrade|checkout|billing/i);
       assert.match(body.result.content[0].text, /Current balance: 0\.00/);
     } finally {
       await closeServers(server, fakeApi);
@@ -141,7 +131,7 @@ test('memory_query returns structured recovery for insufficient credits', async 
   });
 });
 
-test('memory_query distinguishes missing starter credits from paid credit depletion', async () => {
+test('memory_query keeps a missing starter grant recovery free of commerce actions', async () => {
   const fakeApi = createFakeApi(402, {
     code: 'STARTER_CREDITS_MISSING',
     message: 'starter credit grant missing',
@@ -165,9 +155,9 @@ test('memory_query distinguishes missing starter credits from paid credit deplet
     assert.equal(out.reason, 'starter_credits_missing');
     assert.equal(out.retryable, true);
     assert.equal(out.accountId, 'acct-1');
-    assert.deepEqual(out.recoveryActions.map((action) => action.id), ['repair_starter_credits', 'buy_credits', 'sign_in']);
-    assert.match(out.signupUrl, /intent=repair-starter-credits/);
-    assert.match(body.result.content[0].text, /Repair starter credits:/);
+    assert.deepEqual(out.recoveryActions.map((action) => action.id), ['retry', 'sign_in']);
+    assert.match(body.result.content[0].text, /temporarily unavailable/i);
+    assert.doesNotMatch(JSON.stringify(out), /buy|purchase|payment|recharge|upgrade|checkout|billing/i);
   } finally {
     await closeServers(server, fakeApi);
   }
@@ -366,7 +356,7 @@ test('memory_write returns read-only recovery for 403 write forbidden', async ()
     const out = body.result.structuredContent;
     assert.equal(out.reason, 'read_only_auth');
     assert.equal(out.retryable, false);
-    assert.deepEqual(out.recoveryActions.map((action) => action.id), ['sign_in', 'buy_credits']);
+    assert.deepEqual(out.recoveryActions.map((action) => action.id), ['sign_in']);
   } finally {
     await closeServers(server, fakeApi);
   }
@@ -398,7 +388,7 @@ test('receipt-backed retrieval times out with retryable recovery instead of hang
       assert.equal(out.reason, 'request_timeout');
       assert.equal(out.blockedOperation, 'memory_retrieve_with_receipt');
       assert.equal(out.retryable, true);
-      assert.deepEqual(out.recoveryActions.map((action) => action.id), ['retry', 'sign_in', 'buy_credits']);
+      assert.deepEqual(out.recoveryActions.map((action) => action.id), ['retry', 'sign_in']);
       assert.match(body.result.content[0].text, /did not finish this operation before the client timeout/);
     } finally {
       await closeServers(server, fakeApi);

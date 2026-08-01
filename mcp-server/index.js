@@ -11,7 +11,6 @@ const { URL } = require('node:url');
 
 const DEFAULT_API_BASE = 'https://api-0.valkyrlabs.com/v1';
 const DEFAULT_WIDGET_DOMAIN = 'https://graymatter.valkyrlabs.com';
-const DEFAULT_BUY_CREDITS_URL = 'https://valkyrlabs.com/graymatter/credits';
 const DEFAULT_SIGNUP_URL = 'https://valkyrlabs.com/graymatter/activate';
 const DEFAULT_LOGIN_PATH = '/auth/login';
 const DEFAULT_PORT = 3333;
@@ -2783,10 +2782,6 @@ function buildRecoveryResult(error, operation, context) {
 
   const details = recoveryDetails(error.payload);
   const attribution = recoveryAttribution(error, operation, context, details);
-  const buyCreditsUrl = attributedRecoveryUrl(process.env.VALKYR_BUY_CREDITS_URL || DEFAULT_BUY_CREDITS_URL, {
-    ...attribution,
-    intent: 'recharge'
-  });
   const signupUrl = attributedRecoveryUrl(process.env.VALKYR_HUMAN_SIGNUP_URL || DEFAULT_SIGNUP_URL, {
     ...attribution,
     intent: signal.reason === 'starter_credits_missing' ? 'repair-starter-credits' : 'signup'
@@ -2797,14 +2792,13 @@ function buildRecoveryResult(error, operation, context) {
     || signal.reason === 'missing_auth'
     || signal.reason === 'request_timeout';
 
-  const recoveryActions = recoveryActionsFor(signal.reason, { buyCreditsUrl, signupUrl, loginUrl });
+  const recoveryActions = recoveryActionsFor(signal.reason, { signupUrl, loginUrl });
   const structuredContent = {
     ok: false,
     reason: signal.reason,
     blockedOperation: operation,
     message: signal.message,
     recoveryActions,
-    buyCreditsUrl,
     signupUrl,
     loginUrl,
     currentBalance: details.currentBalance,
@@ -2831,7 +2825,7 @@ function buildRecoveryResult(error, operation, context) {
           blockedOperation: operation,
           retryable,
           actions: recoveryActions,
-          urls: { buyCreditsUrl, signupUrl, loginUrl }
+          urls: { signupUrl, loginUrl }
         },
         debug: {
           status: error.status,
@@ -2868,7 +2862,7 @@ async function queryMemoryWithFallback(context, args) {
       query: args.query,
       count: results.length,
       warning: 'Semantic memory search is unavailable because the embedding provider quota is exhausted. Results are lexical fallback matches from MemoryEntry list.',
-      action: 'Top up or switch the embedding provider, then retry semantic memory_query.',
+      action: 'Try semantic memory_query again later.',
       results
     };
   }
@@ -2972,15 +2966,13 @@ function recoveryActionsFor(reason, urls) {
   switch (reason) {
     case 'starter_credits_missing':
       return [
-        { id: 'repair_starter_credits', label: 'Repair starter credits', url: urls.signupUrl, primary: true },
-        { id: 'buy_credits', label: 'Buy GrayMatter credits', url: urls.buyCreditsUrl, primary: false },
-        { id: 'sign_in', label: 'Sign in with a funded workspace', url: urls.loginUrl, primary: false }
+        { id: 'retry', label: 'Try the operation again later', url: '', primary: true },
+        { id: 'sign_in', label: 'Sign in to GrayMatter', url: urls.loginUrl, primary: false }
       ];
     case 'insufficient_credits':
       return [
-        { id: 'buy_credits', label: 'Buy GrayMatter credits', url: urls.buyCreditsUrl, primary: true },
-        { id: 'create_account', label: 'Create or upgrade an account', url: urls.signupUrl, primary: false },
-        { id: 'sign_in', label: 'Sign in with a funded workspace', url: urls.loginUrl, primary: false }
+        { id: 'retry', label: 'Try the operation again later', url: '', primary: true },
+        { id: 'sign_in', label: 'Sign in to GrayMatter', url: urls.loginUrl, primary: false }
       ];
     case 'missing_auth':
       return [
@@ -2989,14 +2981,12 @@ function recoveryActionsFor(reason, urls) {
       ];
     case 'read_only_auth':
       return [
-        { id: 'sign_in', label: 'Switch to a write-capable account', url: urls.loginUrl, primary: true },
-        { id: 'buy_credits', label: 'Buy credits for the target workspace', url: urls.buyCreditsUrl, primary: false }
+        { id: 'sign_in', label: 'Switch to a write-capable account', url: urls.loginUrl, primary: true }
       ];
     case 'request_timeout':
       return [
         { id: 'retry', label: 'Retry the same GrayMatter operation', url: '', primary: true },
-        { id: 'sign_in', label: 'Refresh GrayMatter sign-in', url: urls.loginUrl, primary: false },
-        { id: 'buy_credits', label: 'Check credits', url: urls.buyCreditsUrl, primary: false }
+        { id: 'sign_in', label: 'Refresh GrayMatter sign-in', url: urls.loginUrl, primary: false }
       ];
     default:
       return [{ id: 'sign_in', label: 'Sign in to GrayMatter', url: urls.loginUrl, primary: true }];
@@ -3027,14 +3017,14 @@ function classifyRecoveryReason(error) {
   if (upperText.includes('STARTER_CREDITS_MISSING') || lowerText.includes('starter') && lowerText.includes('credit') && lowerText.includes('missing')) {
     return {
       reason: 'starter_credits_missing',
-      message: 'This account is missing its expected GrayMatter starter credits. Repair the starter grant or choose a funded workspace, then retry.'
+      message: 'GrayMatter access is temporarily unavailable. Try again later.'
     };
   }
 
   if (error.status === 402 || upperText.includes('INSUFFICIENT_FUNDS') || lowerText.includes('insufficient') && lowerText.includes('credit')) {
     return {
       reason: 'insufficient_credits',
-      message: 'GrayMatter needs credits before this operation can continue. Buy credits or sign up, then retry.'
+      message: 'The GrayMatter usage limit has been reached. Try again later.'
     };
   }
 
@@ -4259,7 +4249,7 @@ function publicToolErrorFromException(error, publicResource) {
     retryable = true;
   } else if (status === 402) {
     code = 'USAGE_LIMIT_REACHED';
-    message = 'The GrayMatter usage limit has been reached. Manage the account outside ChatGPT, then retry.';
+    message = 'The GrayMatter usage limit has been reached. Try again later.';
   } else if (status === 403) {
     code = 'FORBIDDEN';
     message = 'The signed-in user is not authorized for this operation.';

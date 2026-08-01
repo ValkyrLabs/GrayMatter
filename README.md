@@ -117,7 +117,7 @@ export GRAYMATTER_PUBLIC_RESOURCE=https://api-0.valkyrlabs.com
 export GRAYMATTER_PUBLIC_MCP_PATH=/graymatter/mcp
 export GRAYMATTER_OAUTH_ISSUER=https://api-0.valkyrlabs.com
 export GRAYMATTER_OAUTH_JWKS_URI=https://api-0.valkyrlabs.com/oauth2/jwks
-export GRAYMATTER_ALLOWED_ORIGINS=https://chatgpt.com
+export GRAYMATTER_ALLOWED_ORIGINS=https://chatgpt.com,https://platform.openai.com
 export VALKYR_API_BASE=https://api-0.valkyrlabs.com/v1
 node mcp-server/index.js
 ```

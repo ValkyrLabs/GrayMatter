@@ -183,7 +183,7 @@ For public or shared deployments, use a hosted session/OAuth handoff or short-li
 
 ```bash
 GRAYMATTER_MCP_MODE=hosted-multi-tenant \
-GRAYMATTER_ALLOWED_ORIGINS=https://claude.ai,https://chatgpt.com \
+GRAYMATTER_ALLOWED_ORIGINS=https://claude.ai,https://chatgpt.com,https://platform.openai.com \
 npm start
 ```
 

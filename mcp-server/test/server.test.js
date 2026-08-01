@@ -2192,7 +2192,7 @@ test('hosted mode restricts CORS to configured connector origins', async () => {
   const server = createGrayMatterMcpServer({
     apiBase: 'https://api-0.example.test/v1',
     deploymentMode: 'hosted-multi-tenant',
-    allowedOrigins: ['https://chatgpt.com', 'https://graymatter.example.test']
+    allowedOrigins: ['https://chatgpt.com', 'https://platform.openai.com', 'https://graymatter.example.test']
   });
   const baseUrl = await listen(server);
 
@@ -2205,6 +2205,11 @@ test('hosted mode restricts CORS to configured connector origins', async () => {
     assert.equal(allowedBody.deploymentMode, 'hosted-multi-tenant');
     assert.equal(allowedBody.xValkyrTokenAccepted, false);
     assert.equal(allowedBody.processTokenAccepted, false);
+
+    const marketplaceEditor = await fetch(`${baseUrl}/health/auth`, {
+      headers: { origin: 'https://platform.openai.com' }
+    });
+    assert.equal(marketplaceEditor.headers.get('access-control-allow-origin'), 'https://platform.openai.com');
 
     const denied = await fetch(`${baseUrl}/health/auth`, {
       headers: { origin: 'https://evil.example.test' }

@@ -22,7 +22,7 @@ Environment="GRAYMATTER_PUBLIC_RESOURCE=https://api-0.valkyrlabs.com"
 Environment="GRAYMATTER_PUBLIC_MCP_PATH=/graymatter/mcp"
 Environment="GRAYMATTER_OAUTH_ISSUER=https://api-0.valkyrlabs.com"
 Environment="GRAYMATTER_OAUTH_JWKS_URI=https://api-0.valkyrlabs.com/oauth2/jwks"
-Environment="GRAYMATTER_ALLOWED_ORIGINS=https://chatgpt.com"
+Environment="GRAYMATTER_ALLOWED_ORIGINS=https://chatgpt.com,https://platform.openai.com"
 Environment="VALKYR_API_BASE=http://127.0.0.1:8080/v1"
 
 [Install]

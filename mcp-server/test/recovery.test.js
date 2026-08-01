@@ -53,10 +53,10 @@ function createSlowApi(delayMs, payload = { ok: true }) {
   });
 }
 
-async function postRpc(baseUrl, payload) {
+async function postRpc(baseUrl, payload, headers = {}) {
   const response = await fetch(`${baseUrl}/mcp`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', ...headers },
     body: JSON.stringify(payload)
   });
   return response.json();
@@ -390,6 +390,55 @@ test('receipt-backed retrieval times out with retryable recovery instead of hang
       assert.equal(out.retryable, true);
       assert.deepEqual(out.recoveryActions.map((action) => action.id), ['retry', 'sign_in']);
       assert.match(body.result.content[0].text, /did not finish this operation before the client timeout/);
+    } finally {
+      await closeServers(server, fakeApi);
+    }
+  });
+});
+
+test('context_compile has its own bounded transport budget beyond ordinary MCP calls', async () => {
+  await withActivationEnv({
+    GRAYMATTER_CONTEXT_COMPILE_TIMEOUT_MS: '100',
+    GRAYMATTER_MCP_REQUEST_TIMEOUT_MS: '25'
+  }, async () => {
+    const fakeApi = createSlowApi(50, {
+      contextPage: { pageRef: 'ctxpg-review' },
+      retrievalReceipt: { receiptId: 'gm_rr-review' }
+    });
+    const apiBase = await listen(fakeApi);
+    const server = createGrayMatterMcpServer({
+      apiBase: `${apiBase}/v1`,
+      deploymentMode: 'hosted-multi-tenant',
+      publicApp: true,
+      publicResource: 'https://graymatter.example.test',
+      oauthIssuer: 'https://identity.example.test',
+      tokenVerifier: async () => ({
+        claims: {
+          sub: 'reviewer-1',
+          organizationId: 'org-review',
+          tenantId: 'tenant-review',
+          scope: 'memory:read memory:write context:read'
+        }
+      })
+    });
+    const baseUrl = await listen(server);
+
+    try {
+      const body = await postRpc(
+        baseUrl,
+        {
+          jsonrpc: '2.0',
+          id: 'context-compile-timeout',
+          method: 'tools/call',
+          params: {
+            name: 'context_compile',
+            arguments: { task: 'Prepare the current release review.' }
+          }
+        },
+        { authorization: 'Bearer reviewer-token' });
+
+      assert.equal(body.result.structuredContent.ok, true);
+      assert.equal(body.result.structuredContent.data.contextPage.pageRef, 'ctxpg-review');
     } finally {
       await closeServers(server, fakeApi);
     }

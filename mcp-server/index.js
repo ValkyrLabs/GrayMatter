@@ -2556,12 +2556,18 @@ async function apiRequestOnce(context, method, endpoint, body) {
 }
 
 function apiRequestTimeoutMs(endpoint) {
-  const specific = isRetrievalReceiptEndpoint(endpoint)
-    ? parsePositiveInteger(process.env.GRAYMATTER_RETRIEVAL_RECEIPT_TIMEOUT_MS)
-    : null;
+  const specific = isContextCompileEndpoint(endpoint)
+    ? parsePositiveInteger(process.env.GRAYMATTER_CONTEXT_COMPILE_TIMEOUT_MS) || 90000
+    : isRetrievalReceiptEndpoint(endpoint)
+      ? parsePositiveInteger(process.env.GRAYMATTER_RETRIEVAL_RECEIPT_TIMEOUT_MS)
+      : null;
   return specific
     || parsePositiveInteger(process.env.GRAYMATTER_MCP_REQUEST_TIMEOUT_MS)
     || 30000;
+}
+
+function isContextCompileEndpoint(endpoint) {
+  return String(endpoint || '').replace(/^\/+/, '') === 'graymatter_ops/context_page/compile';
 }
 
 function isRetrievalReceiptEndpoint(endpoint) {

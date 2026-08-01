@@ -94,6 +94,10 @@ test('public tool surface is exact, strict, OAuth-scoped, and correctly annotate
   assert.equal(publicTools.find((tool) => tool.name === 'memory_forget').annotations.destructiveHint, true);
   assert.equal(publicTools.find((tool) => tool.name === 'memory_search').annotations.readOnlyHint, true);
   assert.equal(publicTools.find((tool) => tool.name === 'memory_save').annotations.readOnlyHint, false);
+
+  const contextCompile = publicTools.find((tool) => tool.name === 'context_compile');
+  assert.equal(contextCompile.inputSchema.properties.filters, undefined);
+  assert.equal(contextCompile.inputSchema.required.includes('filters'), false);
 });
 
 test('public endpoint publishes protected-resource metadata and challenges unauthenticated calls', async (t) => {

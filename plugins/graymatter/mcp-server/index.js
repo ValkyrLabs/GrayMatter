@@ -1164,8 +1164,7 @@ const publicTools = [
         task: { type: 'string', minLength: 1, maxLength: 12000 },
         tokenBudget: { type: 'integer', minimum: 256, maximum: 16000, default: 4000 },
         includeProcedures: { type: 'boolean', default: true },
-        includeRatings: { type: 'boolean', default: true },
-        filters: { type: 'object', maxProperties: 20, additionalProperties: { type: ['string', 'number', 'boolean'] } }
+        includeRatings: { type: 'boolean', default: true }
       },
       required: ['task'],
       additionalProperties: false

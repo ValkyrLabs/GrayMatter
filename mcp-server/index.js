@@ -1922,6 +1922,7 @@ async function callPublicTool(params, context) {
       return publicToolError('TOOL_NOT_FOUND', 'This tool is not available on the public GrayMatter app surface.', false);
     }
     assertNoPrincipalOverrides(args);
+    assertPublicToolArguments(descriptor, args);
     requirePublicScopes(context.principal, descriptor.securitySchemes[0].scopes || []);
 
     switch (name) {
@@ -1975,8 +1976,7 @@ async function callPublicTool(params, context) {
           taskIntent,
           tokenBudget: clampInteger(args.tokenBudget, 4000, 256, 16000),
           includeProcedures: args.includeProcedures !== false,
-          includeRatings: args.includeRatings !== false,
-          filters: sanitizePublicFilters(args.filters)
+          includeRatings: args.includeRatings !== false
         });
         return publicToolSuccess(
           decorateRetrievalReceiptResult(response),
@@ -2049,22 +2049,14 @@ function publicSearchableText(value) {
     .toLowerCase();
 }
 
-function sanitizePublicFilters(filters) {
-  if (filters === undefined) return undefined;
-  if (!isPlainObject(filters)) throw publicArgumentError('filters must be an object.');
-  assertNoPrincipalOverrides(filters);
-  const entries = Object.entries(filters).slice(0, 20);
-  const sanitized = {};
-  for (const [key, value] of entries) {
-    if (!/^[A-Za-z][A-Za-z0-9_.-]{0,63}$/.test(key)) {
-      throw publicArgumentError('filters contains an invalid key.');
+function assertPublicToolArguments(descriptor, args) {
+  const properties = descriptor && descriptor.inputSchema && descriptor.inputSchema.properties;
+  const allowed = new Set(Object.keys(properties || {}));
+  for (const key of Object.keys(args)) {
+    if (!allowed.has(key)) {
+      throw publicArgumentError(`${key} is not a supported argument for ${descriptor.name}.`);
     }
-    if (!['string', 'number', 'boolean'].includes(typeof value)) {
-      throw publicArgumentError('filters values must be strings, numbers, or booleans.');
-    }
-    sanitized[key] = typeof value === 'string' ? value.slice(0, 512) : value;
   }
-  return sanitized;
 }
 
 function publicArgumentError(message) {

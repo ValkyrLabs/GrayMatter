@@ -100,6 +100,27 @@ test('public tool surface is exact, strict, OAuth-scoped, and correctly annotate
   assert.equal(contextCompile.inputSchema.required.includes('filters'), false);
 });
 
+test('public context_compile rejects undocumented generic filters', async (t) => {
+  const api = http.createServer((_req, res) => {
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ contextPage: { pageRef: 'ctxpg-1' } }));
+  });
+  t.after(() => close(api));
+  const apiPort = await listen(api);
+  const server = publicServer(`http://127.0.0.1:${apiPort}/v1`);
+  t.after(() => close(server));
+  const port = await listen(server);
+
+  const response = await request(port, 'POST', '/graymatter/mcp', rpc('tools/call', {
+    name: 'context_compile',
+    arguments: { task: 'Prepare the release review.', filters: { entityType: 'release' } }
+  }), { authorization: 'Bearer token-a' });
+
+  assert.equal(response.body.result.isError, true);
+  assert.equal(response.body.result.structuredContent.error.code, 'INVALID_ARGUMENT');
+  assert.match(response.body.result.structuredContent.error.message, /filters is not a supported argument/i);
+});
+
 test('public endpoint publishes protected-resource metadata and challenges unauthenticated calls', async (t) => {
   const server = publicServer('https://api.example.test/v1');
   t.after(() => close(server));

@@ -2,6 +2,10 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [[ -f "${SCRIPT_DIR}/gm-profile-lib" ]]; then
+  source "${SCRIPT_DIR}/gm-profile-lib"
+  gm_profile_apply
+fi
 PLUGIN_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 NODE_BIN="${GRAYMATTER_NODE:-node}"
 STARTUP_TIMEOUT="${GRAYMATTER_MCP_STARTUP_TIMEOUT_SECONDS:-35}"
@@ -21,6 +25,12 @@ fi
 log() {
   printf 'graymatter-mcp-startup: %s\n' "$*" >&2
 }
+
+if [[ "${GRAYMATTER_PROFILE_MODE:-}" == "blend" ]]; then
+  export GRAYMATTER_SKIP_STARTUP_AUTH=true
+  export GRAYMATTER_SKIP_OPENAPI_SYNC=true
+  log "blended read mode active; per-profile auth remains isolated and MCP writes are blocked"
+fi
 
 run_bounded() {
   local label="$1"

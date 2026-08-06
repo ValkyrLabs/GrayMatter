@@ -1,0 +1,38 @@
+services:
+  graymatter-lite:
+    build:
+      context: ../templates/graymatter-light-bootstrap/local-server
+      dockerfile: Dockerfile
+    image: valkyrlabs/graymatter-lite:local
+    restart: unless-stopped
+    ports:
+      - "${GRAYMATTER_LITE_PORT:-8787}:8787"
+    environment:
+      GRAYMATTER_ADMIN_USERNAME: "${GRAYMATTER_ADMIN_USERNAME:-admin}"
+      GRAYMATTER_ADMIN_PASSWORD: "${GRAYMATTER_ADMIN_PASSWORD:?GRAYMATTER_ADMIN_PASSWORD is required}"
+      GRAYMATTER_ADMIN_DISPLAY_NAME: "${GRAYMATTER_ADMIN_DISPLAY_NAME:-GrayMatter Lite Admin}"
+      GRAYMATTER_DATA_DIR: /data
+    volumes:
+      - graymatter-lite-data:/data
+
+  graymatter-mcp:
+    build:
+      context: ../mcp-server
+      dockerfile: Dockerfile
+    image: valkyrlabs/graymatter-mcp:local
+    restart: unless-stopped
+    depends_on:
+      graymatter-lite:
+        condition: service_healthy
+    ports:
+      - "${GRAYMATTER_MCP_PORT:-3333}:3333"
+    environment:
+      PORT: 3333
+      VALKYR_API_BASE: http://graymatter-lite:8787/v1
+      GRAYMATTER_LIGHT_MODE: "true"
+      GRAYMATTER_LIGHT_USERNAME: "${GRAYMATTER_ADMIN_USERNAME:-admin}"
+      GRAYMATTER_LIGHT_PASSWORD: "${GRAYMATTER_ADMIN_PASSWORD:?GRAYMATTER_ADMIN_PASSWORD is required}"
+      GRAYMATTER_MCP_MODE: local-dev
+
+volumes:
+  graymatter-lite-data:

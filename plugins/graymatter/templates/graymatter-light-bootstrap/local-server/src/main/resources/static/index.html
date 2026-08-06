@@ -361,7 +361,7 @@
         <p class="overline">GrayMatter Light Bundle</p>
         <h1>Memory first. Promotion ready.</h1>
         <p class="lead">
-          This standalone GrayMatter server brings the Valkyr control panel into the local/light runtime:
+          This standalone GrayMatter server brings the Valkyr control panel into the local/Lite runtime:
           RBAC, Principal identity, UserPreferences, durable MemoryEntry records, Data Workbooks, Swarm Protocol,
           and a clean path to promote or synchronize with the valkyrlabs.com mothership.
         </p>
@@ -394,7 +394,7 @@
     </section>
 
     <section class="mode-rail" aria-label="Bundle capability summary">
-      <div class="mode-card"><span>Mode</span><strong>Local Light</strong><p>Private H2-backed runtime on this machine.</p></div>
+      <div class="mode-card"><span>Mode</span><strong>Local Lite</strong><p>Private H2-backed runtime on this machine.</p></div>
       <div class="mode-card"><span>Full Path</span><strong>valkyrlabs.com</strong><p>Promotion bridge prepares the bundle for hosted GrayMatter.</p></div>
       <div class="mode-card"><span>Generation</span><strong>ThorAPI FEBE</strong><p>Schema-first app bundle with custom and built-in Valkyr components.</p></div>
       <div class="mode-card"><span>Swarm</span><strong>graymatter-swarm-v0.1</strong><p>Local light-node adapter exposed through SwarmOps-compatible endpoints.</p></div>
@@ -420,7 +420,7 @@
 
       <article class="panel wide">
         <h2>Swarm Protocol</h2>
-        <p>GrayMatter Light exposes a local SWARM v0.1 light-node identity so the standalone bundle can be discovered, graphed, and promoted into the broader ValkyrAI system.</p>
+        <p>GrayMatter Lite exposes a local SWARM v0.1 light-node identity so the standalone bundle can be discovered, graphed, and promoted into the broader ValkyrAI system.</p>
         <div class="status-lines" id="swarmStatus"></div>
         <div class="pill-row" id="swarmPills"></div>
       </article>
@@ -469,6 +469,7 @@
         </div>
         <div class="button-row">
           <button id="importKnowledgePack" type="button">Verify &amp; Import</button>
+          <button class="secondary" id="exportKnowledgePack" type="button">Export All Memory</button>
           <button class="secondary" id="refreshKnowledgePacks" type="button">Refresh Packs</button>
         </div>
         <p class="session-note" id="knowledgePackStatus">No KnowledgePack selected.</p>
@@ -666,6 +667,24 @@
       };
       $("refreshKnowledgePacks").onclick = async () => {
         try { await loadKnowledgePacks(); } catch (error) { elements.knowledgePackStatus.textContent = error.message; }
+      };
+      $("exportKnowledgePack").onclick = async () => {
+        try {
+          elements.knowledgePackStatus.textContent = "Creating a portable KnowledgePack from local memory...";
+          const response = await fetch("/v1/knowledge-packs/export", { headers: plainHeaders() });
+          if (!response.ok) throw new Error(`KnowledgePack export failed: ${response.status}`);
+          const blob = await response.blob();
+          const link = document.createElement("a");
+          link.href = URL.createObjectURL(blob);
+          link.download = "graymatter-lite-memory.gmkp";
+          document.body.appendChild(link);
+          link.click();
+          link.remove();
+          URL.revokeObjectURL(link.href);
+          elements.knowledgePackStatus.textContent = `Exported ${response.headers.get("X-GrayMatter-Memory-Entry-Count") || "all"} memories.`;
+        } catch (error) {
+          elements.knowledgePackStatus.textContent = error.message;
+        }
       };
       $("health").onclick = () => checkHealth(elements.sessionBannerText);
       $("loginHealth").onclick = () => checkHealth(elements.session);

@@ -1,4 +1,7 @@
 .tmp-*/
+.vaix/
+.graymatter-lite/
+.graymatter-light/
 tmp/
 dist/
 memory/

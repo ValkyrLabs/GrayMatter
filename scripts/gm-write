@@ -88,6 +88,15 @@ while [[ $# -gt 0 ]]; do
 done
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [[ -f "${SCRIPT_DIR}/gm-profile-lib" ]]; then
+  source "${SCRIPT_DIR}/gm-profile-lib"
+  gm_profile_apply
+  if gm_profile_is_blended; then
+    echo "gm-write is disabled in GrayMatter federated read mode." >&2
+    echo "Run 'scripts/gm-profile use <name>' or set GRAYMATTER_PROFILE=<name> before writing." >&2
+    exit 64
+  fi
+fi
 
 queue_fallback() {
   local reason="$1"

@@ -1,13 +1,14 @@
 {
   "key": "graymatter-local",
-  "name": "GrayMatter Local Server",
-  "description": "Standalone downloadable GrayMatter application generated from ValkyrAI app-factory inputs.",
+  "name": "GrayMatter Lite",
+  "description": "Useful single-workspace open-source GrayMatter application generated from ThorAPI app-factory inputs.",
   "deployProfile": "web-plus-api",
   "generationMode": "thorapi-febe",
   "workflow": {
     "defaultFlow": "graymatter-local-bootstrap"
   },
-  "billingModel": "one-time",
+  "license": "AGPL-3.0-only",
+  "billingModel": "open-source",
   "sourceTemplate": "graymatter-local",
   "sharedModules": {
     "auth": {

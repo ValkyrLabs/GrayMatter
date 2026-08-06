@@ -1,6 +1,7 @@
 {
-  "artifactId": "graymatter-local-server",
-  "version": "0.1.0",
+  "artifactId": "graymatter-lite",
+  "version": "1.0.0",
+  "license": "AGPL-3.0-only",
   "java": "17",
   "generationMode": "thorapi-febe",
   "sourceTemplate": "graymatter-local",
@@ -8,6 +9,8 @@
     "GrayMatterDashboard",
     "MemoryEntryWorkbench",
     "KnowledgePackImporter",
+    "KnowledgePackExporter",
+    "StarterKnowledgePack",
     "MothershipPromotionBridge",
     "SwarmProtocolBridge",
     "LiveTelemetryPanel"
@@ -22,6 +25,8 @@
     "UserPreferences",
     "MemoryEntry",
     "KnowledgePack",
+    "MCP Server",
+    "Local Model Compatibility",
     "Data Workbooks",
     "Mothership Sync",
     "Swarm Protocol",

@@ -87,23 +87,26 @@ Default auth posture for Cloud mode:
 
 Manual JWT handling is a fallback and debugging path, not the normal user experience.
 
-## Mode 2: GrayMatter Light
+## Mode 2: GrayMatter Lite
 
-A local/offline mode built around a minimal ThorAPI-powered `MemoryEntry` surface.
+A local/self-hosted single-workspace product built around a ThorAPI-powered
+`MemoryEntry`, KnowledgePack, MCP, dashboard, profile, and SWARM surface.
 
 Target characteristics:
-- minimal schema
+- focused single-workspace schema
 - easy local startup
 - no required external auth
-- small demo/dev footprint
+- durable H2 storage, sign-in, import/export, and local-model compatibility
 - straightforward upgrade path to cloud mode
 
-Use Light mode when you need a local demo, offline development loop, or resilient fallback. Keep it centered on durable memory; do not expand it into a full copy of the production object graph.
+Use Lite mode for real private memory, offline development, local-model tools,
+or resilient self-hosting. It does not need to clone the multi-tenant production
+object graph to remain a complete and useful single-workspace product.
 
 ## Design principles
 
 1. **Memory first**
-   Start with `MemoryEntry`. Do not overbuild graph complexity into the light path.
+   Start with `MemoryEntry`, then use portable KnowledgePack graph data where it adds value.
 
 2. **Deterministic writes**
    Prefer short, structured, durable facts.

@@ -1,0 +1,78 @@
+{
+  "packId": "95e07d4b-81fb-51db-87ad-88c300b88c6d",
+  "name": "GrayMatter Lite Starter KnowledgePack",
+  "memories": [
+    {
+      "sourceId": "b61d3d3d-5664-53f9-85f0-65c3ace55d72",
+      "type": "context",
+      "text": "GrayMatter Lite is the genuinely useful local and self-hosted edition of GrayMatter for one user or workspace. It includes durable H2 memory, the sign-in dashboard, MCP access, signed KnowledgePack portability, a local SWARM bridge, and source-first installation. Lite is not a timed trial or a crippled demo.",
+      "tags": ["graymatter", "lite", "product", "support"]
+    },
+    {
+      "sourceId": "8ade1225-ab91-5328-8b59-b01330dc0679",
+      "type": "context",
+      "text": "Install GrayMatter Lite from a source checkout with ./vaix setup. The builder verifies or installs a private Java 17 toolchain, prepares the ThorAPI api.hbs.yaml application bundle, builds the Spring/H2 backend, starts it, and reports the local sign-in dashboard and MCP endpoints. Use ./vaix doctor for readiness, ./vaix stop to stop local services, and ./vaix docker for the containerized path.",
+      "tags": ["graymatter", "lite", "setup", "vaix", "jdk"]
+    },
+    {
+      "sourceId": "7d56933f-ea43-518d-959a-2ea7e3aa15c8",
+      "type": "context",
+      "text": "GrayMatter memory can be created and retrieved through the dashboard, the api-0-compatible /v1/MemoryEntry/write, /query, /read, and /{id} routes, or the bundled MCP memory tools. Durable entries should use decision, todo, context, artifact, or preference types and should keep scope and provenance in sourceChannel and tags.",
+      "tags": ["graymatter", "memory", "mcp", "api", "support"]
+    },
+    {
+      "sourceId": "1f358214-b01e-5f93-b086-e00052104d24",
+      "type": "decision",
+      "text": "GrayMatter Lite has exactly one backend profile. The plugin and MCP client can register both that local profile and a hosted tenant profile, switch between them, or execute explicit blended reads against each profile independently. Blended mode is read-only, provenance-labeled, and blocks every write until one profile is selected.",
+      "tags": ["graymatter", "profiles", "local", "hosted", "blended", "security"]
+    },
+    {
+      "sourceId": "54e34fd7-7f90-5353-80e2-6948515f1a7c",
+      "type": "context",
+      "text": "Import signed .gmkp KnowledgePacks from the dashboard, scripts/gm-knowledge-pack-import, or /v1/knowledge-packs/import. Export the current principal's memories from the dashboard or /v1/knowledge-packs/export. Imports verify ZIP boundaries, SHA-256 content integrity, Ed25519 signatures, counts, and the do-not-transplant authority policy before records enter H2.",
+      "tags": ["graymatter", "knowledgepack", "import", "export", "portability"]
+    },
+    {
+      "sourceId": "6036a48a-c39a-5c91-a36e-54fcbed3beb1",
+      "type": "context",
+      "text": "GrayMatter Lite is local-model compatible through the open Model Context Protocol. Ollama, LM Studio, llama.cpp, and other local-model hosts can use the bundled stdio or HTTP MCP server without changing the H2 memory backend. GrayMatter does not force a hosted model provider; the model host remains separate from the durable memory and authorization boundary.",
+      "tags": ["graymatter", "local-model", "ollama", "lm-studio", "mcp"]
+    },
+    {
+      "sourceId": "2b260694-c410-5fcf-b9ad-b82647d3ea68",
+      "type": "context",
+      "text": "Valkyr SWARM is the open-source peer product for connecting Codex, Claude Code, OpenClaw, ValorIDE, Valklaw, and other agents to a tenant-isolated Valkyr mothership. Install it with: git clone https://github.com/ValkyrLabs/ValkyrSWARM.git; codex plugin marketplace add $PWD/ValkyrSWARM; codex plugin add valkyr-swarm@valkyr-swarm. Node 22 or newer is required.",
+      "tags": ["valkyrswarm", "swarm", "install", "agents", "support"]
+    },
+    {
+      "sourceId": "3e7a9b50-0617-5d9a-9108-c33c347efccd",
+      "type": "decision",
+      "text": "After Valkyr SWARM installation, activate with secret-supplied VALKYR_USERNAME and VALKYR_PASSWORD using node scripts/swarm-activate.mjs, then prove the installation with node scripts/swarm-doctor.mjs --live. The supervised bridge registers, heartbeats, receives exact-target mothership commands, streams bounded progress, and produces ACK/NACK receipts. Outbound sends, production deploys, merges, and service restarts remain human-approval gated and can never be self-approved by an agent.",
+      "tags": ["valkyrswarm", "mothership", "remote-control", "receipts", "approval", "security"]
+    },
+    {
+      "sourceId": "49e0d5d7-c100-51f3-ad9f-069c2dd16df7",
+      "type": "context",
+      "text": "ValkyrAI is the hosted application, workflow, agent, and RBAC object-graph platform behind api-0. GrayMatter supplies durable memory and retrieval context; ValkyrAI owns authenticated tenant operations and generated authorization; Valkyr SWARM owns portable agent registration, supervision, command transport, and receipts.",
+      "tags": ["valkyrai", "api-0", "graymatter", "swarm", "architecture"]
+    },
+    {
+      "sourceId": "c38e910f-9f5b-55b1-9af5-910ff2ac09b4",
+      "type": "decision",
+      "text": "ThorAPI api.hbs.yaml is the canonical schema and generation input for GrayMatter Lite. Change generated API behavior at the ThorAPI input or shared generator layer, then run ./vaix generate, ./vaix build, and ./vaix test. Never hand-edit generated clients to bypass generated RBAC or ACL behavior.",
+      "tags": ["thorapi", "vaix", "generated-code", "rbac", "acl", "invariant"]
+    },
+    {
+      "sourceId": "732f1960-8719-5750-b171-8002b0fffdac",
+      "type": "context",
+      "text": "GrayMatter Lite operational help starts with ./vaix doctor, README.md, docs/graymatter-lite.md, docs/local-models.md, and docs/knowledge-packs.md. Community questions and feature proposals belong in GitHub Discussions; reproducible bugs belong in GitHub Issues; suspected vulnerabilities must be sent privately to security@valkyrlabs.com.",
+      "tags": ["graymatter", "documentation", "community", "support", "security"]
+    },
+    {
+      "sourceId": "66b9285f-850a-5e5f-bc70-05f4e8b27ea4",
+      "type": "artifact",
+      "text": "The GrayMatter Lite open-source build boundary is the committed ThorAPI api.hbs.yaml, ./vaix builder, local-server source, embedded sign-in dashboard, MCP server, starter KnowledgePack source, Docker definition, tests, and public documentation. A release is not complete until source build, H2 write/query/read, starter data, KnowledgePack import/export, dashboard auth, MCP tools, and packaging are verified together.",
+      "tags": ["graymatter", "lite", "open-source", "release", "testing", "invariant"]
+    }
+  ]
+}

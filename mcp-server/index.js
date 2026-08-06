@@ -1334,6 +1334,7 @@ function createGrayMatterMcpServer(options = {}) {
           tenantId: publicApp ? '' : tenantIdFrom(req, processTenantId, processToken),
           lightUsername,
           lightPassword,
+          profileMode: options.profileMode || process.env.GRAYMATTER_PROFILE_MODE || 'single',
           loginCommand,
           loginProvider,
           apiCommand,
@@ -1401,6 +1402,7 @@ function createRpcContext(options = {}) {
     tenantId: options.tenantId || process.env.GRAYMATTER_TENANT_ID || process.env.VALKYR_TENANT_ID || '',
     lightUsername: options.lightUsername || process.env.GRAYMATTER_LIGHT_USERNAME || 'admin',
     lightPassword: options.lightPassword || process.env.GRAYMATTER_LIGHT_PASSWORD || '',
+    profileMode: options.profileMode || process.env.GRAYMATTER_PROFILE_MODE || 'single',
     requestScopedToken: false,
     loginCommand,
     loginProvider,
@@ -2343,6 +2345,28 @@ function overviewWidgetHtml() {
 }
 
 async function apiRequest(context, method, endpoint, body) {
+  if (context.profileMode === 'blend') {
+    const normalizedMethod = String(method || '').toUpperCase();
+    const normalizedEndpoint = String(endpoint || '').replace(/^\/+/, '');
+    const supportedRead = normalizedMethod === 'GET'
+      || normalizedMethod === 'HEAD'
+      || (normalizedMethod === 'POST' && normalizedEndpoint === 'MemoryEntry/query');
+    if (supportedRead && typeof context.apiShellProvider === 'function') {
+      return context.apiShellProvider(context, normalizedMethod, normalizedEndpoint, body);
+    }
+    const error = new Error('Blended GrayMatter profiles are read-only. Select one profile before this MCP operation.');
+    error.name = 'ApiRequestError';
+    error.status = 403;
+    error.payload = {
+      code: 'FEDERATED_READ_ONLY',
+      message: error.message,
+      method: normalizedMethod,
+      endpoint: normalizedEndpoint
+    };
+    error.method = normalizedMethod;
+    error.endpoint = normalizedEndpoint;
+    throw error;
+  }
   if (!context.requestScopedToken && !context.token) {
     hydrateLocalAuth(context);
   }

@@ -86,6 +86,55 @@ async function withActivationEnv(env, fn) {
   }
 }
 
+test('blended-profile MCP federates safe memory reads and blocks writes', async () => {
+  const calls = [];
+  const server = createGrayMatterMcpServer({
+    profileMode: 'blend',
+    fetch: async () => {
+      throw new Error('blended MCP must not bypass the profile router');
+    },
+    apiShellProvider: async (_context, method, endpoint, body) => {
+      calls.push({ method, endpoint, body });
+      return {
+        mode: 'federated-read',
+        results: [
+          { profile: 'local', accountFingerprint: 'sha256:local', ok: true, data: { results: [{ id: 'local-memory' }] } },
+          { profile: 'cloud', accountFingerprint: 'sha256:cloud', ok: true, data: { results: [{ id: 'cloud-memory' }] } }
+        ],
+        provenance: 'Each result was fetched independently under server-side RBAC.'
+      };
+    }
+  });
+  const baseUrl = await listen(server);
+
+  try {
+    const read = await postRpc(baseUrl, {
+      jsonrpc: '2.0',
+      id: 'blend-read',
+      method: 'tools/call',
+      params: { name: 'memory_query', arguments: { query: 'release rule' } }
+    });
+    const payload = JSON.parse(read.result.content[0].text);
+    assert.equal(payload.mode, 'federated-read');
+    assert.deepEqual(payload.results.map((result) => result.profile), ['local', 'cloud']);
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].method, 'POST');
+    assert.equal(calls[0].endpoint, 'MemoryEntry/query');
+
+    const write = await postRpc(baseUrl, {
+      jsonrpc: '2.0',
+      id: 'blend-write',
+      method: 'tools/call',
+      params: { name: 'memory_write', arguments: { type: 'context', text: 'must not write' } }
+    });
+    assert.equal(write.result.structuredContent.reason, 'read_only_auth');
+    assert.equal(write.result.structuredContent.retryable, false);
+    assert.equal(calls.length, 1);
+  } finally {
+    await closeServer(server);
+  }
+});
+
 test('memory_query returns neutral recovery for a usage limit without commerce actions', async () => {
   await withActivationEnv({
     VALKYR_HUMAN_SIGNUP_URL: undefined,

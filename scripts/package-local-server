@@ -78,18 +78,35 @@ bundle_runtime() {
     1|true|TRUE|yes|YES) return 0 ;;
   esac
 
-  if ! command -v jlink >/dev/null 2>&1; then
+  local jlink_bin=""
+  local candidate=""
+  for candidate in \
+    "${JAVA_HOME:-}/bin/jlink" \
+    "$(command -v jlink || true)"; do
+    if [[ -n "$candidate" && -x "$candidate" ]] && "$candidate" --version >/dev/null 2>&1; then
+      jlink_bin="$candidate"
+      break
+    fi
+  done
+  if [[ -z "$jlink_bin" && -x /usr/libexec/java_home ]]; then
+    candidate="$(/usr/libexec/java_home -v 17+ 2>/dev/null || /usr/libexec/java_home 2>/dev/null || true)"
+    if [[ -x "${candidate}/bin/jlink" ]] && "${candidate}/bin/jlink" --version >/dev/null 2>&1; then
+      jlink_bin="${candidate}/bin/jlink"
+    fi
+  fi
+
+  if [[ -z "$jlink_bin" ]]; then
     echo "jlink unavailable; packaging without bundled Java runtime." >&2
     return 0
   fi
 
   local compress_option="--compress=2"
-  if jlink --help 2>&1 | grep -q 'zip-\[0-9\]'; then
+  if "$jlink_bin" --help 2>&1 | grep -Eq 'zip-(\{0-9\}|\[0-9\])'; then
     compress_option="--compress=zip-6"
   fi
 
   rm -rf "$package_dir/runtime"
-  if ! jlink \
+  if ! "$jlink_bin" \
     --add-modules java.base,java.compiler,java.desktop,java.instrument,java.logging,java.management,java.naming,java.net.http,java.security.jgss,java.sql,jdk.crypto.ec,jdk.unsupported \
     --strip-debug \
     --no-header-files \
@@ -114,6 +131,7 @@ mkdir -p "$PACKAGE_DIR"
 copytree "$BUNDLE_DIR/local-server" "$PACKAGE_DIR/source"
 cp "$PACKAGE_DIR/source/README.md" "$PACKAGE_DIR/README.md"
 cp "$PACKAGE_DIR/source/manifest.json" "$PACKAGE_DIR/manifest.json"
+cp "$ROOT/LICENSE" "$PACKAGE_DIR/LICENSE"
 cp "$ROOT/docs/knowledge-packs.md" "$PACKAGE_DIR/KNOWLEDGE_PACKS.md"
 copytree "$BUNDLE_DIR/application-bundle" "$PACKAGE_DIR/application-bundle"
 copytree "$PACKAGE_DIR/source/bin" "$PACKAGE_DIR/bin"

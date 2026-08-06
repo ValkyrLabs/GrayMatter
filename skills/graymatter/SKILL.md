@@ -188,6 +188,8 @@ Readiness and auth:
 - `scripts/gm-status`
 
 Memory and graph helpers:
+- `scripts/gm-profile`
+- `scripts/gm-profile-lib`
 - `scripts/gm-invariant-preflight`
 - `scripts/gm-write`
 - `scripts/gm-client`
@@ -201,6 +203,7 @@ Memory and graph helpers:
 - `scripts/gm-replay-deferred`
 
 Local/server packaging:
+- `./vaix` generates, builds, tests, and runs GrayMatter Lite from source and installs missing private JDK/Maven/Node toolchains
 - `scripts/gm-light-bootstrap`
 - `scripts/gm-light-up`
 - `scripts/gm-light-env`
@@ -384,6 +387,17 @@ scripts/gm-entity Note POST '{"title":"Launch note","content":"GrayMatter launch
 ```
 
 ## Auth
+
+Named profiles use `scripts/gm-profile` without adding a server-side profile
+model. GrayMatter Lite has one local backend principal; the client can register
+that local Basic-auth endpoint beside hosted tenant accounts. `use` selects one
+identity for reads and writes. `blend` performs independent provenance-labeled
+reads across at least two profiles and blocks all writes until one profile is
+selected. MCP supports the same blended memory query/read/health subset and
+returns read-only recovery for mutating or unsupported tools.
+
+Local passwords remain in mode-0600 profile secret files; hosted tokens remain
+in Keychain. Neither secret is stored in `profiles.json`.
 
 `graymatter_api.sh` uses:
 - `VALKYR_API_BASE`, defaulting to `https://api-0.valkyrlabs.com/v1`

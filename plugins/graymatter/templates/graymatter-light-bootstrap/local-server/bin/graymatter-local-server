@@ -47,13 +47,35 @@ case "${1:-}" in
     ;;
 esac
 
-JAVA_BIN="${APP_HOME}/runtime/bin/java"
-if [[ ! -x "$JAVA_BIN" ]]; then
-  JAVA_BIN="$(command -v java || true)"
-fi
+java_works() {
+  [[ -n "${1:-}" && -x "$1" ]] && "$1" -version >/dev/null 2>&1
+}
+
+find_java() {
+  local candidate=""
+  for candidate in \
+    "${APP_HOME}/runtime/bin/java" \
+    "${JAVA_HOME:-}/bin/java" \
+    "$(command -v java || true)"; do
+    if java_works "$candidate"; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done
+  if [[ -x /usr/libexec/java_home ]]; then
+    candidate="$(/usr/libexec/java_home -v 17+ 2>/dev/null || /usr/libexec/java_home 2>/dev/null || true)"
+    if java_works "${candidate}/bin/java"; then
+      printf '%s\n' "${candidate}/bin/java"
+      return 0
+    fi
+  fi
+  return 1
+}
+
+JAVA_BIN="$(find_java || true)"
 
 if [[ -z "$JAVA_BIN" ]]; then
-  echo "No bundled Java runtime found and system java is unavailable. Use a packaged GrayMatter Local Server archive built with runtime bundling enabled." >&2
+  echo "No working bundled or system Java 17+ runtime was found. Run ./vaix setup or use a GrayMatter Lite archive built with runtime bundling enabled." >&2
   exit 1
 fi
 

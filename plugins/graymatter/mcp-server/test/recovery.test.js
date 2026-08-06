@@ -53,10 +53,10 @@ function createSlowApi(delayMs, payload = { ok: true }) {
   });
 }
 
-async function postRpc(baseUrl, payload) {
+async function postRpc(baseUrl, payload, headers = {}) {
   const response = await fetch(`${baseUrl}/mcp`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', ...headers },
     body: JSON.stringify(payload)
   });
   return response.json();
@@ -85,6 +85,55 @@ async function withActivationEnv(env, fn) {
     }
   }
 }
+
+test('blended-profile MCP federates safe memory reads and blocks writes', async () => {
+  const calls = [];
+  const server = createGrayMatterMcpServer({
+    profileMode: 'blend',
+    fetch: async () => {
+      throw new Error('blended MCP must not bypass the profile router');
+    },
+    apiShellProvider: async (_context, method, endpoint, body) => {
+      calls.push({ method, endpoint, body });
+      return {
+        mode: 'federated-read',
+        results: [
+          { profile: 'local', accountFingerprint: 'sha256:local', ok: true, data: { results: [{ id: 'local-memory' }] } },
+          { profile: 'cloud', accountFingerprint: 'sha256:cloud', ok: true, data: { results: [{ id: 'cloud-memory' }] } }
+        ],
+        provenance: 'Each result was fetched independently under server-side RBAC.'
+      };
+    }
+  });
+  const baseUrl = await listen(server);
+
+  try {
+    const read = await postRpc(baseUrl, {
+      jsonrpc: '2.0',
+      id: 'blend-read',
+      method: 'tools/call',
+      params: { name: 'memory_query', arguments: { query: 'release rule' } }
+    });
+    const payload = JSON.parse(read.result.content[0].text);
+    assert.equal(payload.mode, 'federated-read');
+    assert.deepEqual(payload.results.map((result) => result.profile), ['local', 'cloud']);
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].method, 'POST');
+    assert.equal(calls[0].endpoint, 'MemoryEntry/query');
+
+    const write = await postRpc(baseUrl, {
+      jsonrpc: '2.0',
+      id: 'blend-write',
+      method: 'tools/call',
+      params: { name: 'memory_write', arguments: { type: 'context', text: 'must not write' } }
+    });
+    assert.equal(write.result.structuredContent.reason, 'read_only_auth');
+    assert.equal(write.result.structuredContent.retryable, false);
+    assert.equal(calls.length, 1);
+  } finally {
+    await closeServer(server);
+  }
+});
 
 test('memory_query returns neutral recovery for a usage limit without commerce actions', async () => {
   await withActivationEnv({
@@ -390,6 +439,55 @@ test('receipt-backed retrieval times out with retryable recovery instead of hang
       assert.equal(out.retryable, true);
       assert.deepEqual(out.recoveryActions.map((action) => action.id), ['retry', 'sign_in']);
       assert.match(body.result.content[0].text, /did not finish this operation before the client timeout/);
+    } finally {
+      await closeServers(server, fakeApi);
+    }
+  });
+});
+
+test('context_compile has its own bounded transport budget beyond ordinary MCP calls', async () => {
+  await withActivationEnv({
+    GRAYMATTER_CONTEXT_COMPILE_TIMEOUT_MS: '100',
+    GRAYMATTER_MCP_REQUEST_TIMEOUT_MS: '25'
+  }, async () => {
+    const fakeApi = createSlowApi(50, {
+      contextPage: { pageRef: 'ctxpg-review' },
+      retrievalReceipt: { receiptId: 'gm_rr-review' }
+    });
+    const apiBase = await listen(fakeApi);
+    const server = createGrayMatterMcpServer({
+      apiBase: `${apiBase}/v1`,
+      deploymentMode: 'hosted-multi-tenant',
+      publicApp: true,
+      publicResource: 'https://graymatter.example.test',
+      oauthIssuer: 'https://identity.example.test',
+      tokenVerifier: async () => ({
+        claims: {
+          sub: 'reviewer-1',
+          organizationId: 'org-review',
+          tenantId: 'tenant-review',
+          scope: 'memory:read memory:write context:read'
+        }
+      })
+    });
+    const baseUrl = await listen(server);
+
+    try {
+      const body = await postRpc(
+        baseUrl,
+        {
+          jsonrpc: '2.0',
+          id: 'context-compile-timeout',
+          method: 'tools/call',
+          params: {
+            name: 'context_compile',
+            arguments: { task: 'Prepare the current release review.' }
+          }
+        },
+        { authorization: 'Bearer reviewer-token' });
+
+      assert.equal(body.result.structuredContent.ok, true);
+      assert.equal(body.result.structuredContent.data.contextPage.pageRef, 'ctxpg-review');
     } finally {
       await closeServers(server, fakeApi);
     }

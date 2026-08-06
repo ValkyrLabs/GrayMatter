@@ -10,6 +10,8 @@ import org.springframework.data.repository.query.Param;
 
 public interface MemoryEntryRepository extends JpaRepository<MemoryEntry, UUID> {
 
+    List<MemoryEntry> findByPrincipalUsernameIgnoreCaseOrderByCreatedAtAsc(String username);
+
     @Query("""
         select entry from MemoryEntry entry
         where lower(entry.principal.username) = lower(:username)

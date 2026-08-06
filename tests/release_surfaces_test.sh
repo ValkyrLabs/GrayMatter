@@ -104,6 +104,14 @@ done
   echo "Codex marketplace plugin GrayMatter Light docs missing" >&2
   exit 1
 }
+[[ -f "$ROOT/plugins/graymatter/docs/graymatter-lite.md" ]] || {
+  echo "Codex marketplace plugin GrayMatter Lite docs missing" >&2
+  exit 1
+}
+[[ -f "$ROOT/plugins/graymatter/docs/local-models.md" ]] || {
+  echo "Codex marketplace plugin local-model docs missing" >&2
+  exit 1
+}
 [[ -f "$ROOT/plugins/graymatter/docs/knowledge-packs.md" ]] || {
   echo "Codex marketplace plugin KnowledgePack docs missing" >&2
   exit 1
@@ -149,8 +157,8 @@ while IFS= read -r doc_path; do
   }
 done < <(find "$ROOT/plugins/graymatter/docs" -maxdepth 1 -type f | sort)
 
-grep -q '/v1/swarm-ops/graph' "$ROOT/plugins/graymatter/docs/graymatter-light.md" || {
-  echo "Codex marketplace plugin GrayMatter Light docs must use production-shaped /v1 swarm graph path" >&2
+grep -q 'SWARM' "$ROOT/plugins/graymatter/docs/graymatter-lite.md" || {
+  echo "Codex marketplace plugin GrayMatter Lite docs must cover SWARM integration" >&2
   exit 1
 }
 grep -q '/v1/api-docs' "$ROOT/plugins/graymatter/skills/graymatter-analytics/SKILL.md" || {
@@ -227,6 +235,14 @@ grep -q 'Normalized object writes' "$ROOT/plugins/graymatter/skills/graymatter/S
 }
 [[ -x "$ROOT/plugins/graymatter/scripts/gm-read" ]] || {
   echo "Codex marketplace plugin memory read script missing or not executable" >&2
+  exit 1
+}
+[[ -x "$ROOT/plugins/graymatter/scripts/gm-profile" ]] || {
+  echo "Codex marketplace plugin profile router missing or not executable" >&2
+  exit 1
+}
+[[ -x "$ROOT/plugins/graymatter/vaix" ]] || {
+  echo "Codex marketplace plugin VAIX builder missing or not executable" >&2
   exit 1
 }
 [[ -x "$ROOT/plugins/graymatter/scripts/gm-client" ]] || {
@@ -339,6 +355,18 @@ cmp -s "$ROOT/scripts/gm-login" "$ROOT/plugins/graymatter/scripts/gm-login" || {
 }
 cmp -s "$ROOT/scripts/gm-write" "$ROOT/plugins/graymatter/scripts/gm-write" || {
   echo "Codex marketplace plugin memory write helper is stale; sync scripts/gm-write" >&2
+  exit 1
+}
+cmp -s "$ROOT/scripts/gm-profile" "$ROOT/plugins/graymatter/scripts/gm-profile" || {
+  echo "Codex marketplace plugin profile router is stale; sync scripts/gm-profile" >&2
+  exit 1
+}
+cmp -s "$ROOT/scripts/gm-profile-lib" "$ROOT/plugins/graymatter/scripts/gm-profile-lib" || {
+  echo "Codex marketplace plugin profile library is stale; sync scripts/gm-profile-lib" >&2
+  exit 1
+}
+cmp -s "$ROOT/vaix" "$ROOT/plugins/graymatter/vaix" || {
+  echo "Codex marketplace plugin VAIX builder is stale" >&2
   exit 1
 }
 cmp -s "$ROOT/scripts/gm-client" "$ROOT/plugins/graymatter/scripts/gm-client" || {
@@ -493,6 +521,14 @@ grep -q "docs/graymatter-light.md" "$ROOT/plugins/graymatter/scripts/package-gra
   echo "plugin package manifest missing GrayMatter Light docs" >&2
   exit 1
 }
+grep -q "docs/graymatter-lite.md" "$ROOT/plugins/graymatter/scripts/package-graymatter" || {
+  echo "plugin package manifest missing GrayMatter Lite docs" >&2
+  exit 1
+}
+grep -q "scripts/gm-profile" "$ROOT/plugins/graymatter/scripts/package-graymatter" || {
+  echo "plugin package manifest missing profile router" >&2
+  exit 1
+}
 grep -q "docs/openai-app-directory-submission.md" "$ROOT/plugins/graymatter/scripts/package-graymatter" || {
   echo "plugin package manifest missing OpenAI app submission docs" >&2
   exit 1
@@ -544,6 +580,8 @@ grep -q '^graymatter/skills/graymatter-analytics/references/semantic-layer-templ
 grep -q '^graymatter/docs/agent-discovery.md$' "$ZIP_LIST"
 grep -q '^graymatter/docs/awesome-codex-plugins.md$' "$ZIP_LIST"
 grep -q '^graymatter/docs/graymatter-light.md$' "$ZIP_LIST"
+grep -q '^graymatter/docs/graymatter-lite.md$' "$ZIP_LIST"
+grep -q '^graymatter/docs/local-models.md$' "$ZIP_LIST"
 grep -q '^graymatter/docs/openai-app-directory-submission.md$' "$ZIP_LIST"
 grep -q '^graymatter/docs/privacy-policy.md$' "$ZIP_LIST"
 grep -q '^graymatter/docs/reviewer-test-credentials.md$' "$ZIP_LIST"
@@ -562,6 +600,10 @@ grep -q '^graymatter/scripts/gm-activation-fastlane$' "$ZIP_LIST"
 grep -q '^graymatter/scripts/gm-invariant-preflight$' "$ZIP_LIST"
 grep -q '^graymatter/scripts/gm-client$' "$ZIP_LIST"
 grep -q '^graymatter/scripts/gm-read$' "$ZIP_LIST"
+grep -q '^graymatter/scripts/gm-profile$' "$ZIP_LIST"
+grep -q '^graymatter/scripts/gm-profile-lib$' "$ZIP_LIST"
+grep -q '^graymatter/vaix$' "$ZIP_LIST"
+grep -q '^graymatter/deploy/docker-compose.lite.yml$' "$ZIP_LIST"
 grep -q '^graymatter/scripts/gm-record$' "$ZIP_LIST"
 grep -q '^graymatter/scripts/package-graymatter$' "$ZIP_LIST"
 grep -q '^graymatter/scripts/package_graymatter.sh$' "$ZIP_LIST"
@@ -598,6 +640,10 @@ grep -q '^graymatter/skills/graymatter-analytics/references/semantic-layer-templ
 grep -q '^graymatter/docs/agent-discovery.md$' "$PLUGIN_ZIP_LIST"
 grep -q '^graymatter/docs/awesome-codex-plugins.md$' "$PLUGIN_ZIP_LIST"
 grep -q '^graymatter/docs/graymatter-light.md$' "$PLUGIN_ZIP_LIST"
+grep -q '^graymatter/docs/graymatter-lite.md$' "$PLUGIN_ZIP_LIST"
+grep -q '^graymatter/docs/local-models.md$' "$PLUGIN_ZIP_LIST"
+grep -q '^graymatter/scripts/gm-profile$' "$PLUGIN_ZIP_LIST"
+grep -q '^graymatter/vaix$' "$PLUGIN_ZIP_LIST"
 grep -q '^graymatter/docs/openai-app-directory-submission.md$' "$PLUGIN_ZIP_LIST"
 grep -q '^graymatter/docs/privacy-policy.md$' "$PLUGIN_ZIP_LIST"
 grep -q '^graymatter/docs/reviewer-test-credentials.md$' "$PLUGIN_ZIP_LIST"

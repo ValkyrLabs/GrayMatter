@@ -77,6 +77,17 @@ grep -q '"x-graymatter-mcp-contract"' "$TMP_DIR/api-docs.json"
 grep -q '"/v1/MemoryEntry/query"' "$TMP_DIR/api-docs.json"
 grep -q '"/v1/swarm-ops/graph"' "$TMP_DIR/api-docs.json"
 grep -q '"/v1/knowledge-packs/import"' "$TMP_DIR/api-docs.json"
+grep -q '"/v1/knowledge-packs/export"' "$TMP_DIR/api-docs.json"
+
+curl -fsS -u "admin:$LOCAL_LOGIN_CODE" \
+  "http://localhost:$PORT/v1/MemoryEntry?q=GrayMatter%20Lite" \
+  > "$TMP_DIR/starter-memory.json"
+grep -q "genuinely useful local and self-hosted edition" "$TMP_DIR/starter-memory.json"
+curl -fsS -u "admin:$LOCAL_LOGIN_CODE" \
+  "http://localhost:$PORT/v1/knowledge-packs" \
+  > "$TMP_DIR/starter-packs.json"
+jq -e 'any(.[]; .name == "GrayMatter Lite Starter KnowledgePack" and .memoryEntryCount == 12)' \
+  "$TMP_DIR/starter-packs.json" >/dev/null
 
 curl -fsS -u "admin:$LOCAL_LOGIN_CODE" "http://localhost:$PORT/v1/swarm-ops/graph" \
   | grep -q '"protocolVersion":"graymatter-swarm-v0.1"'
@@ -168,6 +179,18 @@ GRAYMATTER_LIGHT_PUBLIC_BASE="http://localhost:$PORT" \
 GRAYMATTER_LIGHT_PASSWORD="$LOCAL_LOGIN_CODE" \
   "$ROOT/scripts/gm-knowledge-pack-import" "$PACK_ARCHIVE" \
   | jq -e '.alreadyImported == true' >/dev/null
+
+curl -fsS -u "admin:$LOCAL_LOGIN_CODE" \
+  "http://localhost:$PORT/v1/knowledge-packs/export" \
+  -o "$TMP_DIR/graymatter-lite-export.gmkp"
+unzip -t "$TMP_DIR/graymatter-lite-export.gmkp" >/dev/null
+for thor_entry in manifest.json objects.jsonl edges.jsonl signature.json; do
+  unzip -Z1 "$TMP_DIR/graymatter-lite-export.gmkp" | grep -qx "$thor_entry"
+done
+unzip -p "$TMP_DIR/graymatter-lite-export.gmkp" manifest.json \
+  | jq -e '.format == "graymatter.knowledge-pack" and .counts.memoryEntries >= 14' >/dev/null
+unzip -p "$TMP_DIR/graymatter-lite-export.gmkp" objects.jsonl > "$TMP_DIR/export-objects.jsonl"
+grep -q "Runtime test memory" "$TMP_DIR/export-objects.jsonl"
 
 curl -fsS -u "admin:$LOCAL_LOGIN_CODE" "http://localhost:$PORT/v1/swarm-ops/graph" \
   | grep -q '"protocolVersion":"graymatter-swarm-v0.1"'

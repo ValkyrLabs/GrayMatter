@@ -26,6 +26,13 @@ const PUBLIC_IDENTITY_KEYS = new Set([
 ]);
 const PUBLIC_MAX_RESPONSE_ITEMS = 25;
 const PUBLIC_MAX_RESPONSE_STRING = 4000;
+const PUBLIC_SENSITIVE_MEMORY_PATTERNS = Object.freeze([
+  /\b(?:save|store|remember|retain|keep|persist|use)\b.{0,100}\b(?:my|this|the|an?)?\s*(?:oauth\s+)?(?:access|refresh)?\s*token\b/i,
+  /\b(?:access[_\s-]*token|refresh[_\s-]*token|api[_\s-]*key|client[_\s-]*secret|password|private[_\s-]*key)\s*[:=]\s*\S+/i,
+  /\bbearer\s+[A-Za-z0-9._~+/=-]{12,}/i,
+  /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/,
+  /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/
+]);
 const APP_UI_RESOURCE_URI = 'ui://graymatter/overview.html';
 const APP_CONNECT_DOMAINS = ['https://api-0.valkyrlabs.com'];
 const APP_SECURITY_SCHEMES = [
@@ -1136,7 +1143,7 @@ const publicTools = [
   definePublicTool({
     name: 'memory_forget',
     title: 'Forget GrayMatter memory',
-    description: 'Delete or tombstone one authorized memory using GrayMatter retention semantics. Call only after the user explicitly confirms forgetting this specific memory.',
+    description: 'Delete or tombstone one authorized memory using GrayMatter retention semantics. Never infer a deletion target. Call only with the exact memory UUID after the user explicitly confirms forgetting that specific record.',
     scopes: ['memory:write'],
     inputSchema: {
       type: 'object',
@@ -1327,6 +1334,7 @@ function createGrayMatterMcpServer(options = {}) {
           tenantId: publicApp ? '' : tenantIdFrom(req, processTenantId, processToken),
           lightUsername,
           lightPassword,
+          profileMode: options.profileMode || process.env.GRAYMATTER_PROFILE_MODE || 'single',
           loginCommand,
           loginProvider,
           apiCommand,
@@ -1394,6 +1402,7 @@ function createRpcContext(options = {}) {
     tenantId: options.tenantId || process.env.GRAYMATTER_TENANT_ID || process.env.VALKYR_TENANT_ID || '',
     lightUsername: options.lightUsername || process.env.GRAYMATTER_LIGHT_USERNAME || 'admin',
     lightPassword: options.lightPassword || process.env.GRAYMATTER_LIGHT_PASSWORD || '',
+    profileMode: options.profileMode || process.env.GRAYMATTER_PROFILE_MODE || 'single',
     requestScopedToken: false,
     loginCommand,
     loginProvider,
@@ -1474,7 +1483,7 @@ async function handleRpc(message, context) {
             version: context.publicApp ? '1.0.0' : '0.1.0'
           },
           instructions: context.publicApp
-            ? 'Search durable memory before asking users to repeat known context. Compile bounded task context. Never request or supply tenant, owner, organization, ACL, or user overrides.'
+            ? 'Search durable memory before asking users to repeat known context. Compile bounded task context. Never store OAuth tokens, passwords, API keys, private keys, or other secrets. Never call memory_forget without an exact memory UUID and explicit confirmation for that specific record. Never request or supply tenant, owner, organization, ACL, or user overrides.'
             : undefined
         });
       case 'tools/list':
@@ -1915,6 +1924,7 @@ async function callPublicTool(params, context) {
       return publicToolError('TOOL_NOT_FOUND', 'This tool is not available on the public GrayMatter app surface.', false);
     }
     assertNoPrincipalOverrides(args);
+    assertPublicToolArguments(descriptor, args);
     requirePublicScopes(context.principal, descriptor.securitySchemes[0].scopes || []);
 
     switch (name) {
@@ -1938,12 +1948,14 @@ async function callPublicTool(params, context) {
         return publicToolSuccess(response, 'Authorized memory retrieved.');
       }
       case 'memory_save': {
+        assertNoSensitiveMemoryContent(args);
         const payload = buildPublicMemoryPayload(args, true);
         const response = await apiRequest(context, 'POST', 'MemoryEntry/write', payload);
         return publicToolSuccess(response, 'Durable memory saved.');
       }
       case 'memory_update': {
         const id = requireUuid(args.id, 'id');
+        assertNoSensitiveMemoryContent(args);
         const payload = buildPublicMemoryPayload(args, false);
         if (Object.keys(payload).length === 0) {
           throw publicArgumentError('At least one memory field must be supplied for update.');
@@ -1966,10 +1978,12 @@ async function callPublicTool(params, context) {
           taskIntent,
           tokenBudget: clampInteger(args.tokenBudget, 4000, 256, 16000),
           includeProcedures: args.includeProcedures !== false,
-          includeRatings: args.includeRatings !== false,
-          filters: sanitizePublicFilters(args.filters)
+          includeRatings: args.includeRatings !== false
         });
-        return publicToolSuccess(response, 'Task-specific GrayMatter context compiled.');
+        return publicToolSuccess(
+          decorateRetrievalReceiptResult(response),
+          'Task-specific GrayMatter context compiled.'
+        );
       }
       case 'procedure_search': {
         const query = boundedRequiredString(args.query, 'query', 2000).toLowerCase();
@@ -2018,6 +2032,17 @@ function buildPublicMemoryPayload(args, requireContent) {
   return pickDefined(payload);
 }
 
+function assertNoSensitiveMemoryContent(args) {
+  const candidate = [args && args.title, args && args.content, args && args.source, args && args.scope]
+    .filter((value) => typeof value === 'string')
+    .join('\n');
+  if (PUBLIC_SENSITIVE_MEMORY_PATTERNS.some((pattern) => pattern.test(candidate))) {
+    throw publicArgumentError(
+      'Secrets and credentials cannot be stored in GrayMatter durable memory.'
+    );
+  }
+}
+
 function publicSearchableText(value) {
   if (!value || typeof value !== 'object') return '';
   return [value.name, value.description, value.taskType, value.procedureRef]
@@ -2026,22 +2051,14 @@ function publicSearchableText(value) {
     .toLowerCase();
 }
 
-function sanitizePublicFilters(filters) {
-  if (filters === undefined) return undefined;
-  if (!isPlainObject(filters)) throw publicArgumentError('filters must be an object.');
-  assertNoPrincipalOverrides(filters);
-  const entries = Object.entries(filters).slice(0, 20);
-  const sanitized = {};
-  for (const [key, value] of entries) {
-    if (!/^[A-Za-z][A-Za-z0-9_.-]{0,63}$/.test(key)) {
-      throw publicArgumentError('filters contains an invalid key.');
+function assertPublicToolArguments(descriptor, args) {
+  const properties = descriptor && descriptor.inputSchema && descriptor.inputSchema.properties;
+  const allowed = new Set(Object.keys(properties || {}));
+  for (const key of Object.keys(args)) {
+    if (!allowed.has(key)) {
+      throw publicArgumentError(`${key} is not a supported argument for ${descriptor.name}.`);
     }
-    if (!['string', 'number', 'boolean'].includes(typeof value)) {
-      throw publicArgumentError('filters values must be strings, numbers, or booleans.');
-    }
-    sanitized[key] = typeof value === 'string' ? value.slice(0, 512) : value;
   }
-  return sanitized;
 }
 
 function publicArgumentError(message) {
@@ -2328,6 +2345,28 @@ function overviewWidgetHtml() {
 }
 
 async function apiRequest(context, method, endpoint, body) {
+  if (context.profileMode === 'blend') {
+    const normalizedMethod = String(method || '').toUpperCase();
+    const normalizedEndpoint = String(endpoint || '').replace(/^\/+/, '');
+    const supportedRead = normalizedMethod === 'GET'
+      || normalizedMethod === 'HEAD'
+      || (normalizedMethod === 'POST' && normalizedEndpoint === 'MemoryEntry/query');
+    if (supportedRead && typeof context.apiShellProvider === 'function') {
+      return context.apiShellProvider(context, normalizedMethod, normalizedEndpoint, body);
+    }
+    const error = new Error('Blended GrayMatter profiles are read-only. Select one profile before this MCP operation.');
+    error.name = 'ApiRequestError';
+    error.status = 403;
+    error.payload = {
+      code: 'FEDERATED_READ_ONLY',
+      message: error.message,
+      method: normalizedMethod,
+      endpoint: normalizedEndpoint
+    };
+    error.method = normalizedMethod;
+    error.endpoint = normalizedEndpoint;
+    throw error;
+  }
   if (!context.requestScopedToken && !context.token) {
     hydrateLocalAuth(context);
   }
@@ -2533,12 +2572,18 @@ async function apiRequestOnce(context, method, endpoint, body) {
 }
 
 function apiRequestTimeoutMs(endpoint) {
-  const specific = isRetrievalReceiptEndpoint(endpoint)
-    ? parsePositiveInteger(process.env.GRAYMATTER_RETRIEVAL_RECEIPT_TIMEOUT_MS)
-    : null;
+  const specific = isContextCompileEndpoint(endpoint)
+    ? parsePositiveInteger(process.env.GRAYMATTER_CONTEXT_COMPILE_TIMEOUT_MS) || 90000
+    : isRetrievalReceiptEndpoint(endpoint)
+      ? parsePositiveInteger(process.env.GRAYMATTER_RETRIEVAL_RECEIPT_TIMEOUT_MS)
+      : null;
   return specific
     || parsePositiveInteger(process.env.GRAYMATTER_MCP_REQUEST_TIMEOUT_MS)
     || 30000;
+}
+
+function isContextCompileEndpoint(endpoint) {
+  return String(endpoint || '').replace(/^\/+/, '') === 'graymatter_ops/context_page/compile';
 }
 
 function isRetrievalReceiptEndpoint(endpoint) {
@@ -4231,15 +4276,23 @@ function publicToolErrorFromException(error, publicResource) {
     code = 'FORBIDDEN';
     message = 'The signed-in user is not authorized for this operation.';
   } else if (status === 404) {
-    code = 'NOT_FOUND';
-    message = 'The requested authorized record was not found.';
+    if (isRetryableUpstreamNotFound(error)) {
+      code = 'UPSTREAM_UNAVAILABLE';
+      message = 'GrayMatter is temporarily unavailable.';
+      retryable = true;
+    } else {
+      code = 'NOT_FOUND';
+      message = 'The requested authorized record was not found.';
+    }
   } else if (status === 409) {
     code = 'CONFLICT';
     message = 'The operation conflicts with the current record state.';
   } else if (status === 400 || status === 413 || status === 422) {
     code = 'INVALID_ARGUMENT';
     message = 'The request did not satisfy the GrayMatter tool contract.';
-  } else if (status >= 500 || (error && error.name === 'TypeError')) {
+  } else if ([408, 425, 429].includes(status)
+      || status >= 500
+      || (error && error.name === 'TypeError')) {
     code = 'UPSTREAM_UNAVAILABLE';
     message = 'GrayMatter is temporarily unavailable.';
     retryable = true;
@@ -4249,6 +4302,19 @@ function publicToolErrorFromException(error, publicResource) {
     result._meta = { 'mcp/www_authenticate': [publicAuthChallenge(publicResource, 'invalid_token', message)] };
   }
   return result;
+}
+
+function isRetryableUpstreamNotFound(error) {
+  const payloadText = JSON.stringify(error && (error.payload || error.message) || '').toLowerCase();
+  if (/missing referenced entity|unable to find .+ with id|relation .+ does not exist|unknown endpoint|route .+not found/.test(payloadText)) {
+    return true;
+  }
+  const method = String(error && error.method || '').toUpperCase();
+  const endpoint = trimSlashes(error && error.endpoint || '');
+  const memoryRecord = /^MemoryEntry\/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(endpoint);
+  const receiptRecord = method === 'GET'
+    && /^graymatter-retrieval-receipts\/[^/]+$/i.test(endpoint);
+  return !(memoryRecord || receiptRecord);
 }
 
 function publicToolError(code, message, retryable) {
@@ -4275,7 +4341,11 @@ function compactPublicValue(value, depth = 0) {
   }
   const sanitized = {};
   for (const [key, nested] of Object.entries(value)) {
-    if (/token|secret|password|credential|decrypted|ownerId|lastModifiedById|tenantId|organizationId|principal/i.test(key)) {
+    const normalizedKey = key.replace(/[-_\s]/g, '');
+    const secretTokenKey = /^(?:access|refresh|auth|oauth|bearer|id|api)?token(?:value)?$/i
+      .test(normalizedKey);
+    if (secretTokenKey
+        || /secret|password|credential|decrypted|ownerId|lastModifiedById|tenantId|organizationId|principal|debug|trace/i.test(key)) {
       continue;
     }
     sanitized[key] = compactPublicValue(nested, depth + 1);

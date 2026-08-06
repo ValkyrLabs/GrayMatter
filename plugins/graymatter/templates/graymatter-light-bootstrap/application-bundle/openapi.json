@@ -2768,6 +2768,27 @@
         }
       }
     },
+    "/v1/knowledge-packs/export": {
+      "get": {
+        "tags": ["KnowledgePack"],
+        "summary": "Export all current-principal memory as a signed portable KnowledgePack",
+        "operationId": "exportKnowledgePack",
+        "responses": {
+          "200": {
+            "description": "Self-contained .gmkp archive without local ownership or ACL fields",
+            "headers": {
+              "X-GrayMatter-Memory-Entry-Count": {"schema": {"type": "integer"}}
+            },
+            "content": {
+              "application/vnd.valkyrlabs.graymatter-knowledge-pack+zip": {
+                "schema": {"type": "string", "format": "binary"}
+              }
+            }
+          },
+          "401": {"description": "Authentication required"}
+        }
+      }
+    },
     "/v1/knowledge-packs/{id}": {
       "get": {
         "tags": ["KnowledgePack"],

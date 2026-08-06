@@ -63,6 +63,7 @@ tar -tzf "$TARBALL" | sort > "$TMP_DIR/contents.txt"
 
 assert_manifest_entry 'graymatter-local-server/README.md'
 assert_manifest_entry 'graymatter-local-server/manifest.json'
+assert_manifest_entry 'graymatter-local-server/LICENSE'
 assert_manifest_entry 'graymatter-local-server/application-bundle/template.json'
 assert_manifest_entry 'graymatter-local-server/application-bundle/openapi.json'
 assert_manifest_entry 'graymatter-local-server/application-bundle/components/graymatter-dashboard.yaml'
@@ -78,26 +79,35 @@ assert_manifest_entry 'graymatter-local-server/source/src/main/java/com/valkyrla
 assert_manifest_entry 'graymatter-local-server/source/src/main/java/com/valkyrlabs/graymatter/localserver/controller/OpenApiController.java'
 assert_manifest_entry 'graymatter-local-server/source/src/main/java/com/valkyrlabs/graymatter/localserver/controller/SwarmProtocolController.java'
 assert_manifest_entry 'graymatter-local-server/source/src/main/java/com/valkyrlabs/graymatter/localserver/controller/WorkbookController.java'
+assert_manifest_entry 'graymatter-local-server/source/src/main/java/com/valkyrlabs/graymatter/localserver/bootstrap/StarterKnowledgePackBootstrap.java'
+assert_manifest_entry 'graymatter-local-server/source/src/main/java/com/valkyrlabs/graymatter/localserver/service/KnowledgePackArchiveWriter.java'
+assert_manifest_entry 'graymatter-local-server/source/src/main/java/com/valkyrlabs/graymatter/localserver/service/KnowledgePackExportService.java'
+assert_manifest_entry 'graymatter-local-server/source/src/main/resources/knowledgepacks/graymatter-lite-starter.json'
 assert_manifest_entry 'graymatter-local-server/source/src/main/resources/openapi.json'
 assert_manifest_entry 'graymatter-local-server/source/src/main/resources/static/index.html'
+assert_manifest_entry 'graymatter-local-server/source/Dockerfile'
 
 tar -xzf "$TARBALL" -C "$TMP_DIR"
 
 assert_executable "$TMP_DIR/graymatter-local-server/bin/graymatter-local-server"
-assert_contains '"artifactId": "graymatter-local-server"' "$TMP_DIR/graymatter-local-server/manifest.json"
+assert_contains '"artifactId": "graymatter-lite"' "$TMP_DIR/graymatter-local-server/manifest.json"
+assert_contains '"license": "AGPL-3.0-only"' "$TMP_DIR/graymatter-local-server/manifest.json"
 assert_contains '"generationMode": "thorapi-febe"' "$TMP_DIR/graymatter-local-server/manifest.json"
 assert_contains '"sourceTemplate": "graymatter-local"' "$TMP_DIR/graymatter-local-server/manifest.json"
 assert_contains "MothershipPromotionBridge" "$TMP_DIR/graymatter-local-server/manifest.json"
 assert_contains "SwarmProtocolBridge" "$TMP_DIR/graymatter-local-server/manifest.json"
 assert_contains "LiveTelemetryPanel" "$TMP_DIR/graymatter-local-server/manifest.json"
-assert_contains "GrayMatter Local Server" "$TMP_DIR/graymatter-local-server/README.md"
+assert_contains "GrayMatter Lite Local Server" "$TMP_DIR/graymatter-local-server/README.md"
 assert_contains "spring-boot-starter-parent" "$TMP_DIR/graymatter-local-server/source/pom.xml"
 assert_contains "/v1/memory/status" "$TMP_DIR/graymatter-local-server/application-bundle/openapi.json"
 assert_contains "/v1/graymatter/activation/bridge/event" "$TMP_DIR/graymatter-local-server/application-bundle/openapi.json"
 assert_contains "/v1/swarm-ops/graph" "$TMP_DIR/graymatter-local-server/application-bundle/openapi.json"
 assert_contains "/v1/Workbook" "$TMP_DIR/graymatter-local-server/application-bundle/openapi.json"
+assert_contains "/v1/knowledge-packs/export" "$TMP_DIR/graymatter-local-server/application-bundle/openapi.json"
 assert_contains "/v1/api-docs" "$TMP_DIR/graymatter-local-server/source/src/main/resources/openapi.json"
 assert_contains "x-graymatter-mcp-contract" "$TMP_DIR/graymatter-local-server/source/src/main/resources/openapi.json"
+assert_contains "/v1/knowledge-packs/export" "$TMP_DIR/graymatter-local-server/source/src/main/resources/openapi.json"
+assert_contains "ValkyrSWARM" "$TMP_DIR/graymatter-local-server/source/src/main/resources/knowledgepacks/graymatter-lite-starter.json"
 
 mkdir -p "$PLUGIN_DIST_DIR"
 GRAYMATTER_SKIP_SERVER_BUILD=true \

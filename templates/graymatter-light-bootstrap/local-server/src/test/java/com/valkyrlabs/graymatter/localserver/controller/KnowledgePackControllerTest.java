@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.httpBasic;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -33,6 +34,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.mock.web.MockMultipartFile;
+import org.springframework.http.MediaType;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -155,6 +157,38 @@ class KnowledgePackControllerTest {
                 .with(httpBasic("admin", "graymatter-light")))
             .andExpect(status().isBadRequest())
             .andExpect(jsonPath("$.message").value("KnowledgePack signature contract is unsupported"));
+    }
+
+    @Test
+    void exportsCurrentMemoryAsReimportableKnowledgePack() throws Exception {
+        mockMvc.perform(post("/v1/MemoryEntry/write")
+                .with(httpBasic("admin", "graymatter-light"))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {"type":"decision","text":"Exported local decision","tags":["portable","lite"]}
+                    """))
+            .andExpect(status().isOk());
+
+        byte[] archive = mockMvc.perform(get("/v1/knowledge-packs/export")
+                .with(httpBasic("admin", "graymatter-light")))
+            .andExpect(status().isOk())
+            .andExpect(result -> assertThat(result.getResponse().getHeader("X-GrayMatter-Memory-Entry-Count"))
+                .isEqualTo("1"))
+            .andReturn().getResponse().getContentAsByteArray();
+
+        MockMultipartFile file = new MockMultipartFile(
+            "file", "graymatter-lite-memory.gmkp",
+            "application/vnd.valkyrlabs.graymatter-knowledge-pack+zip", archive);
+        mockMvc.perform(multipart("/v1/knowledge-packs/import")
+                .file(file)
+                .with(httpBasic("reader", "reader-password")))
+            .andExpect(status().isCreated())
+            .andExpect(jsonPath("$.knowledgePack.memoryEntryCount").value(1));
+
+        mockMvc.perform(get("/v1/MemoryEntry").param("q", "Exported local decision")
+                .with(httpBasic("reader", "reader-password")))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$[0].text").value("Exported local decision"));
     }
 
     private byte[] archive(boolean includeOwnerId, boolean tamperManifest, boolean tamperContent) throws Exception {

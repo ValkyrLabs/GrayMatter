@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Community support and ideas
+    url: https://github.com/ValkyrLabs/GrayMatter/discussions
+    about: Ask setup questions and discuss integrations or proposals.
+  - name: Private security report
+    url: mailto:security@valkyrlabs.com
+    about: Do not disclose vulnerabilities in a public issue.

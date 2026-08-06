@@ -10,6 +10,8 @@ REQUIRED=(
   .mcp.json
   SKILL.md
   graymatter-bootstrap
+  vaix
+  deploy/docker-compose.lite.yml
   skills/graymatter/SKILL.md
   skills/graymatter-analytics/SKILL.md
   skills/graymatter-analytics/references/semantic-layer-template.md
@@ -23,6 +25,8 @@ REQUIRED=(
   docs/agent-discovery.md
   docs/awesome-codex-plugins.md
   docs/graymatter-light.md
+  docs/graymatter-lite.md
+  docs/local-models.md
   docs/knowledge-packs.md
   docs/openai-app-directory-submission.md
   docs/privacy-policy.md
@@ -33,6 +37,9 @@ REQUIRED=(
   SUBMISSION_CHECKLIST.md
   assets/graymatter-logo.png
   clawhub.json
+  CONTRIBUTING.md
+  SUPPORT.md
+  CODE_OF_CONDUCT.md
   scripts/gm-activation-fastlane
   scripts/gm-invariant-preflight
   scripts/gm-client
@@ -43,6 +50,8 @@ REQUIRED=(
   scripts/gm-graph
   scripts/gm-write
   scripts/gm-record
+  scripts/gm-profile
+  scripts/gm-profile-lib
   scripts/gm-login
   scripts/gm-activate
   scripts/gm-install-check

@@ -5,6 +5,12 @@ METHOD="${1:-}"
 PATH_PART="${2:-}"
 BODY="${3:-}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [[ -f "${SCRIPT_DIR}/gm-profile-lib" ]]; then
+  source "${SCRIPT_DIR}/gm-profile-lib"
+  gm_profile_apply
+else
+  gm_profile_is_blended() { return 1; }
+fi
 
 if [[ "${GRAYMATTER_SKIP_SELF_UPDATE:-false}" != "true" && -x "${SCRIPT_DIR}/gm-self-update" ]]; then
   GRAYMATTER_SELF_UPDATE_QUIET="${GRAYMATTER_SELF_UPDATE_QUIET:-true}" "${SCRIPT_DIR}/gm-self-update" maybe || true
@@ -13,6 +19,32 @@ fi
 if [[ -z "$METHOD" || -z "$PATH_PART" ]]; then
   echo "Usage: $0 <GET|POST|PUT|PATCH|DELETE> <path> [json-body]" >&2
   exit 1
+fi
+
+thor_profile_method="$(printf '%s' "$METHOD" | tr '[:lower:]' '[:upper:]')"
+if gm_profile_is_blended; then
+  thor_profile_path="${PATH_PART#/}"
+  thor_profile_read_supported=false
+  if [[ "$thor_profile_method" == "GET" || "$thor_profile_method" == "HEAD" ]]; then
+    thor_profile_read_supported=true
+  elif [[ "$thor_profile_method" == "POST" && "$thor_profile_path" == "MemoryEntry/query" ]]; then
+    thor_profile_read_supported=true
+  fi
+  if [[ "$thor_profile_read_supported" != "true" ]]; then
+    jq -nc --arg method "$thor_profile_method" --arg path "$PATH_PART" '{
+      error:"FEDERATED_READ_ONLY",
+      message:"Blended GrayMatter mode supports independent GET/HEAD reads and POST /MemoryEntry/query only. Select one profile before any write or unsupported operation.",
+      method:$method,
+      path:$path
+    }'
+    echo "GrayMatter federated mode blocked ${thor_profile_method} ${PATH_PART}. Run 'scripts/gm-profile use <name>' before writing." >&2
+    exit 64
+  fi
+  set +e
+  gm_profile_federated_exec_json "${thor_profile_method} ${PATH_PART}" "$0" "$METHOD" "$PATH_PART" "$BODY"
+  thor_profile_status=$?
+  set -e
+  exit "$thor_profile_status"
 fi
 
 BASE="${VALKYR_API_BASE:-https://api-0.valkyrlabs.com/v1}"
@@ -360,7 +392,9 @@ store_token() {
   if [[ -n "$USERNAME" ]]; then
     replace_keychain_secret "$USERNAME" "$KEYCHAIN_SERVICE" "$token"
   fi
-  replace_keychain_secret default "$KEYCHAIN_SERVICE" "$token"
+  if [[ -z "${GRAYMATTER_ACTIVE_PROFILE:-}" && "${GRAYMATTER_KEYCHAIN_UPDATE_DEFAULT:-1}" != "0" ]]; then
+    replace_keychain_secret default "$KEYCHAIN_SERVICE" "$token"
+  fi
 }
 
 replace_keychain_secret() {
@@ -392,7 +426,7 @@ run_login() {
   fi
 }
 
-if [[ -z "$USERNAME" ]] && command -v security >/dev/null 2>&1; then
+if [[ -z "$USERNAME" && -z "${GRAYMATTER_ACTIVE_PROFILE:-}" ]] && command -v security >/dev/null 2>&1; then
   USERNAME=$(keychain_read default "$USERNAME_SERVICE")
 fi
 
@@ -404,20 +438,25 @@ if [[ -z "$TOKEN" && "$LIGHT_MODE" != "true" ]] && command -v security >/dev/nul
   if [[ -n "$USERNAME" ]]; then
     TOKEN=$(keychain_read "$USERNAME" "$KEYCHAIN_SERVICE")
   fi
-  if [[ -z "$TOKEN" ]]; then
+  if [[ -z "$TOKEN" && -z "${GRAYMATTER_ACTIVE_PROFILE:-}" ]]; then
     TOKEN=$(keychain_read default "$KEYCHAIN_SERVICE")
   fi
-  if [[ -z "$TOKEN" ]]; then
+  if [[ -z "$TOKEN" && -z "${GRAYMATTER_ACTIVE_PROFILE:-}" ]]; then
     TOKEN=$(keychain_read default openclaw-valkyrai-admin-jwtSession)
   fi
-  if [[ -z "$TOKEN" && "$KEYCHAIN_SERVICE" != "VALKYR_AUTH" ]]; then
+  if [[ -z "$TOKEN" && -z "${GRAYMATTER_ACTIVE_PROFILE:-}" && "$KEYCHAIN_SERVICE" != "VALKYR_AUTH" ]]; then
     TOKEN=$(keychain_read default VALKYR_AUTH)
   fi
 fi
 
 if [[ -z "$TOKEN" && "$LIGHT_MODE" != "true" ]]; then
   if ! run_login || [[ -z "$TOKEN" ]]; then
-    echo "VALKYR_AUTH token is required. Checked VALKYR_AUTH_TOKEN, VALKYR_JWT_SESSION, keychain ${KEYCHAIN_SERVICE}, keychain openclaw-valkyrai-admin-jwtSession, and login did not produce a token." >&2
+    if [[ -n "${GRAYMATTER_ACTIVE_PROFILE:-}" ]]; then
+      echo "GrayMatter profile '${GRAYMATTER_ACTIVE_PROFILE}' has not authenticated or could not refresh its session." >&2
+      echo "Run 'scripts/gm-profile login ${GRAYMATTER_ACTIVE_PROFILE}' and verify its RBAC access." >&2
+    else
+      echo "VALKYR_AUTH token is required. Checked VALKYR_AUTH_TOKEN, VALKYR_JWT_SESSION, keychain ${KEYCHAIN_SERVICE}, keychain openclaw-valkyrai-admin-jwtSession, and login did not produce a token." >&2
+    fi
     exit 2
   fi
 fi

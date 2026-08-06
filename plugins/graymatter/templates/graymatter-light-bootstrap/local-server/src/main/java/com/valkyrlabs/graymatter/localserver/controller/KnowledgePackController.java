@@ -1,6 +1,7 @@
 package com.valkyrlabs.graymatter.localserver.controller;
 
 import com.valkyrlabs.graymatter.localserver.service.KnowledgePackImportService;
+import com.valkyrlabs.graymatter.localserver.service.KnowledgePackExportService;
 import com.valkyrlabs.graymatter.localserver.service.KnowledgePackImportService.ImportResult;
 import com.valkyrlabs.graymatter.localserver.service.KnowledgePackImportService.KnowledgePackGraph;
 import com.valkyrlabs.graymatter.localserver.service.KnowledgePackImportService.KnowledgePackNotFoundException;
@@ -28,10 +29,17 @@ import org.springframework.web.multipart.MultipartFile;
 @RequestMapping("/v1/knowledge-packs")
 public class KnowledgePackController {
 
-    private final KnowledgePackImportService importer;
+    private static final String KNOWLEDGE_PACK_MEDIA_TYPE =
+        "application/vnd.valkyrlabs.graymatter-knowledge-pack+zip";
 
-    public KnowledgePackController(KnowledgePackImportService importer) {
+    private final KnowledgePackImportService importer;
+    private final KnowledgePackExportService exporter;
+
+    public KnowledgePackController(
+        KnowledgePackImportService importer,
+        KnowledgePackExportService exporter) {
         this.importer = importer;
+        this.exporter = exporter;
     }
 
     @PostMapping(value = "/import", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
@@ -49,6 +57,16 @@ public class KnowledgePackController {
         return importer.list(authenticated.getName());
     }
 
+    @GetMapping(value = "/export", produces = KNOWLEDGE_PACK_MEDIA_TYPE)
+    public ResponseEntity<byte[]> export(Principal authenticated) {
+        KnowledgePackExportService.ExportResult result = exporter.export(authenticated.getName());
+        return ResponseEntity.ok()
+            .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + result.fileName() + "\"")
+            .header("X-GrayMatter-Memory-Entry-Count", Integer.toString(result.memoryEntryCount()))
+            .contentType(MediaType.parseMediaType(KNOWLEDGE_PACK_MEDIA_TYPE))
+            .body(result.archive());
+    }
+
     @GetMapping("/{id}")
     public KnowledgePackSummary detail(Principal authenticated, @PathVariable UUID id) {
         return importer.detail(authenticated.getName(), id);
@@ -64,7 +82,7 @@ public class KnowledgePackController {
         KnowledgePackSummary summary = importer.detail(authenticated.getName(), id);
         return ResponseEntity.ok()
             .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + safeFilename(summary.name()) + ".gmkp\"")
-            .contentType(MediaType.parseMediaType("application/vnd.valkyrlabs.graymatter-knowledge-pack+zip"))
+            .contentType(MediaType.parseMediaType(KNOWLEDGE_PACK_MEDIA_TYPE))
             .body(importer.archive(authenticated.getName(), id));
     }
 

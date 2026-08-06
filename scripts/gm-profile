@@ -1,0 +1,622 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/gm-profile-lib"
+
+usage() {
+  cat <<'USAGE'
+Usage:
+  gm-profile add <name> [--from-current | --prompt-account | --username <account>] [--keychain-service <service>] [--api-base <url>] [--login] [--activate] [--replace]
+  gm-profile add-local <name> [--username <account>] [--api-base <url>] [--password-stdin] [--activate] [--replace]
+  gm-profile login <name>
+  gm-profile list [--json]
+  gm-profile current [--json]
+  gm-profile use <name>
+  gm-profile deactivate
+  gm-profile blend <name> <name> [name...]
+  gm-profile with <name> <name> [name...] -- <read-command> [args...]
+
+Named profiles are local aliases for separate GrayMatter login accounts. The
+registry stores only account-routing metadata; tokens and reusable passwords
+remain in macOS Keychain.
+
+Commands:
+  add
+      Register an existing username-scoped Keychain token without reading or
+      printing the secret. With no account option, the current default
+      Keychain username is used. --prompt-account accepts a different existing
+      Keychain account through hidden terminal input. Add --login to
+      authenticate through gm-login.
+      Adding a profile does not change the active identity unless --activate
+      is supplied.
+
+  add-local
+      Register the single-user GrayMatter Lite backend as a named local
+      profile. The password is read from GRAYMATTER_LIGHT_PASSWORD, hidden
+      terminal input, or --password-stdin and stored in a mode-0600 file.
+      It is never placed in profiles.json or printed by list/current.
+
+  login
+      Authenticate or refresh one configured profile without changing the
+      active profile or the legacy Keychain default alias.
+
+  list / current
+      Show friendly names, non-secret account fingerprints, authentication
+      presence, and the current single/blended/legacy mode. Raw account names
+      and Keychain secrets are never printed.
+
+  use / deactivate
+      Explicitly select one profile, or return to the legacy single-account
+      flow. Switching to a profile requires a username-scoped Keychain token.
+
+  blend
+      Persist an explicit federated read selection. Supported reads run once
+      per account and return profile-labeled results. CLI and MCP memory
+      query/read/health use this selection; writes and unsupported MCP tools
+      fail closed.
+      Return to one account with gm-profile use <name>.
+
+  with
+      Run one command in federated read mode without changing the persistent
+      selection. Example:
+        gm-profile with valor john -- scripts/gm-query "release rules" --brief
+
+Per-command alternative:
+  GRAYMATTER_PROFILE=<name> scripts/gm-query "release rules"
+  GRAYMATTER_PROFILES=valor,john scripts/gm-query "release rules"
+USAGE
+}
+
+thor_registry_file="$(gm_profile_registry_file)"
+
+ensure_registry() {
+  local thor_dir=""
+  thor_dir="$(dirname "$thor_registry_file")"
+  mkdir -p "$thor_dir"
+  chmod 700 "$thor_dir" 2>/dev/null || true
+  if [[ ! -f "$thor_registry_file" ]]; then
+    local thor_tmp=""
+    thor_tmp="$(mktemp "${thor_dir}/.profiles.XXXXXX")"
+    jq -nc '{version:1,mode:"legacy",activeProfile:null,blendProfiles:[],profiles:{}}' >"$thor_tmp"
+    chmod 600 "$thor_tmp"
+    mv -f "$thor_tmp" "$thor_registry_file"
+  fi
+  gm_profile_registry_valid "$thor_registry_file" || {
+    echo "GrayMatter profile registry is invalid: ${thor_registry_file}" >&2
+    exit 65
+  }
+}
+
+write_registry_filter() {
+  local thor_filter="$1"
+  shift
+  local thor_dir=""
+  local thor_tmp=""
+  thor_dir="$(dirname "$thor_registry_file")"
+  thor_tmp="$(mktemp "${thor_dir}/.profiles.XXXXXX")"
+  jq "$@" "$thor_filter" "$thor_registry_file" >"$thor_tmp"
+  chmod 600 "$thor_tmp"
+  mv -f "$thor_tmp" "$thor_registry_file"
+}
+
+profile_record() {
+  gm_profile_record_json "${1:-}" "$thor_registry_file"
+}
+
+require_profile() {
+  local thor_name="${1:-}"
+  gm_profile_name_valid "$thor_name" || {
+    echo "Invalid GrayMatter profile name: ${thor_name:-empty}" >&2
+    exit 64
+  }
+  profile_record "$thor_name" >/dev/null 2>&1 || {
+    echo "GrayMatter profile '${thor_name}' is not configured." >&2
+    echo "Run 'scripts/gm-profile list' to see configured profiles." >&2
+    exit 4
+  }
+}
+
+profile_auth_label() {
+  if gm_profile_token_present "${1:-}"; then
+    printf 'authenticated\n'
+  else
+    printf 'login-required\n'
+  fi
+}
+
+command_add() {
+  local thor_name="${1:-}"
+  shift || true
+  gm_profile_name_valid "$thor_name" || {
+    echo "Invalid GrayMatter profile name: ${thor_name:-empty}" >&2
+    exit 64
+  }
+
+  local thor_username="${GRAYMATTER_USERNAME:-${VALKYR_USERNAME:-}}"
+  local thor_service="${VALKYR_KEYCHAIN_SERVICE:-VALKYR_AUTH}"
+  local thor_api_base="${VALKYR_API_BASE:-https://api-0.valkyrlabs.com/v1}"
+  local thor_from_current=false
+  local thor_prompt_account=false
+  local thor_login=false
+  local thor_activate=false
+  local thor_replace=false
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --from-current)
+        thor_from_current=true
+        shift
+        ;;
+      --prompt-account)
+        thor_prompt_account=true
+        shift
+        ;;
+      --username|--account)
+        [[ $# -ge 2 ]] || { echo "gm-profile add: $1 requires a value" >&2; exit 64; }
+        thor_username="$2"
+        shift 2
+        ;;
+      --keychain-service)
+        [[ $# -ge 2 ]] || { echo "gm-profile add: $1 requires a value" >&2; exit 64; }
+        thor_service="$2"
+        shift 2
+        ;;
+      --api-base)
+        [[ $# -ge 2 ]] || { echo "gm-profile add: $1 requires a value" >&2; exit 64; }
+        thor_api_base="$2"
+        shift 2
+        ;;
+      --login)
+        thor_login=true
+        shift
+        ;;
+      --activate)
+        thor_activate=true
+        shift
+        ;;
+      --replace)
+        thor_replace=true
+        shift
+        ;;
+      *)
+        echo "gm-profile add: unknown option $1" >&2
+        exit 64
+        ;;
+    esac
+  done
+
+  gm_profile_require_jq
+  ensure_registry
+  if profile_record "$thor_name" >/dev/null 2>&1 && [[ "$thor_replace" != "true" ]]; then
+    echo "GrayMatter profile '${thor_name}' already exists. Use --replace to update its metadata." >&2
+    exit 65
+  fi
+
+  if [[ "$thor_prompt_account" == "true" ]]; then
+    thor_username=""
+    if [[ -t 0 ]]; then
+      read -r -s -p "Existing GrayMatter Keychain account for profile ${thor_name}: " thor_username
+      printf '\n' >&2
+    else
+      echo "gm-profile add --prompt-account requires an interactive terminal." >&2
+      exit 4
+    fi
+  elif [[ "$thor_from_current" == "true" || -z "$thor_username" ]]; then
+    thor_username="$(gm_profile_keychain_value default "${thor_service}_USERNAME" || true)"
+  fi
+  if [[ -z "$thor_username" ]]; then
+    if [[ -t 0 ]]; then
+      read -r -s -p "Existing GrayMatter Keychain account for profile ${thor_name}: " thor_username
+      printf '\n' >&2
+    else
+      echo "No Keychain account was selected for profile '${thor_name}'." >&2
+      echo "Use --from-current, --username <account>, or GRAYMATTER_USERNAME without printing any secret." >&2
+      exit 4
+    fi
+  fi
+
+  if [[ "$thor_login" == "true" ]]; then
+    env \
+      -u GRAYMATTER_PROFILE \
+      -u GRAYMATTER_PROFILES \
+      GRAYMATTER_PROFILE_RESOLVED=true \
+      GRAYMATTER_USERNAME="$thor_username" \
+      VALKYR_USERNAME="$thor_username" \
+      VALKYR_API_BASE="$thor_api_base" \
+      VALKYR_KEYCHAIN_SERVICE="$thor_service" \
+      GRAYMATTER_KEYCHAIN_UPDATE_DEFAULT=0 \
+      "${SCRIPT_DIR}/gm-login" keychain
+  elif ! gm_profile_keychain_item_exists "$thor_username" "$thor_service"; then
+    echo "No username-scoped GrayMatter token is present for profile '${thor_name}'." >&2
+    echo "Run 'scripts/gm-profile add ${thor_name} --login' or authenticate with 'scripts/gm-login' first." >&2
+    exit 4
+  fi
+
+  local thor_fingerprint=""
+  local thor_now=""
+  local thor_existing_profile=""
+  thor_fingerprint="$(gm_profile_account_fingerprint_value "$thor_username")"
+  thor_existing_profile="$(jq -r \
+    --arg name "$thor_name" \
+    --arg fingerprint "$thor_fingerprint" \
+    '.profiles | to_entries[]? | select(.key != $name and .value.accountFingerprint == $fingerprint) | .key' \
+    "$thor_registry_file" | head -n 1)"
+  if [[ -n "$thor_existing_profile" ]]; then
+    echo "That Keychain account is already registered as GrayMatter profile '${thor_existing_profile}'." >&2
+    echo "Use distinct accounts for distinct profiles; no registry change was made." >&2
+    exit 65
+  fi
+  thor_now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  write_registry_filter \
+    '.profiles[$name] = {
+      username:$username,
+      accountFingerprint:$fingerprint,
+      apiBase:$apiBase,
+      keychainService:$keychainService,
+      createdAt:(.profiles[$name].createdAt // $now),
+      updatedAt:$now
+    }' \
+    --arg name "$thor_name" \
+    --arg username "$thor_username" \
+    --arg fingerprint "$thor_fingerprint" \
+    --arg apiBase "${thor_api_base%/}" \
+    --arg keychainService "$thor_service" \
+    --arg now "$thor_now"
+
+  if [[ "$thor_activate" == "true" ]]; then
+    write_registry_filter \
+      '.mode="single" | .activeProfile=$name | .blendProfiles=[]' \
+      --arg name "$thor_name"
+    echo "Registered and activated GrayMatter profile '${thor_name}' (${thor_fingerprint})."
+  else
+    echo "Registered GrayMatter profile '${thor_name}' (${thor_fingerprint}); active identity unchanged."
+  fi
+}
+
+command_login() {
+  local thor_name="${1:-}"
+  require_profile "$thor_name"
+  local thor_record=""
+  local thor_username=""
+  local thor_service=""
+  local thor_api_base=""
+  thor_record="$(profile_record "$thor_name")"
+  if [[ "$(jq -r '.kind // "hosted"' <<<"$thor_record")" == "local" ]]; then
+    local thor_password=""
+    local thor_password_file=""
+    thor_password_file="$(jq -r '.passwordFile // empty' <<<"$thor_record")"
+    [[ -n "$thor_password_file" ]] || { echo "Local profile '${thor_name}' has no password file." >&2; exit 65; }
+    if [[ -n "${GRAYMATTER_LIGHT_PASSWORD:-}" ]]; then
+      thor_password="$GRAYMATTER_LIGHT_PASSWORD"
+    elif [[ -t 0 ]]; then
+      read -r -s -p "GrayMatter Lite password for profile ${thor_name}: " thor_password
+      printf '\n' >&2
+    else
+      echo "Set GRAYMATTER_LIGHT_PASSWORD to refresh local profile '${thor_name}' non-interactively." >&2
+      exit 4
+    fi
+    [[ -n "$thor_password" ]] || { echo "GrayMatter Lite password cannot be empty." >&2; exit 64; }
+    umask 077
+    mkdir -p "$(dirname "$thor_password_file")"
+    printf '%s' "$thor_password" >"$thor_password_file"
+    chmod 600 "$thor_password_file"
+    echo "Updated GrayMatter Lite credentials for profile '${thor_name}'; active identity unchanged."
+    return
+  fi
+  thor_username="$(jq -r '.username' <<<"$thor_record")"
+  thor_service="$(jq -r '.keychainService' <<<"$thor_record")"
+  thor_api_base="$(jq -r '.apiBase' <<<"$thor_record")"
+  env \
+    -u GRAYMATTER_PROFILE \
+    -u GRAYMATTER_PROFILES \
+    GRAYMATTER_PROFILE_RESOLVED=true \
+    GRAYMATTER_USERNAME="$thor_username" \
+    VALKYR_USERNAME="$thor_username" \
+    VALKYR_API_BASE="$thor_api_base" \
+    VALKYR_KEYCHAIN_SERVICE="$thor_service" \
+    GRAYMATTER_KEYCHAIN_UPDATE_DEFAULT=0 \
+    "${SCRIPT_DIR}/gm-login" keychain
+  echo "Authenticated GrayMatter profile '${thor_name}'; active identity unchanged."
+}
+
+command_add_local() {
+  local thor_name="${1:-}"
+  shift || true
+  gm_profile_name_valid "$thor_name" || { echo "Invalid GrayMatter profile name: ${thor_name:-empty}" >&2; exit 64; }
+  local thor_username="admin"
+  local thor_api_base="http://localhost:8787/v1"
+  local thor_password="${GRAYMATTER_LIGHT_PASSWORD:-}"
+  local thor_password_stdin=false
+  local thor_activate=false
+  local thor_replace=false
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --username) [[ $# -ge 2 ]] || exit 64; thor_username="$2"; shift 2 ;;
+      --api-base) [[ $# -ge 2 ]] || exit 64; thor_api_base="$2"; shift 2 ;;
+      --password-stdin) thor_password_stdin=true; shift ;;
+      --activate) thor_activate=true; shift ;;
+      --replace) thor_replace=true; shift ;;
+      *) echo "gm-profile add-local: unknown option $1" >&2; exit 64 ;;
+    esac
+  done
+  gm_profile_require_jq
+  ensure_registry
+  if profile_record "$thor_name" >/dev/null 2>&1 && [[ "$thor_replace" != "true" ]]; then
+    echo "GrayMatter profile '${thor_name}' already exists. Use --replace to update it." >&2
+    exit 65
+  fi
+  if [[ "$thor_password_stdin" == "true" ]]; then
+    IFS= read -r thor_password
+  elif [[ -z "$thor_password" && -t 0 ]]; then
+    read -r -s -p "GrayMatter Lite password for profile ${thor_name}: " thor_password
+    printf '\n' >&2
+  fi
+  [[ -n "$thor_password" ]] || {
+    echo "A non-empty GrayMatter Lite password is required through hidden input, --password-stdin, or GRAYMATTER_LIGHT_PASSWORD." >&2
+    exit 4
+  }
+  local thor_secret_dir="" thor_password_file="" thor_fingerprint="" thor_now=""
+  thor_secret_dir="$(gm_profile_state_dir)/secrets"
+  thor_password_file="${thor_secret_dir}/${thor_name}.password"
+  thor_fingerprint="$(gm_profile_account_fingerprint_value "${thor_api_base%/}|${thor_username}")"
+  thor_now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  umask 077
+  mkdir -p "$thor_secret_dir"
+  printf '%s' "$thor_password" >"$thor_password_file"
+  chmod 600 "$thor_password_file"
+  write_registry_filter \
+    '.profiles[$name] = {
+      kind:"local",
+      username:$username,
+      accountFingerprint:$fingerprint,
+      apiBase:$apiBase,
+      passwordFile:$passwordFile,
+      keychainService:null,
+      createdAt:(.profiles[$name].createdAt // $now),
+      updatedAt:$now
+    }' \
+    --arg name "$thor_name" \
+    --arg username "$thor_username" \
+    --arg fingerprint "$thor_fingerprint" \
+    --arg apiBase "${thor_api_base%/}" \
+    --arg passwordFile "$thor_password_file" \
+    --arg now "$thor_now"
+  if [[ "$thor_activate" == "true" ]]; then
+    write_registry_filter '.mode="single" | .activeProfile=$name | .blendProfiles=[]' --arg name "$thor_name"
+    echo "Registered and activated GrayMatter Lite profile '${thor_name}' (${thor_fingerprint})."
+  else
+    echo "Registered GrayMatter Lite profile '${thor_name}' (${thor_fingerprint}); active identity unchanged."
+  fi
+}
+
+command_list() {
+  local thor_json=false
+  [[ "${1:-}" == "--json" ]] && thor_json=true
+  ensure_registry
+  local thor_rows='[]'
+  local thor_name=""
+  local thor_record=""
+  local thor_auth=""
+  while IFS= read -r thor_name; do
+    [[ -n "$thor_name" ]] || continue
+    thor_record="$(profile_record "$thor_name")"
+    thor_auth="$(profile_auth_label "$thor_name")"
+    thor_rows="$(jq -c \
+      --arg name "$thor_name" \
+      --arg fingerprint "$(jq -r '.accountFingerprint' <<<"$thor_record")" \
+      --arg apiBase "$(jq -r '.apiBase' <<<"$thor_record")" \
+      --arg keychainService "$(jq -r '.keychainService // "local-secret-file"' <<<"$thor_record")" \
+      --arg auth "$thor_auth" \
+      '. + [{name:$name,accountFingerprint:$fingerprint,apiBase:$apiBase,keychainService:$keychainService,authentication:$auth}]' \
+      <<<"$thor_rows")"
+  done < <(jq -r '.profiles | keys[]' "$thor_registry_file")
+  if [[ "$thor_json" == "true" ]]; then
+    jq -nc \
+      --arg mode "$(jq -r '.mode' "$thor_registry_file")" \
+      --arg active "$(jq -r '.activeProfile // empty' "$thor_registry_file")" \
+      --argjson blend "$(jq -c '.blendProfiles' "$thor_registry_file")" \
+      --argjson profiles "$thor_rows" \
+      '{mode:$mode,activeProfile:(if $active == "" then null else $active end),blendProfiles:$blend,profiles:$profiles}'
+    return
+  fi
+  printf 'MODE\tPROFILE\tACCOUNT\tAUTHENTICATION\n'
+  jq -r \
+    --arg mode "$(jq -r '.mode' "$thor_registry_file")" \
+    --arg active "$(jq -r '.activeProfile // empty' "$thor_registry_file")" \
+    --argjson blend "$(jq -c '.blendProfiles' "$thor_registry_file")" '
+      .[]
+      | .name as $name
+      | [
+          (if $mode == "single" and $name == $active then "active"
+           elif $mode == "blend" and ($blend | index($name)) then "blended"
+           else "-" end),
+          $name,
+          .accountFingerprint,
+          .authentication
+        ]
+      | @tsv
+    ' <<<"$thor_rows"
+}
+
+command_current() {
+  local thor_json=false
+  [[ "${1:-}" == "--json" ]] && thor_json=true
+  ensure_registry
+  local thor_mode=""
+  local thor_active=""
+  local thor_auth="not-selected"
+  local thor_fingerprint=""
+  thor_mode="$(jq -r '.mode' "$thor_registry_file")"
+  thor_active="$(jq -r '.activeProfile // empty' "$thor_registry_file")"
+  if [[ "$thor_mode" == "single" && -n "$thor_active" ]]; then
+    thor_auth="$(profile_auth_label "$thor_active")"
+    thor_fingerprint="$(profile_record "$thor_active" | jq -r '.accountFingerprint')"
+  fi
+  if [[ "$thor_json" == "true" ]]; then
+    jq -nc \
+      --arg mode "$thor_mode" \
+      --arg active "$thor_active" \
+      --arg fingerprint "$thor_fingerprint" \
+      --arg authentication "$thor_auth" \
+      --argjson blend "$(jq -c '.blendProfiles' "$thor_registry_file")" \
+      '{
+        mode:$mode,
+        activeProfile:(if $active == "" then null else $active end),
+        accountFingerprint:(if $fingerprint == "" then null else $fingerprint end),
+        authentication:$authentication,
+        blendProfiles:$blend
+      }'
+    return
+  fi
+  case "$thor_mode" in
+    legacy)
+      echo "GrayMatter profile mode: legacy single-account flow (no named profile selected)."
+      ;;
+    single)
+      echo "GrayMatter active profile: ${thor_active} (${thor_fingerprint}, ${thor_auth})."
+      ;;
+    blend)
+      echo "GrayMatter federated read profiles: $(jq -r '.blendProfiles | join(", ")' "$thor_registry_file")."
+      echo "Writes are blocked until 'scripts/gm-profile use <name>' selects one account."
+      ;;
+  esac
+}
+
+command_use() {
+  local thor_name="${1:-}"
+  require_profile "$thor_name"
+  if ! gm_profile_token_present "$thor_name"; then
+    echo "GrayMatter profile '${thor_name}' has not authenticated or its username-scoped token is missing." >&2
+    echo "Run 'scripts/gm-profile login ${thor_name}' before switching." >&2
+    exit 4
+  fi
+  write_registry_filter \
+    '.mode="single" | .activeProfile=$name | .blendProfiles=[]' \
+    --arg name "$thor_name"
+  local thor_fingerprint=""
+  thor_fingerprint="$(profile_record "$thor_name" | jq -r '.accountFingerprint')"
+  echo "Active GrayMatter profile is now '${thor_name}' (${thor_fingerprint})."
+}
+
+command_deactivate() {
+  ensure_registry
+  write_registry_filter '.mode="legacy" | .activeProfile=null | .blendProfiles=[]'
+  echo "Named GrayMatter profile selection is inactive; legacy single-account behavior is restored."
+}
+
+validate_blend_names() {
+  local thor_name=""
+  local thor_count=0
+  local thor_json='[]'
+  local thor_fingerprints='[]'
+  local thor_fingerprint=""
+  for thor_name in "$@"; do
+    require_profile "$thor_name"
+    if ! jq -e --arg name "$thor_name" 'index($name) != null' <<<"$thor_json" >/dev/null; then
+      thor_fingerprint="$(profile_record "$thor_name" | jq -r '.accountFingerprint')"
+      if jq -e --arg fingerprint "$thor_fingerprint" 'index($fingerprint) != null' <<<"$thor_fingerprints" >/dev/null; then
+        echo "Blended GrayMatter mode requires distinct authenticated accounts; '${thor_name}' duplicates another selected account." >&2
+        exit 65
+      fi
+      thor_json="$(jq -c --arg name "$thor_name" '. + [$name]' <<<"$thor_json")"
+      thor_fingerprints="$(jq -c --arg fingerprint "$thor_fingerprint" '. + [$fingerprint]' <<<"$thor_fingerprints")"
+      thor_count=$((thor_count + 1))
+    fi
+  done
+  if (( thor_count < 2 )); then
+    echo "Blended GrayMatter mode requires at least two distinct configured profiles." >&2
+    exit 64
+  fi
+  printf '%s\n' "$thor_json"
+}
+
+command_blend() {
+  ensure_registry
+  local thor_profiles=""
+  thor_profiles="$(validate_blend_names "$@")"
+  write_registry_filter \
+    '.mode="blend" | .blendProfiles=$profiles' \
+    --argjson profiles "$thor_profiles"
+  echo "GrayMatter federated read mode is active for: $(jq -r 'join(", ")' <<<"$thor_profiles")."
+  echo "Each read remains account-scoped and provenance-labeled; writes are blocked."
+}
+
+command_with() {
+  local thor_names=()
+  while [[ $# -gt 0 && "$1" != "--" ]]; do
+    thor_names+=("$1")
+    shift
+  done
+  [[ "${1:-}" == "--" ]] || {
+    echo "gm-profile with requires '--' before the read command." >&2
+    exit 64
+  }
+  shift
+  [[ $# -gt 0 ]] || {
+    echo "gm-profile with requires a command." >&2
+    exit 64
+  }
+  ensure_registry
+  local thor_profiles=""
+  thor_profiles="$(validate_blend_names "${thor_names[@]}")"
+  local thor_csv=""
+  thor_csv="$(jq -r 'join(",")' <<<"$thor_profiles")"
+  exec env \
+    -u GRAYMATTER_PROFILE \
+    -u GRAYMATTER_PROFILE_RESOLVED \
+    GRAYMATTER_PROFILES="$thor_csv" \
+    "$@"
+}
+
+gm_profile_require_jq
+thor_command="${1:-}"
+shift || true
+case "$thor_command" in
+  add)
+    [[ $# -ge 1 ]] || { usage >&2; exit 64; }
+    command_add "$@"
+    ;;
+  add-local)
+    [[ $# -ge 1 ]] || { usage >&2; exit 64; }
+    command_add_local "$@"
+    ;;
+  login)
+    [[ $# -eq 1 ]] || { usage >&2; exit 64; }
+    ensure_registry
+    command_login "$1"
+    ;;
+  list)
+    [[ $# -le 1 ]] || { usage >&2; exit 64; }
+    command_list "${1:-}"
+    ;;
+  current|show)
+    [[ $# -le 1 ]] || { usage >&2; exit 64; }
+    command_current "${1:-}"
+    ;;
+  use|switch)
+    [[ $# -eq 1 ]] || { usage >&2; exit 64; }
+    ensure_registry
+    command_use "$1"
+    ;;
+  deactivate)
+    [[ $# -eq 0 ]] || { usage >&2; exit 64; }
+    command_deactivate
+    ;;
+  blend)
+    [[ $# -ge 2 ]] || { usage >&2; exit 64; }
+    command_blend "$@"
+    ;;
+  with)
+    [[ $# -ge 4 ]] || { usage >&2; exit 64; }
+    command_with "$@"
+    ;;
+  -h|--help|help|"")
+    usage
+    ;;
+  *)
+    echo "Unknown gm-profile command: ${thor_command}" >&2
+    usage >&2
+    exit 64
+    ;;
+esac

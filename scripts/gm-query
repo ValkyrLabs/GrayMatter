@@ -106,8 +106,16 @@ Environment:
   VALKYR_AUTH_TOKEN, VALKYR_JWT_SESSION, VALKYR_AUTH
       Auth sources used by graymatter_api.sh for hosted GrayMatter.
 
+  GRAYMATTER_PROFILE
+      Run this query under one configured named local or hosted profile.
+
+  GRAYMATTER_PROFILES
+      Comma-separated configured profiles for an explicit federated read.
+      Results are grouped by profile/account fingerprint; writes are blocked.
+
 Notes:
   - Run scripts/gm-login or scripts/gm-activate before querying hosted api-0.
+  - Use scripts/gm-profile to register, inspect, switch, or blend profiles.
   - For GrayMatter Light, run scripts/gm-light-up, then source
     .graymatter-light/.graymatter-light-env before gm-query.
   - Hosted memory query may consume account credits.

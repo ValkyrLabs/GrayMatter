@@ -1,0 +1,468 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+thor_root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+thor_state_dir="${VAIX_STATE_DIR:-${thor_root}/.vaix}"
+thor_bundle_dir="${GRAYMATTER_LITE_BUNDLE_DIR:-${thor_root}/.graymatter-lite}"
+thor_backend_port="${GRAYMATTER_LITE_PORT:-8787}"
+thor_mcp_port="${GRAYMATTER_MCP_PORT:-3333}"
+thor_jdk_major="${VAIX_JAVA_MAJOR:-17}"
+thor_maven_version="${VAIX_MAVEN_VERSION:-3.9.11}"
+thor_node_line="${VAIX_NODE_LINE:-22}"
+thor_admin_env="${thor_bundle_dir}/admin.env"
+thor_backend_pid="${thor_state_dir}/graymatter-lite.pid"
+thor_mcp_pid="${thor_state_dir}/graymatter-mcp.pid"
+
+usage() {
+  cat <<'USAGE'
+GrayMatter Lite source builder
+
+Usage: ./vaix <command> [options]
+
+Commands:
+  setup [--no-start]  Install missing private toolchains, generate, build, test,
+                      configure one local profile, and start Lite plus HTTP MCP.
+  generate            Render the ThorAPI api.hbs.yaml application bundle.
+  build               Build the Spring/H2 local server from source.
+  test                Run local-server, bootstrap, docs, and MCP contract tests.
+  run                 Run the Lite backend in the foreground.
+  up                   Start the Lite backend and HTTP MCP in the background.
+  stop                 Stop processes started by ./vaix up or setup.
+  doctor               Verify backend, sign-in API, starter memory, and MCP.
+  docker               Build and start the self-hosted Docker services.
+  credentials          Print the generated local sign-in credentials on request.
+  clean                 Remove generated build output; durable H2 data is preserved.
+
+Environment:
+  GRAYMATTER_ADMIN_PASSWORD  Use a chosen local password instead of generating one.
+  GRAYMATTER_LITE_PORT       Backend/dashboard port (default 8787).
+  GRAYMATTER_MCP_PORT        HTTP MCP port (default 3333).
+  GRAYMATTER_DATA_DIR        Durable H2 directory (defaults under .graymatter-lite).
+
+The builder uses system Java 17+, Maven, and Node 20+ when available. Missing
+toolchains are downloaded into .vaix/runtime and never installed system-wide.
+USAGE
+}
+
+thor_die() {
+  printf 'vaix: %s\n' "$*" >&2
+  exit 1
+}
+
+thor_sha256() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | awk '{print $1}'
+  else
+    shasum -a 256 "$1" | awk '{print $1}'
+  fi
+}
+
+thor_java_major() {
+  "$1" -version 2>&1 | awk -F '[\".]' '/version/ { if ($2 == "1") print $3; else print $2; exit }'
+}
+
+thor_system_java() {
+  local thor_java="" thor_home="" thor_major=""
+  for thor_java in "${JAVA_HOME:-}/bin/java" "$(command -v java || true)"; do
+    [[ -n "$thor_java" && -x "$thor_java" ]] || continue
+    thor_major="$(thor_java_major "$thor_java")"
+    if [[ "$thor_major" =~ ^[0-9]+$ ]] && (( thor_major >= thor_jdk_major )); then
+      printf '%s\n' "$thor_java"
+      return 0
+    fi
+  done
+  if [[ -x /usr/libexec/java_home ]]; then
+    thor_home="$(/usr/libexec/java_home -v "${thor_jdk_major}+" 2>/dev/null || /usr/libexec/java_home 2>/dev/null || true)"
+    thor_java="${thor_home}/bin/java"
+    if [[ -x "$thor_java" ]]; then
+      thor_major="$(thor_java_major "$thor_java")"
+      if [[ "$thor_major" =~ ^[0-9]+$ ]] && (( thor_major >= thor_jdk_major )); then
+        printf '%s\n' "$thor_java"
+      fi
+    fi
+  fi
+}
+
+thor_cached_java() {
+  find "${thor_state_dir}/runtime/jdk-${thor_jdk_major}" -type f -path '*/bin/java' -perm -111 2>/dev/null \
+    | sort | head -n 1
+}
+
+thor_ensure_java() {
+  local thor_java=""
+  thor_java="$(thor_system_java)"
+  if [[ -n "$thor_java" ]]; then
+    printf '%s\n' "$thor_java"
+    return
+  fi
+  thor_java="$(thor_cached_java)"
+  if [[ -n "$thor_java" ]]; then
+    printf '%s\n' "$thor_java"
+    return
+  fi
+
+  command -v curl >/dev/null 2>&1 || thor_die "curl is required to download Java ${thor_jdk_major}."
+  command -v tar >/dev/null 2>&1 || thor_die "tar is required to unpack Java ${thor_jdk_major}."
+  local thor_os="" thor_arch="" thor_url="" thor_tmp="" thor_home=""
+  case "$(uname -s)" in
+    Darwin) thor_os="mac" ;;
+    Linux) thor_os="linux" ;;
+    *) thor_die "automatic JDK installation currently supports macOS and Linux" ;;
+  esac
+  case "$(uname -m)" in
+    arm64|aarch64) thor_arch="aarch64" ;;
+    x86_64|amd64) thor_arch="x64" ;;
+    *) thor_die "unsupported JDK architecture: $(uname -m)" ;;
+  esac
+  thor_url="https://api.adoptium.net/v3/binary/latest/${thor_jdk_major}/ga/${thor_os}/${thor_arch}/jdk/hotspot/normal/eclipse?project=jdk"
+  thor_tmp="$(mktemp -d "${TMPDIR:-/tmp}/graymatter-jdk.XXXXXX")"
+  printf 'Downloading a private Eclipse Temurin Java %s runtime...\n' "$thor_jdk_major" >&2
+  curl --fail --location --retry 3 --output "${thor_tmp}/jdk.tar.gz" "$thor_url"
+  mkdir -p "${thor_state_dir}/runtime/jdk-${thor_jdk_major}"
+  tar -xzf "${thor_tmp}/jdk.tar.gz" -C "${thor_state_dir}/runtime/jdk-${thor_jdk_major}"
+  rm -rf "$thor_tmp"
+  thor_java="$(thor_cached_java)"
+  [[ -n "$thor_java" ]] || thor_die "downloaded JDK did not contain bin/java"
+  thor_home="$(cd "$(dirname "$thor_java")/.." && pwd)"
+  printf '%s\n' "$thor_home" >"${thor_state_dir}/java-home"
+  printf '%s\n' "$thor_java"
+}
+
+thor_ensure_maven() {
+  local thor_maven=""
+  thor_maven="$(command -v mvn || true)"
+  if [[ -n "$thor_maven" ]] && "$thor_maven" -version >/dev/null 2>&1; then
+    printf '%s\n' "$thor_maven"
+    return
+  fi
+  thor_maven="${thor_state_dir}/runtime/apache-maven-${thor_maven_version}/bin/mvn"
+  if [[ -x "$thor_maven" ]]; then
+    printf '%s\n' "$thor_maven"
+    return
+  fi
+  command -v curl >/dev/null 2>&1 || thor_die "curl is required to download Maven."
+  local thor_tmp="" thor_archive=""
+  thor_tmp="$(mktemp -d "${TMPDIR:-/tmp}/graymatter-maven.XXXXXX")"
+  thor_archive="apache-maven-${thor_maven_version}-bin.tar.gz"
+  printf 'Downloading a private Maven %s runtime...\n' "$thor_maven_version" >&2
+  curl --fail --location --retry 3 \
+    --output "${thor_tmp}/${thor_archive}" \
+    "https://archive.apache.org/dist/maven/maven-3/${thor_maven_version}/binaries/${thor_archive}"
+  tar -xzf "${thor_tmp}/${thor_archive}" -C "${thor_state_dir}/runtime"
+  rm -rf "$thor_tmp"
+  [[ -x "$thor_maven" ]] || thor_die "downloaded Maven runtime is invalid"
+  printf '%s\n' "$thor_maven"
+}
+
+thor_node_major() {
+  "$1" --version 2>/dev/null | sed 's/^v//' | cut -d. -f1
+}
+
+thor_cached_node() {
+  find "${thor_state_dir}/runtime/node-v${thor_node_line}" -type f -path '*/bin/node' -perm -111 2>/dev/null \
+    | sort | head -n 1
+}
+
+thor_ensure_node() {
+  local thor_node=""
+  thor_node="$(command -v node || true)"
+  if [[ -n "$thor_node" ]] && [[ "$(thor_node_major "$thor_node")" =~ ^[0-9]+$ ]] \
+      && (( $(thor_node_major "$thor_node") >= 20 )); then
+    printf '%s\n' "$thor_node"
+    return
+  fi
+  thor_node="$(thor_cached_node)"
+  if [[ -n "$thor_node" ]]; then
+    printf '%s\n' "$thor_node"
+    return
+  fi
+  command -v curl >/dev/null 2>&1 || thor_die "curl is required to download Node.js."
+  local thor_os="" thor_arch="" thor_tmp="" thor_sums="" thor_file="" thor_expected="" thor_actual=""
+  case "$(uname -s)" in
+    Darwin) thor_os="darwin" ;;
+    Linux) thor_os="linux" ;;
+    *) thor_die "automatic Node.js installation currently supports macOS and Linux" ;;
+  esac
+  case "$(uname -m)" in
+    arm64|aarch64) thor_arch="arm64" ;;
+    x86_64|amd64) thor_arch="x64" ;;
+    *) thor_die "unsupported Node.js architecture: $(uname -m)" ;;
+  esac
+  thor_tmp="$(mktemp -d "${TMPDIR:-/tmp}/graymatter-node.XXXXXX")"
+  thor_sums="$(curl --fail --location --retry 3 "https://nodejs.org/dist/latest-v${thor_node_line}.x/SHASUMS256.txt")"
+  thor_file="$(printf '%s\n' "$thor_sums" | awk -v suffix="${thor_os}-${thor_arch}.tar.gz" '$2 ~ suffix"$" {print $2; exit}')"
+  [[ -n "$thor_file" ]] || thor_die "Node.js v${thor_node_line} archive was not found"
+  thor_expected="$(printf '%s\n' "$thor_sums" | awk -v file="$thor_file" '$2 == file {print $1; exit}')"
+  printf 'Downloading a private Node.js v%s runtime...\n' "$thor_node_line" >&2
+  curl --fail --location --retry 3 --output "${thor_tmp}/${thor_file}" \
+    "https://nodejs.org/dist/latest-v${thor_node_line}.x/${thor_file}"
+  thor_actual="$(thor_sha256 "${thor_tmp}/${thor_file}")"
+  [[ "$thor_actual" == "$thor_expected" ]] || thor_die "Node.js checksum verification failed"
+  mkdir -p "${thor_state_dir}/runtime/node-v${thor_node_line}"
+  tar -xzf "${thor_tmp}/${thor_file}" -C "${thor_state_dir}/runtime/node-v${thor_node_line}"
+  rm -rf "$thor_tmp"
+  thor_node="$(thor_cached_node)"
+  [[ -n "$thor_node" ]] || thor_die "downloaded Node.js runtime is invalid"
+  printf '%s\n' "$thor_node"
+}
+
+thor_generate() {
+  "${thor_root}/scripts/gm-light-bootstrap" \
+    --out-dir "$thor_bundle_dir" \
+    --server-url "http://localhost:${thor_backend_port}" >/dev/null
+  printf 'Generated GrayMatter Lite from templates/graymatter-light-bootstrap/api.hbs.yaml at %s\n' "$thor_bundle_dir"
+}
+
+thor_export_toolchain() {
+  local thor_java="$1" thor_maven="$2" thor_java_home=""
+  thor_java_home="$(cd "$(dirname "$thor_java")/.." && pwd)"
+  export JAVA_HOME="$thor_java_home"
+  export PATH="$(dirname "$thor_java"):$(dirname "$thor_maven"):${PATH}"
+}
+
+thor_build() {
+  [[ -f "${thor_bundle_dir}/local-server/pom.xml" ]] || thor_generate
+  local thor_java="" thor_maven="" thor_jar=""
+  thor_java="$(thor_ensure_java)"
+  thor_maven="$(thor_ensure_maven)"
+  thor_export_toolchain "$thor_java" "$thor_maven"
+  "$thor_maven" -q -f "${thor_bundle_dir}/local-server/pom.xml" -DskipTests package
+  thor_jar="$(find "${thor_bundle_dir}/local-server/target" -maxdepth 1 -type f \
+    -name 'graymatter-local-server-*.jar' ! -name '*sources*' ! -name '*javadoc*' | sort | tail -n 1)"
+  [[ -n "$thor_jar" ]] || thor_die "local-server build produced no runnable JAR"
+  mkdir -p "${thor_bundle_dir}/local-server/lib"
+  cp "$thor_jar" "${thor_bundle_dir}/local-server/lib/graymatter-local-server.jar"
+  printf 'Built GrayMatter Lite backend: %s\n' "${thor_bundle_dir}/local-server/lib/graymatter-local-server.jar"
+}
+
+thor_password() {
+  if [[ -n "${GRAYMATTER_ADMIN_PASSWORD:-}" ]]; then
+    printf '%s\n' "$GRAYMATTER_ADMIN_PASSWORD"
+  elif command -v openssl >/dev/null 2>&1; then
+    openssl rand -base64 24 | tr -d '\n'
+    printf '\n'
+  else
+    LC_ALL=C tr -dc 'A-Za-z0-9_-' </dev/urandom | head -c 32
+    printf '\n'
+  fi
+}
+
+thor_ensure_admin_env() {
+  [[ -f "$thor_admin_env" ]] && return
+  local thor_secret=""
+  thor_secret="$(thor_password)"
+  umask 077
+  mkdir -p "$thor_bundle_dir"
+  {
+    printf 'GRAYMATTER_ADMIN_USERNAME=%q\n' "${GRAYMATTER_ADMIN_USERNAME:-admin}"
+    printf 'GRAYMATTER_ADMIN_PASSWORD=%q\n' "$thor_secret"
+    printf 'GRAYMATTER_DATA_DIR=%q\n' "${GRAYMATTER_DATA_DIR:-${thor_bundle_dir}/data}"
+    printf 'GRAYMATTER_LIGHT_USERNAME=%q\n' "${GRAYMATTER_ADMIN_USERNAME:-admin}"
+    printf 'GRAYMATTER_LIGHT_PASSWORD=%q\n' "$thor_secret"
+  } >"$thor_admin_env"
+  chmod 600 "$thor_admin_env"
+}
+
+thor_load_admin_env() {
+  thor_ensure_admin_env
+  set -a
+  # shellcheck disable=SC1090
+  source "$thor_admin_env"
+  set +a
+}
+
+thor_process_alive() {
+  [[ -f "$1" ]] || return 1
+  local thor_pid=""
+  thor_pid="$(cat "$1")"
+  [[ "$thor_pid" =~ ^[0-9]+$ ]] && kill -0 "$thor_pid" 2>/dev/null
+}
+
+thor_wait_health() {
+  local thor_deadline=$((SECONDS + 90))
+  until curl -fsS "http://127.0.0.1:${thor_backend_port}/actuator/health" >/dev/null 2>&1; do
+    (( SECONDS < thor_deadline )) || thor_die "Lite backend did not become healthy; inspect ${thor_state_dir}/graymatter-lite.log"
+    sleep 1
+  done
+}
+
+thor_up() {
+  [[ -f "${thor_bundle_dir}/local-server/lib/graymatter-local-server.jar" ]] || thor_build
+  thor_load_admin_env
+  mkdir -p "$thor_state_dir"
+  local thor_java="" thor_node=""
+  thor_java="$(thor_ensure_java)"
+  thor_node="$(thor_ensure_node)"
+
+  if ! thor_process_alive "$thor_backend_pid"; then
+    SERVER_PORT="$thor_backend_port" \
+      nohup "$thor_java" -jar "${thor_bundle_dir}/local-server/lib/graymatter-local-server.jar" \
+      >"${thor_state_dir}/graymatter-lite.log" 2>&1 &
+    printf '%s\n' "$!" >"$thor_backend_pid"
+  fi
+  thor_wait_health
+
+  if ! thor_process_alive "$thor_mcp_pid"; then
+    VALKYR_API_BASE="http://127.0.0.1:${thor_backend_port}/v1" \
+      GRAYMATTER_LIGHT_MODE=true \
+      GRAYMATTER_LIGHT_USERNAME="$GRAYMATTER_LIGHT_USERNAME" \
+      GRAYMATTER_LIGHT_PASSWORD="$GRAYMATTER_LIGHT_PASSWORD" \
+      GRAYMATTER_MCP_MODE=local-dev \
+      PORT="$thor_mcp_port" \
+      nohup "$thor_node" "${thor_root}/mcp-server/index.js" \
+      >"${thor_state_dir}/graymatter-mcp.log" 2>&1 &
+    printf '%s\n' "$!" >"$thor_mcp_pid"
+  fi
+
+  printf 'GrayMatter Lite is ready.\n'
+  printf 'Dashboard: http://localhost:%s\n' "$thor_backend_port"
+  printf 'HTTP MCP:  http://localhost:%s/mcp\n' "$thor_mcp_port"
+  printf 'Credentials: ./vaix credentials\n'
+}
+
+thor_run() {
+  [[ -f "${thor_bundle_dir}/local-server/lib/graymatter-local-server.jar" ]] || thor_build
+  thor_load_admin_env
+  local thor_java=""
+  thor_java="$(thor_ensure_java)"
+  export SERVER_PORT="$thor_backend_port"
+  exec "$thor_java" -jar "${thor_bundle_dir}/local-server/lib/graymatter-local-server.jar"
+}
+
+thor_stop_one() {
+  local thor_pid_file="$1" thor_label="$2" thor_pid=""
+  if thor_process_alive "$thor_pid_file"; then
+    thor_pid="$(cat "$thor_pid_file")"
+    kill "$thor_pid"
+    for _ in 1 2 3 4 5 6 7 8 9 10; do
+      kill -0 "$thor_pid" 2>/dev/null || break
+      sleep 1
+    done
+    if kill -0 "$thor_pid" 2>/dev/null; then
+      kill -KILL "$thor_pid"
+    fi
+    printf 'Stopped %s.\n' "$thor_label"
+  fi
+  rm -f "$thor_pid_file"
+}
+
+thor_stop() {
+  thor_stop_one "$thor_mcp_pid" "GrayMatter MCP"
+  thor_stop_one "$thor_backend_pid" "GrayMatter Lite"
+}
+
+thor_test() {
+  local thor_java="" thor_maven="" thor_node=""
+  thor_java="$(thor_ensure_java)"
+  thor_maven="$(thor_ensure_maven)"
+  thor_node="$(thor_ensure_node)"
+  thor_export_toolchain "$thor_java" "$thor_maven"
+  env \
+    -u GRAYMATTER_ADMIN_USERNAME \
+    -u GRAYMATTER_ADMIN_PASSWORD \
+    -u GRAYMATTER_ADMIN_DISPLAY_NAME \
+    -u GRAYMATTER_DB_URL \
+    -u GRAYMATTER_DATA_DIR \
+    "$thor_maven" -q -f "${thor_root}/templates/graymatter-light-bootstrap/local-server/pom.xml" test
+  if [[ -d "${thor_root}/tests" ]]; then
+    "$thor_root/tests/gm_light_bootstrap_test.sh"
+    "$thor_root/tests/gm_profile_test.sh"
+    "$thor_root/tests/package_local_server_test.sh"
+    "$thor_root/tests/docs_consistency_test.sh"
+    "$thor_root/scripts/package-graymatter" >/dev/null
+    "$thor_root/tests/release_surfaces_test.sh"
+  fi
+  if compgen -G "${thor_root}/mcp-server/test/*.test.js" >/dev/null; then
+    env \
+      -u GRAYMATTER_LIGHT_USERNAME \
+      -u GRAYMATTER_LIGHT_PASSWORD \
+      -u VALKYR_API_BASE \
+      "$thor_node" --test "${thor_root}/mcp-server/test/"*.test.js
+  fi
+}
+
+thor_doctor() {
+  thor_load_admin_env
+  curl --fail --silent --show-error "http://127.0.0.1:${thor_backend_port}/actuator/health" | grep -q '"status":"UP"' \
+    || thor_die "backend health check failed"
+  local thor_status="" thor_memories="" thor_packs=""
+  thor_status="$(curl --fail --silent --show-error \
+    -u "${GRAYMATTER_LIGHT_USERNAME}:${GRAYMATTER_LIGHT_PASSWORD}" \
+    "http://127.0.0.1:${thor_backend_port}/v1/memory/status")"
+  thor_memories="$(printf '%s' "$thor_status" | jq -r '.metrics[]? | select(.id == "memory.entries") | .value' | head -n 1)"
+  thor_packs="$(curl --fail --silent --show-error \
+    -u "${GRAYMATTER_LIGHT_USERNAME}:${GRAYMATTER_LIGHT_PASSWORD}" \
+    "http://127.0.0.1:${thor_backend_port}/v1/knowledge-packs" | jq 'length')"
+  [[ "${thor_memories:-0}" -ge 12 ]] || thor_die "starter H2 memory is missing"
+  [[ "${thor_packs:-0}" -ge 1 ]] || thor_die "starter KnowledgePack is missing"
+  curl --fail --silent --show-error "http://127.0.0.1:${thor_mcp_port}/health" >/dev/null \
+    || thor_die "HTTP MCP health check failed"
+  printf 'GrayMatter Lite doctor: ready (%s memories, %s KnowledgePack, dashboard auth and MCP healthy).\n' \
+    "$thor_memories" "$thor_packs"
+}
+
+thor_docker() {
+  command -v docker >/dev/null 2>&1 || thor_die "Docker is required for ./vaix docker"
+  thor_load_admin_env
+  docker compose -f "${thor_root}/deploy/docker-compose.lite.yml" up --build -d
+  printf 'GrayMatter Lite Docker services are starting at http://localhost:%s\n' "$thor_backend_port"
+}
+
+thor_setup() {
+  local thor_start=true
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --no-start) thor_start=false ;;
+      *) thor_die "unknown setup option: $1" ;;
+    esac
+    shift
+  done
+  mkdir -p "${thor_state_dir}/runtime"
+  thor_ensure_java >/dev/null
+  thor_ensure_maven >/dev/null
+  thor_ensure_node >/dev/null
+  thor_generate
+  thor_build
+  thor_ensure_admin_env
+  thor_load_admin_env
+  printf '%s\n' "$GRAYMATTER_LIGHT_PASSWORD" | \
+    "$thor_root/scripts/gm-profile" add-local graymatter-lite-local \
+      --username "$GRAYMATTER_LIGHT_USERNAME" \
+      --api-base "http://localhost:${thor_backend_port}/v1" \
+      --password-stdin --replace >/dev/null
+  thor_test
+  if [[ "$thor_start" == "true" ]]; then
+    thor_up
+    thor_doctor
+  fi
+}
+
+thor_credentials() {
+  thor_load_admin_env
+  printf 'Username: %s\nPassword: %s\n' "$GRAYMATTER_LIGHT_USERNAME" "$GRAYMATTER_LIGHT_PASSWORD"
+}
+
+thor_clean() {
+  thor_stop
+  rm -rf "${thor_bundle_dir}/local-server/target" "${thor_bundle_dir}/local-server/lib"
+  printf 'Removed generated build output. Durable H2 data remains at %s\n' \
+    "${GRAYMATTER_DATA_DIR:-${thor_bundle_dir}/data}"
+}
+
+thor_command="${1:-help}"
+shift || true
+case "$thor_command" in
+  setup) thor_setup "$@" ;;
+  generate) [[ $# -eq 0 ]] || thor_die "generate accepts no arguments"; thor_generate ;;
+  build) [[ $# -eq 0 ]] || thor_die "build accepts no arguments"; thor_build ;;
+  test) [[ $# -eq 0 ]] || thor_die "test accepts no arguments"; thor_test ;;
+  run) [[ $# -eq 0 ]] || thor_die "run accepts no arguments"; thor_run ;;
+  up) [[ $# -eq 0 ]] || thor_die "up accepts no arguments"; thor_up ;;
+  stop) [[ $# -eq 0 ]] || thor_die "stop accepts no arguments"; thor_stop ;;
+  doctor) [[ $# -eq 0 ]] || thor_die "doctor accepts no arguments"; thor_doctor ;;
+  docker) [[ $# -eq 0 ]] || thor_die "docker accepts no arguments"; thor_docker ;;
+  credentials) [[ $# -eq 0 ]] || thor_die "credentials accepts no arguments"; thor_credentials ;;
+  clean) [[ $# -eq 0 ]] || thor_die "clean accepts no arguments"; thor_clean ;;
+  help|-h|--help) usage ;;
+  *) usage >&2; thor_die "unknown command: $thor_command" ;;
+esac

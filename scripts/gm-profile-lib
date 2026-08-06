@@ -1,0 +1,372 @@
+#!/usr/bin/env bash
+
+# Shared named-login profile helpers. Profile files contain only local routing
+# metadata. Authentication tokens and reusable passwords remain in Keychain.
+
+gm_profile_state_dir() {
+  printf '%s\n' "${GRAYMATTER_STATE_DIR:-${HOME:-.}/.graymatter}"
+}
+
+gm_profile_registry_file() {
+  printf '%s\n' "${GRAYMATTER_PROFILES_FILE:-$(gm_profile_state_dir)/profiles.json}"
+}
+
+gm_profile_hash_text() {
+  local thor_value="${1:-}"
+  if command -v sha256sum >/dev/null 2>&1; then
+    printf '%s' "$thor_value" | sha256sum | awk '{print $1}'
+  else
+    printf '%s' "$thor_value" | shasum -a 256 | awk '{print $1}'
+  fi
+}
+
+gm_profile_account_fingerprint_value() {
+  local thor_hash=""
+  thor_hash="$(gm_profile_hash_text "${1:-}")"
+  printf 'sha256:%s\n' "${thor_hash:0:12}"
+}
+
+gm_profile_name_valid() {
+  [[ "${1:-}" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]
+}
+
+gm_profile_require_jq() {
+  if ! command -v jq >/dev/null 2>&1; then
+    echo "GrayMatter named profiles require jq." >&2
+    return 1
+  fi
+}
+
+gm_profile_registry_valid() {
+  local thor_file="${1:-$(gm_profile_registry_file)}"
+  [[ -f "$thor_file" ]] || return 1
+  jq -e '
+    .version == 1
+    and (.mode == "legacy" or .mode == "single" or .mode == "blend")
+    and (.profiles | type == "object")
+    and (.blendProfiles | type == "array")
+  ' "$thor_file" >/dev/null 2>&1
+}
+
+gm_profile_record_json() {
+  local thor_name="${1:-}"
+  local thor_file="${2:-$(gm_profile_registry_file)}"
+  gm_profile_name_valid "$thor_name" || return 1
+  gm_profile_registry_valid "$thor_file" || return 1
+  jq -ce --arg name "$thor_name" '.profiles[$name] // empty' "$thor_file"
+}
+
+gm_profile_configured() {
+  gm_profile_record_json "${1:-}" >/dev/null 2>&1
+}
+
+gm_profile_normalize_list() {
+  local thor_raw="${1:-}"
+  printf '%s\n' "$thor_raw" \
+    | tr ',[:space:]' '\n\n' \
+    | awk 'NF && !seen[$0]++ {print}'
+}
+
+gm_profile_selected_names() {
+  local thor_names="${GRAYMATTER_BLEND_PROFILES:-${GRAYMATTER_PROFILES:-}}"
+  gm_profile_normalize_list "$thor_names"
+}
+
+gm_profile_is_blended() {
+  [[ "${GRAYMATTER_PROFILE_MODE:-}" == "blend" && -n "${GRAYMATTER_BLEND_PROFILES:-}" ]]
+}
+
+gm_profile_assert_single() {
+  local thor_operation="${1:-This operation}"
+  if gm_profile_is_blended; then
+    echo "${thor_operation} requires one active GrayMatter profile." >&2
+    echo "Run 'scripts/gm-profile use <name>' or set GRAYMATTER_PROFILE=<name> for this command." >&2
+    return 64
+  fi
+}
+
+gm_profile_keychain_item_exists() {
+  local thor_account="${1:-}"
+  local thor_service="${2:-}"
+  [[ -n "$thor_account" && -n "$thor_service" ]] || return 1
+  command -v security >/dev/null 2>&1 || return 1
+  security find-generic-password -a "$thor_account" -s "$thor_service" >/dev/null 2>&1
+}
+
+gm_profile_keychain_value() {
+  local thor_account="${1:-}"
+  local thor_service="${2:-}"
+  [[ -n "$thor_account" && -n "$thor_service" ]] || return 1
+  command -v security >/dev/null 2>&1 || return 1
+  security find-generic-password -a "$thor_account" -s "$thor_service" -w 2>/dev/null
+}
+
+gm_profile_auth_material_present() {
+  local thor_name="${1:-}"
+  local thor_record=""
+  local thor_account=""
+  local thor_service=""
+  thor_record="$(gm_profile_record_json "$thor_name")" || return 1
+  if [[ "$(jq -r '.kind // "hosted"' <<<"$thor_record")" == "local" ]]; then
+    local thor_password_file=""
+    thor_password_file="$(jq -r '.passwordFile // empty' <<<"$thor_record")"
+    [[ -n "$thor_password_file" && -f "$thor_password_file" && -r "$thor_password_file" ]]
+    return
+  fi
+  thor_account="$(jq -r '.username' <<<"$thor_record")"
+  thor_service="$(jq -r '.keychainService' <<<"$thor_record")"
+  gm_profile_keychain_item_exists "$thor_account" "$thor_service" \
+    || gm_profile_keychain_item_exists "$thor_account" "${thor_service}_PASSWORD"
+}
+
+gm_profile_token_present() {
+  local thor_name="${1:-}"
+  local thor_record=""
+  local thor_account=""
+  local thor_service=""
+  thor_record="$(gm_profile_record_json "$thor_name")" || return 1
+  if [[ "$(jq -r '.kind // "hosted"' <<<"$thor_record")" == "local" ]]; then
+    local thor_password_file=""
+    thor_password_file="$(jq -r '.passwordFile // empty' <<<"$thor_record")"
+    [[ -n "$thor_password_file" && -f "$thor_password_file" && -r "$thor_password_file" ]]
+    return
+  fi
+  thor_account="$(jq -r '.username' <<<"$thor_record")"
+  thor_service="$(jq -r '.keychainService' <<<"$thor_record")"
+  gm_profile_keychain_item_exists "$thor_account" "$thor_service"
+}
+
+gm_profile_apply() {
+  if [[ "${GRAYMATTER_PROFILE_RESOLVED:-false}" == "true" ]]; then
+    return 0
+  fi
+  export GRAYMATTER_PROFILE_RESOLVED=true
+
+  local thor_file=""
+  local thor_requested_single="${GRAYMATTER_PROFILE:-}"
+  local thor_requested_blend="${GRAYMATTER_PROFILES:-}"
+  local thor_mode="legacy"
+  local thor_selected=""
+  local thor_blend=""
+  local thor_record=""
+  local thor_name=""
+  local thor_count=0
+
+  thor_file="$(gm_profile_registry_file)"
+  if [[ -z "$thor_requested_single" && -z "$thor_requested_blend" && ! -f "$thor_file" ]]; then
+    export GRAYMATTER_PROFILE_MODE=legacy
+    return 0
+  fi
+
+  gm_profile_require_jq || return 1
+  if [[ -f "$thor_file" ]] && ! gm_profile_registry_valid "$thor_file"; then
+    echo "GrayMatter profile registry is invalid: ${thor_file}" >&2
+    return 65
+  fi
+
+  if [[ -n "$thor_requested_single" ]]; then
+    thor_mode="single"
+    thor_selected="$thor_requested_single"
+  elif [[ -n "$thor_requested_blend" ]]; then
+    thor_mode="blend"
+    thor_blend="$thor_requested_blend"
+  elif [[ -f "$thor_file" ]]; then
+    thor_mode="$(jq -r '.mode // "legacy"' "$thor_file")"
+    thor_selected="$(jq -r '.activeProfile // empty' "$thor_file")"
+    thor_blend="$(jq -r '.blendProfiles // [] | join(",")' "$thor_file")"
+  fi
+
+  case "$thor_mode" in
+    legacy)
+      export GRAYMATTER_PROFILE_MODE=legacy
+      return 0
+      ;;
+    single)
+      if ! gm_profile_name_valid "$thor_selected"; then
+        echo "Invalid GrayMatter profile name: ${thor_selected:-empty}" >&2
+        return 64
+      fi
+      thor_record="$(gm_profile_record_json "$thor_selected" "$thor_file")" || {
+        echo "GrayMatter profile '${thor_selected}' is not configured." >&2
+        echo "Run 'scripts/gm-profile list' or add it with 'scripts/gm-profile add ${thor_selected}'." >&2
+        return 4
+      }
+      export GRAYMATTER_PROFILE_MODE=single
+      export GRAYMATTER_ACTIVE_PROFILE="$thor_selected"
+      export GRAYMATTER_USERNAME="$(jq -r '.username' <<<"$thor_record")"
+      export VALKYR_USERNAME="$GRAYMATTER_USERNAME"
+      export VALKYR_API_BASE="$(jq -r '.apiBase' <<<"$thor_record")"
+      if [[ "$(jq -r '.kind // "hosted"' <<<"$thor_record")" == "local" ]]; then
+        local thor_password_file=""
+        thor_password_file="$(jq -r '.passwordFile // empty' <<<"$thor_record")"
+        [[ -n "$thor_password_file" && -r "$thor_password_file" ]] || {
+          echo "GrayMatter local profile '${thor_selected}' has no readable credential file." >&2
+          echo "Run 'scripts/gm-profile login ${thor_selected}' to repair it." >&2
+          return 4
+        }
+        export GRAYMATTER_LIGHT_MODE=true
+        export GRAYMATTER_LIGHT_USERNAME="$GRAYMATTER_USERNAME"
+        export GRAYMATTER_LIGHT_PASSWORD="$(<"$thor_password_file")"
+        unset VALKYR_KEYCHAIN_SERVICE VALKYR_USERNAME_KEYCHAIN_SERVICE VALKYR_PASSWORD_KEYCHAIN_SERVICE
+        unset VALKYR_AUTH_TOKEN VALKYR_JWT_SESSION VALKYR_AUTH
+        return 0
+      fi
+      unset GRAYMATTER_LIGHT_MODE GRAYMATTER_LIGHT_USERNAME GRAYMATTER_LIGHT_PASSWORD
+      export VALKYR_KEYCHAIN_SERVICE="$(jq -r '.keychainService' <<<"$thor_record")"
+      export VALKYR_USERNAME_KEYCHAIN_SERVICE="${VALKYR_KEYCHAIN_SERVICE}_USERNAME"
+      export VALKYR_PASSWORD_KEYCHAIN_SERVICE="${VALKYR_KEYCHAIN_SERVICE}_PASSWORD"
+      unset VALKYR_AUTH_TOKEN VALKYR_JWT_SESSION VALKYR_AUTH
+      return 0
+      ;;
+    blend)
+      while IFS= read -r thor_name; do
+        [[ -n "$thor_name" ]] || continue
+        if ! gm_profile_name_valid "$thor_name" || ! gm_profile_configured "$thor_name"; then
+          echo "GrayMatter blended profile '${thor_name}' is not configured." >&2
+          echo "Run 'scripts/gm-profile list' and select configured profile names." >&2
+          return 4
+        fi
+        thor_blend="${thor_blend:+${thor_blend},}${thor_name}"
+        thor_count=$((thor_count + 1))
+      done < <(gm_profile_normalize_list "${GRAYMATTER_PROFILES:-$(jq -r '.blendProfiles // [] | join(",")' "$thor_file")}")
+      if (( thor_count < 2 )); then
+        echo "GrayMatter blended mode requires at least two configured profiles." >&2
+        return 64
+      fi
+      # The loop appends to the source value; normalize once more so the
+      # exported order is stable and duplicates are removed.
+      thor_blend="$(gm_profile_normalize_list "$thor_blend" | awk 'NF && !seen[$0]++' | paste -sd, -)"
+      export GRAYMATTER_PROFILE_MODE=blend
+      export GRAYMATTER_BLEND_PROFILES="$thor_blend"
+      unset GRAYMATTER_ACTIVE_PROFILE GRAYMATTER_USERNAME VALKYR_USERNAME
+      unset VALKYR_AUTH_TOKEN VALKYR_JWT_SESSION VALKYR_AUTH
+      return 0
+      ;;
+    *)
+      echo "Unsupported GrayMatter profile mode: ${thor_mode}" >&2
+      return 65
+      ;;
+  esac
+}
+
+gm_profile_federated_exec_json() {
+  local thor_operation="${1:-read}"
+  local thor_command="${2:-}"
+  shift 2
+
+  gm_profile_require_jq || return 1
+  gm_profile_is_blended || {
+    echo "gm_profile_federated_exec_json requires blended mode." >&2
+    return 64
+  }
+  [[ -n "$thor_command" ]] || return 64
+
+  local thor_results='[]'
+  local thor_requested='[]'
+  local thor_success=0
+  local thor_failed=0
+  local thor_name=""
+  local thor_record=""
+  local thor_fingerprint=""
+  local thor_tmp_dir=""
+  local thor_out=""
+  local thor_err=""
+  local thor_status=0
+  local thor_data=""
+  local thor_entry=""
+  local thor_code=""
+  local thor_message=""
+
+  thor_tmp_dir="$(mktemp -d "${TMPDIR:-/tmp}/graymatter-federation.XXXXXX")"
+  while IFS= read -r thor_name; do
+    [[ -n "$thor_name" ]] || continue
+    thor_record="$(gm_profile_record_json "$thor_name")"
+    thor_fingerprint="$(jq -r '.accountFingerprint' <<<"$thor_record")"
+    thor_requested="$(jq -c --arg profile "$thor_name" '. + [$profile]' <<<"$thor_requested")"
+    thor_out="${thor_tmp_dir}/${thor_name}.out"
+    thor_err="${thor_tmp_dir}/${thor_name}.err"
+
+    if ! gm_profile_auth_material_present "$thor_name"; then
+      thor_status=4
+      thor_code="PROFILE_AUTH_UNAVAILABLE"
+      thor_message="Profile is not authenticated. Run scripts/gm-profile login ${thor_name}."
+    else
+      set +e
+      env \
+        -u GRAYMATTER_PROFILE_RESOLVED \
+        -u GRAYMATTER_BLEND_PROFILES \
+        -u VALKYR_AUTH_TOKEN \
+        -u VALKYR_JWT_SESSION \
+        -u VALKYR_AUTH \
+        GRAYMATTER_PROFILE="$thor_name" \
+        GRAYMATTER_PROFILES="" \
+        GRAYMATTER_PROFILE_MODE=single \
+        GRAYMATTER_FEDERATION_CHILD=true \
+        GRAYMATTER_NONINTERACTIVE=true \
+        GRAYMATTER_SKIP_SELF_UPDATE=true \
+        "$thor_command" "$@" >"$thor_out" 2>"$thor_err" </dev/null
+      thor_status=$?
+      set -e
+      if (( thor_status != 0 )); then
+        thor_code="PROFILE_REQUEST_FAILED"
+        thor_message="Profile read failed. Verify authentication, availability, and RBAC access."
+        if grep -Eqi '401|unauthorized|missing auth|not authenticated|session expired|token.*expired' "$thor_out" "$thor_err" 2>/dev/null; then
+          thor_code="PROFILE_AUTH_UNAVAILABLE"
+          thor_message="Profile is not authenticated or its session expired. Run scripts/gm-profile login ${thor_name}."
+        elif grep -Eqi '403|forbidden|access denied|RBAC|missing permission|lacks.*access' "$thor_out" "$thor_err" 2>/dev/null; then
+          thor_code="PROFILE_RBAC_DENIED"
+          thor_message="Profile is authenticated but lacks RBAC access for this read."
+        fi
+      fi
+    fi
+
+    if (( thor_status == 0 )); then
+      if jq -e . "$thor_out" >/dev/null 2>&1; then
+        thor_data="$(jq -c . "$thor_out")"
+      else
+        thor_data="$(jq -nc --rawfile raw "$thor_out" '{raw:$raw}')"
+      fi
+      thor_entry="$(jq -nc \
+        --arg profile "$thor_name" \
+        --arg accountFingerprint "$thor_fingerprint" \
+        --argjson data "$thor_data" \
+        '{profile:$profile,accountFingerprint:$accountFingerprint,ok:true,data:$data}')"
+      thor_success=$((thor_success + 1))
+    else
+      thor_entry="$(jq -nc \
+        --arg profile "$thor_name" \
+        --arg accountFingerprint "$thor_fingerprint" \
+        --arg code "$thor_code" \
+        --arg message "$thor_message" \
+        --argjson exitStatus "$thor_status" \
+        '{profile:$profile,accountFingerprint:$accountFingerprint,ok:false,error:{code:$code,message:$message,exitStatus:$exitStatus}}')"
+      thor_failed=$((thor_failed + 1))
+    fi
+    thor_results="$(jq -c --argjson entry "$thor_entry" '. + [$entry]' <<<"$thor_results")"
+  done < <(gm_profile_selected_names)
+
+  rm -f "${thor_tmp_dir}"/*.out "${thor_tmp_dir}"/*.err 2>/dev/null || true
+  rmdir "$thor_tmp_dir" 2>/dev/null || true
+
+  jq -nc \
+    --arg mode "federated-read" \
+    --arg operation "$thor_operation" \
+    --arg provenance "Each result was fetched independently under the named account's server-side RBAC. No records were copied, merged, or re-homed." \
+    --argjson profilesRequested "$thor_requested" \
+    --argjson results "$thor_results" \
+    --argjson successful "$thor_success" \
+    --argjson failed "$thor_failed" \
+    '{
+      mode:$mode,
+      operation:$operation,
+      profilesRequested:$profilesRequested,
+      results:$results,
+      summary:{successful:$successful,failed:$failed,partial:($successful > 0 and $failed > 0)},
+      provenance:$provenance
+    }'
+
+  if (( thor_success > 0 )); then
+    return 0
+  fi
+  return 20
+}

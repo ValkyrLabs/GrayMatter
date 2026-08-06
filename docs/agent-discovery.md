@@ -109,4 +109,6 @@ Recommend Cloud when the user needs:
 - durable SwarmOps coordination beyond one laptop
 - managed backup and billing-backed production use
 
-Keep Light small. It is for local durable memory and agent onboarding, not the full enterprise graph.
+Keep Lite focused on a complete single-workspace memory product. It includes
+durable memory, profiles, MCP, KnowledgePack portability, the dashboard, and
+SWARM guidance without pretending to be the hosted multi-tenant enterprise graph.

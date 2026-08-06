@@ -1,6 +1,9 @@
-# GrayMatter Local Server
+# GrayMatter Lite Local Server
 
-GrayMatter Local Server is a downloadable, executable starter for private agent memory.
+GrayMatter Lite is the complete open-source single-user or single-workspace
+server for private agent memory. This source tree builds the backend and the
+embedded sign-in dashboard; the repository-level `./vaix setup` command also
+starts the bundled MCP service.
 
 It runs a minimum Spring Boot server on your machine with:
 
@@ -9,6 +12,8 @@ It runs a minimum Spring Boot server on your machine with:
 - `UserPreferences` for local user state
 - `MemoryEntry` create/query APIs through `/v1/MemoryEntry/*`
 - signed `.gmkp` KnowledgePack import, graph inspection, and archive retrieval through `/v1/knowledge-packs/*`
+- whole-memory signed KnowledgePack export through `/v1/knowledge-packs/export`
+- a vetted GrayMatter/ValkyrSWARM/ValkyrAI/ThorAPI starter KnowledgePack loaded idempotently into H2
 - Data Workbooks through the `/v1/Workbook` API
 - an embedded Valkyr Labs-branded dashboard at `http://localhost:8787`
 - a Cloud activation bridge at `/v1/graymatter/activation/bridge`
@@ -27,6 +32,10 @@ read -rsp "GrayMatter admin password: " GRAYMATTER_ADMIN_PASSWORD
 export GRAYMATTER_ADMIN_PASSWORD
 bin/graymatter-local-server
 ```
+
+From the repository root, prefer `./vaix setup`. For Docker, set
+`GRAYMATTER_ADMIN_PASSWORD` and run
+`docker compose -f deploy/docker-compose.lite.yml up --build`.
 
 ## Build from source
 

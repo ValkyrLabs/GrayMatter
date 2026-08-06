@@ -1,6 +1,167 @@
-# GrayMatter&trade;
+# GrayMatter Lite
 
-## the AI Brain for Your Entire Business
+GrayMatter Lite is a real open-source memory product for one person or one
+workspace. It runs locally or on infrastructure you control and includes the
+same useful product loop from the first launch: sign in, create durable memory,
+retrieve it through MCP, import or export portable KnowledgePacks, and connect
+local or hosted agent profiles.
+
+It is not a time-limited trial and it is not a hollow demo. The Lite boundary is
+the committed ThorAPI `api.hbs.yaml`, `./vaix` builder, Spring/H2 backend,
+embedded dashboard, MCP server, starter KnowledgePack, Docker definition,
+tests, and public documentation in this repository.
+
+## Install in one command
+
+On macOS or Linux:
+
+```bash
+git clone https://github.com/ValkyrLabs/GrayMatter.git
+cd GrayMatter
+./vaix setup
+```
+
+`./vaix setup` uses Java 17+, Maven, and Node 20+ already on the machine when
+possible. Missing toolchains are downloaded privately under `.vaix/runtime`;
+nothing is installed system-wide. The command renders the ThorAPI application
+bundle, builds and tests the backend, creates the one local profile, and starts:
+
+- dashboard and sign-in: `http://localhost:8787`
+- HTTP MCP: `http://localhost:3333/mcp`
+- durable H2 data: `.graymatter-lite/data`
+
+Retrieve the generated local credentials only when you need them:
+
+```bash
+./vaix credentials
+./vaix doctor
+```
+
+Other source commands:
+
+```bash
+./vaix generate     # render from templates/graymatter-light-bootstrap/api.hbs.yaml
+./vaix build        # build the Spring/H2 backend
+./vaix test         # backend, bootstrap, docs, release parity, and MCP contracts
+./vaix run          # foreground backend
+./vaix up           # background backend + HTTP MCP
+./vaix stop
+```
+
+## Docker
+
+The Docker path builds from the committed source; it does not depend on a
+closed prebuilt GrayMatter backend image:
+
+```bash
+export GRAYMATTER_ADMIN_PASSWORD='choose-a-strong-local-password'
+docker compose -f deploy/docker-compose.lite.yml up --build
+```
+
+The same dashboard is available on port `8787` and MCP on `3333`. H2 data is
+kept in the `graymatter-lite-data` volume.
+
+## What is included
+
+- one local user/workspace with Basic-auth sign-in and a switchable local profile;
+- durable `MemoryEntry` creation, read, search, and H2 persistence;
+- the existing Valkyr dashboard, memory workbench, telemetry, and SWARM status;
+- the bundled stdio/HTTP MCP server for Codex, OpenClaw, Claude, local-model
+  hosts, and other MCP-compatible clients;
+- signed `.gmkp` KnowledgePack import plus whole-memory KnowledgePack export;
+- a vetted starter KnowledgePack with GrayMatter, Valkyr SWARM, ValkyrAI, and
+  ThorAPI setup/product/support knowledge, inserted idempotently into local H2;
+- local and hosted named profiles plus explicit read-only blended retrieval;
+- source builds through `./vaix` and container builds through Docker Compose;
+- AGPL-3.0 source, public docs, Issues/Discussions support, and a private
+  security-reporting path.
+
+The legacy environment and filesystem identifiers retain `LIGHT` for backward
+compatibility. The public product name is GrayMatter Lite.
+
+## Profiles and blended memory
+
+`./vaix setup` registers `graymatter-lite-local` without changing an already
+active hosted identity. Profiles store routing metadata in `profiles.json`;
+hosted tokens remain in Keychain and local Basic-auth passwords live in a
+mode-`0600` secret file outside the repository.
+
+```bash
+scripts/gm-profile add-local graymatter-lite-local \
+  --api-base http://localhost:8787/v1 --password-stdin
+scripts/gm-profile add cloud --from-current
+scripts/gm-profile use graymatter-lite-local
+scripts/gm-profile blend graymatter-lite-local cloud
+scripts/gm-query "release rules"
+```
+
+Blended reads execute independently under each profile and preserve profile
+and account-fingerprint provenance. Every write fails closed until a single
+profile is selected. MCP exposes the same read-only federation for memory
+query/read/health tools; mutating or unsupported tools return a read-only
+recovery result until one profile is selected. Restart the MCP process after
+changing the persistent profile selection.
+
+## Local models
+
+GrayMatter is model-neutral. Ollama, LM Studio, llama.cpp, and other local-model
+hosts connect through MCP while the model process remains separate from the H2
+memory and authorization boundary. See [Local models](docs/local-models.md) for
+stdio and HTTP examples.
+
+## Imports, exports, and starter knowledge
+
+Use the dashboard or API:
+
+```bash
+curl -u "admin:$GRAYMATTER_ADMIN_PASSWORD" \
+  -o graymatter-lite-memory.gmkp \
+  http://localhost:8787/v1/knowledge-packs/export
+
+scripts/gm-knowledge-pack-import ./graymatter-lite-memory.gmkp
+```
+
+The starter pack source is committed at
+`templates/graymatter-light-bootstrap/local-server/src/main/resources/knowledgepacks/graymatter-lite-starter.json`.
+Startup signs it with the same self-contained integrity contract used by normal
+KnowledgePacks, imports it through the production importer, and stores its
+records in the local H2 database. Repeated starts are idempotent.
+
+## Valkyr SWARM
+
+The starter KnowledgePack explains the supported SWARM path. Install the peer
+open-source product when this machine should register, heartbeat, receive
+exact-target control commands from an authenticated ValkyrAI mothership, and
+return durable receipts:
+
+```bash
+git clone https://github.com/ValkyrLabs/ValkyrSWARM.git
+codex plugin marketplace add "$PWD/ValkyrSWARM"
+codex plugin add valkyr-swarm@valkyr-swarm
+```
+
+SWARM preserves the canonical human approval gates for outbound sends,
+production deploys, merges, and supervised service restarts. GrayMatter Lite
+does not invent a second command bus or allow an agent to approve itself.
+
+## Documentation and community
+
+- [GrayMatter Lite guide](docs/graymatter-lite.md)
+- [Local model compatibility](docs/local-models.md)
+- [KnowledgePacks](docs/knowledge-packs.md)
+- [MCP server](mcp-server/README.md)
+- [Architecture](docs/architecture.md)
+- [Contributing](CONTRIBUTING.md)
+- [Community support](SUPPORT.md)
+- [Security policy](SECURITY.md)
+
+Use GitHub Issues for reproducible defects and GitHub Discussions for support,
+ideas, KnowledgePacks, and integrations. Report vulnerabilities privately as
+described in `SECURITY.md`.
+
+---
+
+## GrayMatter Platform: the AI brain for your entire business
 
 Valkyr GrayMatter&trade; turns your applications, documents, workflows, conversations, and institutional knowledge into a living, searchable intelligence layer.
 

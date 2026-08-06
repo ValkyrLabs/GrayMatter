@@ -5,6 +5,13 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SYNC_SRC="$ROOT/scripts/gm-openapi-sync"
 LIB_SRC="$ROOT/scripts/gm-schema-cache-lib"
 fail() { printf 'FAIL: %s\n' "$1" >&2; exit 1; }
+file_mode() {
+  if stat -f '%Lp' "$1" >/dev/null 2>&1; then
+    stat -f '%Lp' "$1"
+  else
+    stat -c '%a' "$1"
+  fi
+}
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 mkdir -p "$tmp/scripts" "$tmp/cache"
@@ -53,8 +60,8 @@ set -e
 TEST_OPENAPI_MODE=200 "$tmp/scripts/gm-openapi-sync" "$out" >/dev/null
 [[ -s "$out" ]] || fail "successful OpenAPI fetch should write the document"
 meta="$out.meta.json"
-[[ "$(stat -f '%Lp' "$out" 2>/dev/null || stat -c '%a' "$out")" == "600" ]] || fail "OpenAPI cache must be private"
-[[ "$(stat -f '%Lp' "$meta" 2>/dev/null || stat -c '%a' "$meta")" == "600" ]] || fail "OpenAPI metadata must be private"
+[[ "$(file_mode "$out")" == "600" ]] || fail "OpenAPI cache must be private"
+[[ "$(file_mode "$meta")" == "600" ]] || fail "OpenAPI metadata must be private"
 jq -e '.etag == "\"v1\"" and .schemaRevision == "rev-1" and .serverBuildRevision == "build-7" and .specVersion == "3.0.1" and (.documentSha256 | length == 64)' "$meta" >/dev/null || fail "OpenAPI metadata must record revision, ETag, spec version, and SHA-256"
 old_sha="$(shasum -a 256 "$out" | awk '{print $1}')"
 

@@ -29,13 +29,14 @@ make_release() {
   local payload="$release/payload-$version"
   local artifact="$release/graymatter-$version.tar.gz"
   rm -rf "$payload"
-  mkdir -p "$payload/graymatter/.codex-plugin" "$payload/graymatter/mcp-server" "$payload/graymatter/scripts"
+  mkdir -p "$payload/graymatter/.codex-plugin" "$payload/graymatter/mcp-server" "$payload/graymatter/release" "$payload/graymatter/scripts"
   printf '{"name":"graymatter","version":"%s"}\n' "$version" >"$payload/graymatter/.codex-plugin/plugin.json"
   printf '{"mcpServers":{"graymatter":{"command":"scripts/gm-mcp-launcher","args":["--stdio"]}}}\n' >"$payload/graymatter/.mcp.json"
   printf 'process.stdout.write("%s\\n");\n' "$marker" >"$payload/graymatter/mcp-server/index.js"
   cp "$LAUNCHER" "$payload/graymatter/scripts/gm-mcp-launcher"
   cp "$SCRIPT" "$payload/graymatter/scripts/gm-self-update"
   cp "$ROOT/scripts/gm-schema-cache-lib" "$payload/graymatter/scripts/gm-schema-cache-lib"
+  cp "$tmp/public.pem" "$payload/graymatter/release/graymatter-release-public.pem"
   chmod +x "$payload/graymatter/scripts/"*
   tar -czf "$artifact" -C "$payload" graymatter
   sha="$(sha256sum "$artifact" | awk '{print $1}')"

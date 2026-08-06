@@ -114,7 +114,7 @@ TRUSTED_KEY="$TMP_DIR/trusted.pub"
 
 download() {
   have curl || return 1
-  curl -fsS --connect-timeout "$TIMEOUT" --max-time "$TIMEOUT" "$1" -o "$2"
+  curl -fsSL --connect-timeout "$TIMEOUT" --max-time "$TIMEOUT" "$1" -o "$2"
 }
 verify_signature() {
   have openssl && [[ -s "$TRUSTED_KEY" ]] || return 1

@@ -11,7 +11,7 @@ install="$tmp/install"
 state="$tmp/state"
 release="$tmp/release"
 install_id="gm-self-update-test"
-mkdir -p "$install/scripts" "$install/.codex-plugin" "$release"
+mkdir -p "$install/scripts" "$install/.codex-plugin" "$install/release" "$release"
 cp "$SCRIPT" "$install/scripts/gm-self-update"
 cp "$LAUNCHER" "$install/scripts/gm-mcp-launcher"
 cp "$ROOT/scripts/gm-schema-cache-lib" "$install/scripts/gm-schema-cache-lib"
@@ -21,6 +21,7 @@ printf '{"mcpServers":{"graymatter":{"command":"scripts/gm-mcp-launcher","args":
 
 openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out "$tmp/private.pem" 2>/dev/null
 openssl rsa -in "$tmp/private.pem" -pubout -out "$tmp/public.pem" 2>/dev/null
+cp "$tmp/public.pem" "$install/release/graymatter-release-public.pem"
 
 make_release() {
   local version="$1"
@@ -50,7 +51,6 @@ artifact="$(make_release 0.3.2 upgraded)"
 run_update() {
   GRAYMATTER_RELEASE_MANIFEST_URL="file://$release/manifest.json" \
   GRAYMATTER_RELEASE_MANIFEST_SIGNATURE_URL="file://$release/manifest.sig" \
-  GRAYMATTER_RELEASE_PUBLIC_KEY_FILE="$tmp/public.pem" \
   GRAYMATTER_STATE_DIR="$state" \
   GRAYMATTER_INSTALLATIONS_DIR="$tmp/versions" \
   GRAYMATTER_INSTALL_ID="$install_id" \
@@ -87,7 +87,6 @@ active_v3="$(grep '^active_root=' "$tmp/update-v3.out" | cut -d= -f2-)"
 restart_output="$(
   GRAYMATTER_RELEASE_MANIFEST_URL="file://$release/manifest.json" \
   GRAYMATTER_RELEASE_MANIFEST_SIGNATURE_URL="file://$release/manifest.sig" \
-  GRAYMATTER_RELEASE_PUBLIC_KEY_FILE="$tmp/public.pem" \
   GRAYMATTER_STATE_DIR="$state" \
   GRAYMATTER_INSTALLATIONS_DIR="$tmp/versions" \
   GRAYMATTER_INSTALL_ID="$install_id" \

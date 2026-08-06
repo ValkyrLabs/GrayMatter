@@ -36,3 +36,6 @@ Use this checklist before publishing or handing the skill to customers.
 - `graymatter.skill` includes all required scripts
 - archive contents were verified after packaging
 - at least one fresh install path was tested
+- `release/graymatter-release-public.pem` matches the private key stored only in the `GRAYMATTER_RELEASE_PRIVATE_KEY` GitHub Actions secret
+- `.github/workflows/signed-release.yml` publishes the signed manifest, manifest signature, content-addressed plugin artifact, artifact signature, and public key
+- `scripts/gm-self-update check` verifies the published manifest with the bundled public key and reports the expected stable version

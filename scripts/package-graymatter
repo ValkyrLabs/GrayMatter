@@ -93,6 +93,7 @@ REQUIRED=(
   references/mcp/memory-tool-contract.v1.json
   references/public-release-checklist.md
   references/multi-agent-conventions.md
+  release/graymatter-release-public.pem
 )
 
 source_path_for() {

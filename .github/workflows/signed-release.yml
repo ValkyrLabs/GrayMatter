@@ -1,0 +1,79 @@
+name: GrayMatter Signed Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag; must be v followed by the plugin version
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  signed-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build and verify signed release assets
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+          RELEASE_PRIVATE_KEY: ${{ secrets.GRAYMATTER_RELEASE_PRIVATE_KEY }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          version="$(jq -r '.version' plugins/graymatter/.codex-plugin/plugin.json)"
+          expected_tag="v${version}"
+          if [[ "$RELEASE_TAG" != "$expected_tag" ]]; then
+            echo "tag must be $expected_tag" >&2
+            exit 1
+          fi
+          if [[ -z "$RELEASE_PRIVATE_KEY" ]]; then
+            echo "GRAYMATTER_RELEASE_PRIVATE_KEY is not configured" >&2
+            exit 1
+          fi
+
+          private_key="$RUNNER_TEMP/graymatter-release-private.pem"
+          derived_public="$RUNNER_TEMP/graymatter-release-derived-public.pem"
+          printf '%s' "$RELEASE_PRIVATE_KEY" > "$private_key"
+          chmod 600 "$private_key"
+          openssl pkey -in "$private_key" -pubout -out "$derived_public" 2>/dev/null
+          cmp "$derived_public" release/graymatter-release-public.pem
+
+          artifact="graymatter-${version}.tar.gz"
+          tar -czf "$artifact" -C plugins graymatter
+          artifact_sha="$(sha256sum "$artifact" | awk '{print $1}')"
+          artifact_url="https://github.com/${REPOSITORY}/releases/download/${RELEASE_TAG}/${artifact}"
+          artifact_signature_url="${artifact_url}.sig"
+          jq -n --arg version "$version" --arg artifactUrl "$artifact_url" \
+            --arg artifactSha256 "$artifact_sha" --arg artifactSignatureUrl "$artifact_signature_url" \
+            '{channel:"stable",version:$version,artifactUrl:$artifactUrl,artifactSha256:$artifactSha256,artifactSignatureUrl:$artifactSignatureUrl}' \
+            > graymatter-release.json
+          openssl dgst -sha256 -sign "$private_key" -out graymatter-release.json.sig graymatter-release.json
+          openssl dgst -sha256 -sign "$private_key" -out "${artifact}.sig" "$artifact"
+          openssl dgst -sha256 -verify release/graymatter-release-public.pem \
+            -signature graymatter-release.json.sig graymatter-release.json
+          openssl dgst -sha256 -verify release/graymatter-release-public.pem \
+            -signature "${artifact}.sig" "$artifact"
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          version="$(jq -r '.version' plugins/graymatter/.codex-plugin/plugin.json)"
+          artifact="graymatter-${version}.tar.gz"
+          gh release create "$RELEASE_TAG" \
+            --target "$GITHUB_SHA" \
+            --title "GrayMatter ${version}" \
+            --generate-notes \
+            --latest \
+            graymatter-release.json \
+            graymatter-release.json.sig \
+            "$artifact" \
+            "${artifact}.sig" \
+            release/graymatter-release-public.pem

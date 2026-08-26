@@ -26,6 +26,7 @@ const PUBLIC_IDENTITY_KEYS = new Set([
 ]);
 const PUBLIC_MAX_RESPONSE_ITEMS = 25;
 const PUBLIC_MAX_RESPONSE_STRING = 4000;
+const MEMORY_WRITE_TYPES = Object.freeze(['decision', 'todo', 'context', 'artifact', 'preference']);
 const PUBLIC_SENSITIVE_MEMORY_PATTERNS = Object.freeze([
   /\b(?:save|store|remember|retain|keep|persist|use)\b.{0,100}\b(?:my|this|the|an?)?\s*(?:oauth\s+)?(?:access|refresh)?\s*token\b/i,
   /\b(?:access[_\s-]*token|refresh[_\s-]*token|api[_\s-]*key|client[_\s-]*secret|password|private[_\s-]*key)\s*[:=]\s*\S+/i,
@@ -96,6 +97,106 @@ const OMEGA_READ_INPUT_SCHEMA = {
     maxTokens: { type: 'integer', minimum: 64, maximum: 65536 }
   },
   required: ['planId', 'query', 'searchReceiptRef', 'sourceRef'],
+  additionalProperties: false
+};
+
+const OMEGA_GRAPH_SEARCH_RECIPES = Object.freeze([
+  'BALANCED_HYBRID_RRF',
+  'FACT_TIMELINE',
+  'ENTITY_NEIGHBORHOOD',
+  'EPISODIC_PROVENANCE',
+  'COMMUNITY_OVERVIEW',
+  'TEMPORAL_AS_OF',
+  'CONVERSATION_CONTEXT'
+]);
+
+const OMEGA_TEMPORAL_ASSERTION_RECORD_INPUT_SCHEMA = {
+  type: 'object',
+  properties: {
+    idempotencyKey: { type: 'string', minLength: 1, maxLength: 200, pattern: '^[A-Za-z0-9._:-]+$' },
+    assertionKind: { type: 'string', enum: ['FACT', 'RELATION'] },
+    subjectType: { type: 'string', minLength: 1, maxLength: 128 },
+    subjectRef: { type: 'string', format: 'uuid' },
+    predicate: { type: 'string', minLength: 1, maxLength: 256 },
+    objectType: { type: 'string', maxLength: 128 },
+    objectRef: { type: 'string', format: 'uuid' },
+    valueType: { type: 'string', enum: ['STRING', 'NUMBER', 'BOOLEAN', 'DATETIME', 'UUID', 'NONE'] },
+    literalValue: { type: 'string', maxLength: 4000 },
+    validFrom: { type: 'string', format: 'date-time' },
+    validTo: { type: 'string', format: 'date-time' },
+    confidence: { type: 'number', minimum: 0, maximum: 1 },
+    authority: { type: 'number', minimum: 0, maximum: 1 },
+    provenanceType: { type: 'string', minLength: 1, maxLength: 128 },
+    provenanceRef: { type: 'string', format: 'uuid' },
+    supersedesRef: { type: 'string', format: 'uuid' },
+    sourceMemoryId: { type: 'string', format: 'uuid' }
+  },
+  required: [
+    'idempotencyKey', 'assertionKind', 'subjectType', 'subjectRef', 'predicate',
+    'validFrom', 'confidence', 'authority', 'provenanceType', 'provenanceRef'
+  ],
+  additionalProperties: false
+};
+
+const OMEGA_TEMPORAL_ASSERTION_EXTRACT_INPUT_SCHEMA = {
+  type: 'object',
+  properties: {
+    sourceMemoryRef: { type: 'string', format: 'uuid' },
+    subjectType: { type: 'string', minLength: 1, maxLength: 128 },
+    subjectRef: { type: 'string', format: 'uuid' },
+    validFrom: { type: 'string', format: 'date-time' },
+    validTo: { type: 'string', format: 'date-time' },
+    mode: { type: 'string', enum: ['SUGGEST_ONLY', 'COMMIT_SAFE'] },
+    confidenceThreshold: { type: 'number', minimum: 0.5, maximum: 1 },
+    maxAssertions: { type: 'integer', minimum: 1, maximum: 50 },
+    idempotencyKey: { type: 'string', minLength: 1, maxLength: 160, pattern: '^[A-Za-z0-9._:-]+$' }
+  },
+  required: ['sourceMemoryRef', 'subjectType', 'subjectRef', 'validFrom', 'idempotencyKey'],
+  additionalProperties: false
+};
+
+const OMEGA_TEMPORAL_ASSERTION_AS_OF_INPUT_SCHEMA = {
+  type: 'object',
+  properties: {
+    planId: { type: 'string', minLength: 1, maxLength: 128 },
+    query: { type: 'string', minLength: 1, maxLength: 50000 },
+    parentSearchReceiptRef: { type: 'string', minLength: 1, maxLength: 128 },
+    selectedSubjectType: { type: 'string', minLength: 1, maxLength: 128 },
+    selectedSubjectRef: { type: 'string', format: 'uuid' },
+    predicate: { type: 'string', maxLength: 256 },
+    validAt: { type: 'string', format: 'date-time' },
+    recordedAt: { type: 'string', format: 'date-time' },
+    maxAssertions: { type: 'integer', minimum: 1, maximum: 50 },
+    idempotencyKey: { type: 'string', maxLength: 200, pattern: '^[A-Za-z0-9._:-]+$' }
+  },
+  required: [
+    'planId', 'query', 'parentSearchReceiptRef', 'selectedSubjectType',
+    'selectedSubjectRef', 'validAt', 'recordedAt'
+  ],
+  additionalProperties: false
+};
+
+const OMEGA_TEMPORAL_ASSERTION_HISTORY_INPUT_SCHEMA = {
+  type: 'object',
+  properties: {
+    planId: { type: 'string', minLength: 1, maxLength: 128 },
+    query: { type: 'string', minLength: 1, maxLength: 50000 },
+    parentSearchReceiptRef: { type: 'string', minLength: 1, maxLength: 128 },
+    selectedSubjectType: { type: 'string', minLength: 1, maxLength: 128 },
+    selectedSubjectRef: { type: 'string', format: 'uuid' },
+    predicate: { type: 'string', maxLength: 256 },
+    validFrom: { type: 'string', format: 'date-time' },
+    validTo: { type: 'string', format: 'date-time' },
+    recordedFrom: { type: 'string', format: 'date-time' },
+    recordedTo: { type: 'string', format: 'date-time' },
+    includeSuperseded: { type: 'boolean' },
+    maxAssertions: { type: 'integer', minimum: 1, maximum: 50 },
+    idempotencyKey: { type: 'string', maxLength: 200, pattern: '^[A-Za-z0-9._:-]+$' }
+  },
+  required: [
+    'planId', 'query', 'parentSearchReceiptRef', 'selectedSubjectType',
+    'selectedSubjectRef', 'validFrom', 'recordedFrom'
+  ],
   additionalProperties: false
 };
 
@@ -317,6 +418,7 @@ const tools = [
       properties: {
         query: { type: 'string', minLength: 1, maxLength: 50000 },
         mode: { type: 'string', enum: ['FAST', 'BALANCED', 'DEEP', 'AUDIT', 'PRIVATE'] },
+        recipe: { type: 'string', enum: OMEGA_GRAPH_SEARCH_RECIPES },
         idempotencyKey: { type: 'string', maxLength: 200, pattern: '^[A-Za-z0-9._:-]+$' },
         asOf: { type: 'string', format: 'date-time' },
         budgets: { type: 'object', additionalProperties: true },
@@ -357,6 +459,7 @@ const tools = [
       properties: {
         query: { type: 'string', minLength: 1, maxLength: 50000 },
         mode: { type: 'string', enum: ['FAST', 'BALANCED', 'DEEP', 'AUDIT', 'PRIVATE'] },
+        recipe: { type: 'string', enum: OMEGA_GRAPH_SEARCH_RECIPES },
         idempotencyKey: { type: 'string', maxLength: 200, pattern: '^[A-Za-z0-9._:-]+$' },
         asOf: { type: 'string', format: 'date-time' },
         budgets: { type: 'object', additionalProperties: true },
@@ -367,6 +470,85 @@ const tools = [
     annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true, idempotentHint: true },
     invoking: 'Running OmegaRAG recall',
     invoked: 'OmegaRAG recall ready'
+  }),
+  defineTool({
+    name: 'omega_temporal_assertion_record',
+    title: 'Record a temporal assertion',
+    description: 'Append one schema-validated bi-temporal fact or relationship assertion. api-0 derives recorded time and ownership, rechecks every subject, object, provenance, source-memory, and predecessor ACL, and represents corrections with immutable supersession lineage.',
+    inputSchema: OMEGA_TEMPORAL_ASSERTION_RECORD_INPUT_SCHEMA,
+    annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true, idempotentHint: true },
+    invoking: 'Recording temporal assertion',
+    invoked: 'Temporal assertion recorded'
+  }),
+  defineTool({
+    name: 'omega_temporal_assertion_extract',
+    title: 'Extract temporal assertions',
+    description: 'Extract schema-constrained fact and relationship candidates from one authorized source memory. SUGGEST_ONLY validates candidates without persistence; COMMIT_SAFE records only threshold-qualified candidates through the canonical immutable writer.',
+    inputSchema: OMEGA_TEMPORAL_ASSERTION_EXTRACT_INPUT_SCHEMA,
+    annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true, idempotentHint: true },
+    invoking: 'Extracting temporal assertions',
+    invoked: 'Temporal assertions extracted'
+  }),
+  defineTool({
+    name: 'omega_temporal_assertions_as_of',
+    title: 'Read temporal assertions as of two times',
+    description: 'Read the authorized assertion state at independent domain-valid and system-recorded coordinates. The request is bound to an Omega plan and parent search receipt and returns derived reverse supersession lineage without mutating history.',
+    inputSchema: OMEGA_TEMPORAL_ASSERTION_AS_OF_INPUT_SCHEMA,
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true, idempotentHint: true },
+    invoking: 'Reading temporal assertion state',
+    invoked: 'Temporal assertion state ready'
+  }),
+  defineTool({
+    name: 'omega_temporal_assertion_history',
+    title: 'Read temporal assertion history',
+    description: 'Read an ACL-filtered fact timeline over independent valid-time and recorded-time intervals, including immutable predecessor and derived successor references when requested.',
+    inputSchema: OMEGA_TEMPORAL_ASSERTION_HISTORY_INPUT_SCHEMA,
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true, idempotentHint: true },
+    invoking: 'Reading temporal assertion history',
+    invoked: 'Temporal assertion history ready'
+  }),
+  defineTool({
+    name: 'omega_search_recipe',
+    title: 'Run a graph search recipe',
+    description: 'Run one named, server-versioned OmegaRAG search recipe. Recipes tune bounded retrieval mode, fusion, graph traversal, provenance, community, temporal, or conversational context behavior without widening tenant or ACL authority.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', minLength: 1, maxLength: 50000 },
+        recipe: { type: 'string', enum: OMEGA_GRAPH_SEARCH_RECIPES },
+        mode: { type: 'string', enum: ['FAST', 'BALANCED', 'DEEP', 'AUDIT', 'PRIVATE'] },
+        idempotencyKey: { type: 'string', maxLength: 200, pattern: '^[A-Za-z0-9._:-]+$' },
+        asOf: { type: 'string', format: 'date-time' },
+        budgets: { type: 'object', additionalProperties: true },
+        includeEvaluator: { type: 'boolean' }
+      },
+      required: ['query', 'recipe'],
+      additionalProperties: false
+    },
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true, idempotentHint: true },
+    invoking: 'Running graph search recipe',
+    invoked: 'Graph search recipe ready'
+  }),
+  defineTool({
+    name: 'omega_conversation_context',
+    title: 'Assemble conversational context',
+    description: 'Turn one query into a governed conversational prompt in a single tool call: run the CONVERSATION_CONTEXT recipe, preserve its ContextPage and receipt lineage, then compile the authorized page into a deterministic bounded chat prompt.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', minLength: 1, maxLength: 12000 },
+        idempotencyKey: { type: 'string', maxLength: 200, pattern: '^[A-Za-z0-9._:-]+$' },
+        asOf: { type: 'string', format: 'date-time' },
+        budgets: { type: 'object', additionalProperties: true },
+        maxTokens: { type: 'integer', minimum: 128, maximum: 16000 },
+        includeEvaluator: { type: 'boolean' }
+      },
+      required: ['query'],
+      additionalProperties: false
+    },
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true, idempotentHint: true },
+    invoking: 'Assembling conversational context',
+    invoked: 'Conversational context ready'
   }),
   defineTool({
     name: 'omega_forget',
@@ -511,6 +693,7 @@ const tools = [
       properties: {
         query: { type: 'string', minLength: 1, maxLength: 50000 },
         mode: { type: 'string', enum: ['FAST', 'BALANCED', 'DEEP', 'AUDIT', 'PRIVATE'] },
+        recipe: { type: 'string', enum: OMEGA_GRAPH_SEARCH_RECIPES },
         idempotencyKey: { type: 'string', maxLength: 200, pattern: '^[A-Za-z0-9._:-]+$' },
         asOf: { type: 'string', format: 'date-time' },
         budgets: { type: 'object', additionalProperties: true },
@@ -532,6 +715,7 @@ const tools = [
       properties: {
         query: { type: 'string', minLength: 1, maxLength: 50000 },
         mode: { type: 'string', enum: ['FAST', 'BALANCED', 'DEEP', 'AUDIT', 'PRIVATE'] },
+        recipe: { type: 'string', enum: OMEGA_GRAPH_SEARCH_RECIPES },
         idempotencyKey: { type: 'string', maxLength: 200, pattern: '^[A-Za-z0-9._:-]+$' },
         asOf: { type: 'string', format: 'date-time' },
         budgets: { type: 'object', additionalProperties: true },
@@ -553,6 +737,7 @@ const tools = [
       properties: {
         query: { type: 'string', minLength: 1, maxLength: 50000 },
         mode: { type: 'string', enum: ['FAST', 'BALANCED', 'DEEP', 'AUDIT', 'PRIVATE'] },
+        recipe: { type: 'string', enum: OMEGA_GRAPH_SEARCH_RECIPES },
         idempotencyKey: { type: 'string', maxLength: 200, pattern: '^[A-Za-z0-9._:-]+$' },
         asOf: { type: 'string', format: 'date-time' },
         budgets: { type: 'object', additionalProperties: true },
@@ -1685,6 +1870,85 @@ async function callTool(params, context) {
       assertNoPrincipalOverrides(args);
       requireString(args.query, 'query');
       return execute(name, () => apiRequest(context, 'POST', 'graymatter/omega/recall', omegaQueryPayload(args)));
+    case 'omega_temporal_assertion_record':
+      assertNoPrincipalOverrides(args);
+      requireString(args.idempotencyKey, 'idempotencyKey');
+      requireString(args.assertionKind, 'assertionKind');
+      requireString(args.subjectType, 'subjectType');
+      requireString(args.subjectRef, 'subjectRef');
+      requireString(args.predicate, 'predicate');
+      requireString(args.validFrom, 'validFrom');
+      requireString(args.provenanceType, 'provenanceType');
+      requireString(args.provenanceRef, 'provenanceRef');
+      return execute(name, () => apiRequest(
+        context,
+        'POST',
+        'graymatter/omega/temporal/assertions/record',
+        temporalAssertionRecordPayload(args)
+      ));
+    case 'omega_temporal_assertion_extract':
+      assertNoPrincipalOverrides(args);
+      requireString(args.sourceMemoryRef, 'sourceMemoryRef');
+      requireString(args.subjectType, 'subjectType');
+      requireString(args.subjectRef, 'subjectRef');
+      requireString(args.validFrom, 'validFrom');
+      requireString(args.idempotencyKey, 'idempotencyKey');
+      return execute(name, () => apiRequest(
+        context,
+        'POST',
+        'graymatter/omega/temporal/assertions/extract',
+        temporalAssertionExtractionPayload(args)
+      ));
+    case 'omega_temporal_assertions_as_of':
+      assertNoPrincipalOverrides(args);
+      requireTemporalAssertionReceiptInputs(args);
+      requireString(args.validAt, 'validAt');
+      requireString(args.recordedAt, 'recordedAt');
+      return execute(name, () => apiRequest(
+        context,
+        'POST',
+        'graymatter/omega/tools/temporal-assertions-as-of',
+        temporalAssertionAsOfPayload(args)
+      ));
+    case 'omega_temporal_assertion_history':
+      assertNoPrincipalOverrides(args);
+      requireTemporalAssertionReceiptInputs(args);
+      requireString(args.validFrom, 'validFrom');
+      requireString(args.recordedFrom, 'recordedFrom');
+      return execute(name, () => apiRequest(
+        context,
+        'POST',
+        'graymatter/omega/temporal/assertions/history',
+        temporalAssertionHistoryPayload(args)
+      ));
+    case 'omega_search_recipe':
+      assertNoPrincipalOverrides(args);
+      requireString(args.query, 'query');
+      requireString(args.recipe, 'recipe');
+      return execute(name, () => apiRequest(
+        context,
+        'POST',
+        'graymatter/omega/recall',
+        omegaQueryPayload(args)
+      ));
+    case 'omega_conversation_context':
+      assertNoPrincipalOverrides(args);
+      requireString(args.query, 'query');
+      return execute(name, async () => {
+        const recall = await apiRequest(context, 'POST', 'graymatter/omega/recall', omegaQueryPayload({
+          ...args,
+          recipe: 'CONVERSATION_CONTEXT'
+        }));
+        const contextPageRef = recall?.contextPageRef || recall?.contextPage?.pageRef || recall?.contextPage?.id;
+        requireString(contextPageRef, 'recall.contextPageRef');
+        const promptProjection = await apiRequest(context, 'POST', 'graymatter_ops/context_page/prompt', pickDefined({
+          contextPageRef,
+          surface: 'chat',
+          task: args.query,
+          maxTokens: args.maxTokens
+        }));
+        return { recall, promptProjection };
+      });
     case 'graymatter_forget':
     case 'omega_forget':
       assertNoPrincipalOverrides(args);
@@ -2135,6 +2399,8 @@ function queryArgumentTool(name) {
     'graymatter_target_read',
     'graymatter_schema_inspect',
     'omega_recall',
+    'omega_search_recipe',
+    'omega_conversation_context',
     'graymatter_retrieval_context',
     'graymatter_invariant_preflight',
     'graymatter_semantic_search'
@@ -3128,7 +3394,7 @@ function firstDefined(...values) {
 }
 
 function buildMemoryWritePayload(args) {
-  requireString(args.type, 'type');
+  const memoryType = requireMemoryWriteType(args.type);
   const text = args.text || args.content;
   requireString(text, args.content ? 'content' : 'text');
 
@@ -3142,7 +3408,7 @@ function buildMemoryWritePayload(args) {
   }
 
   const payload = {
-    type: args.type,
+    type: memoryType,
     text,
     content: text
   };
@@ -3161,6 +3427,22 @@ function buildMemoryWritePayload(args) {
   }
 
   return stripClientManagedFields(payload);
+}
+
+function requireMemoryWriteType(value) {
+  requireString(value, 'type');
+  const normalized = value.trim().toLowerCase().replace(/[-\s]+/g, '_');
+  if (MEMORY_WRITE_TYPES.includes(normalized)) {
+    return normalized;
+  }
+  if (normalized === 'memory_update') {
+    throw new Error(
+      'Invalid memory type: memory_update is an operation, not a MemoryEntry type. '
+      + 'Use the memory_update tool with an existing memory ID, or choose '
+      + `${MEMORY_WRITE_TYPES.join('|')} for a new memory.`
+    );
+  }
+  throw new Error(`Invalid memory type: ${value}. Expected ${MEMORY_WRITE_TYPES.join('|')}.`);
 }
 
 function buildMemoryQueryPayload(args) {
@@ -3635,11 +3917,89 @@ function omegaQueryPayload(args) {
   return pickDefined({
     query: args.query,
     mode: args.mode,
+    recipe: args.recipe,
     idempotencyKey: args.idempotencyKey,
     asOf: args.asOf,
     budgets: args.budgets,
     includeEvaluator: args.includeEvaluator
   });
+}
+
+function temporalAssertionRecordPayload(args) {
+  return pickDefined({
+    idempotencyKey: args.idempotencyKey,
+    assertionKind: args.assertionKind,
+    subjectType: args.subjectType,
+    subjectRef: args.subjectRef,
+    predicate: args.predicate,
+    objectType: args.objectType,
+    objectRef: args.objectRef,
+    valueType: args.valueType,
+    literalValue: args.literalValue,
+    validFrom: args.validFrom,
+    validTo: args.validTo,
+    confidence: args.confidence,
+    authority: args.authority,
+    provenanceType: args.provenanceType,
+    provenanceRef: args.provenanceRef,
+    supersedesRef: args.supersedesRef,
+    sourceMemoryId: args.sourceMemoryId
+  });
+}
+
+function temporalAssertionExtractionPayload(args) {
+  return pickDefined({
+    sourceMemoryRef: args.sourceMemoryRef,
+    subjectType: args.subjectType,
+    subjectRef: args.subjectRef,
+    validFrom: args.validFrom,
+    validTo: args.validTo,
+    mode: args.mode,
+    confidenceThreshold: args.confidenceThreshold,
+    maxAssertions: args.maxAssertions,
+    idempotencyKey: args.idempotencyKey
+  });
+}
+
+function temporalAssertionAsOfPayload(args) {
+  return pickDefined({
+    planId: args.planId,
+    query: args.query,
+    parentSearchReceiptRef: args.parentSearchReceiptRef,
+    selectedSubjectType: args.selectedSubjectType,
+    selectedSubjectRef: args.selectedSubjectRef,
+    predicate: args.predicate,
+    validAt: args.validAt,
+    recordedAt: args.recordedAt,
+    maxAssertions: args.maxAssertions,
+    idempotencyKey: args.idempotencyKey
+  });
+}
+
+function temporalAssertionHistoryPayload(args) {
+  return pickDefined({
+    planId: args.planId,
+    query: args.query,
+    parentSearchReceiptRef: args.parentSearchReceiptRef,
+    selectedSubjectType: args.selectedSubjectType,
+    selectedSubjectRef: args.selectedSubjectRef,
+    predicate: args.predicate,
+    validFrom: args.validFrom,
+    validTo: args.validTo,
+    recordedFrom: args.recordedFrom,
+    recordedTo: args.recordedTo,
+    includeSuperseded: args.includeSuperseded,
+    maxAssertions: args.maxAssertions,
+    idempotencyKey: args.idempotencyKey
+  });
+}
+
+function requireTemporalAssertionReceiptInputs(args) {
+  requireString(args.planId, 'planId');
+  requireString(args.query, 'query');
+  requireString(args.parentSearchReceiptRef, 'parentSearchReceiptRef');
+  requireString(args.selectedSubjectType, 'selectedSubjectType');
+  requireString(args.selectedSubjectRef, 'selectedSubjectRef');
 }
 
 function omegaSearchPayload(args) {

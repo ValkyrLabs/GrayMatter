@@ -17,7 +17,13 @@
     "graymatter_omega_query",
     "graymatter_schema_inspect",
     "graymatter_trajectory_inspect",
-    "graymatter_forget"
+    "graymatter_forget",
+    "omega_temporal_assertion_record",
+    "omega_temporal_assertion_extract",
+    "omega_temporal_assertions_as_of",
+    "omega_temporal_assertion_history",
+    "omega_search_recipe",
+    "omega_conversation_context"
   ],
   "fineGrainedTools": [
     "graymatter_keyword_search",
@@ -47,6 +53,12 @@
     {"name": "graymatter_context_hydrate", "kind": "fine_grained", "inputSchema": {"type": "object", "required": ["contextPageRef"], "additionalProperties": false}, "dataHandling": "canonical_acl_rechecked_context_page"},
     {"name": "graymatter_trajectory_inspect", "kind": "default", "inputSchema": {"type": "object", "required": ["trajectoryId"], "additionalProperties": false}, "dataHandling": "redacted_trajectory_and_usage"},
     {"name": "graymatter_evaluate_outcome", "kind": "fine_grained", "inputSchema": {"type": "object", "required": ["trajectoryId", "outcome"], "additionalProperties": false}, "dataHandling": "content_free_outcome_reference"},
-    {"name": "graymatter_forget", "kind": "default", "inputSchema": {"type": "object", "required": ["memoryRef", "idempotencyKey"], "additionalProperties": false}, "dataHandling": "governed_retention_delete"}
+    {"name": "graymatter_forget", "kind": "default", "inputSchema": {"type": "object", "required": ["memoryRef", "idempotencyKey"], "additionalProperties": false}, "dataHandling": "governed_retention_delete"},
+    {"name": "omega_temporal_assertion_record", "kind": "default", "inputSchema": {"type": "object", "required": ["idempotencyKey", "assertionKind", "subjectType", "subjectRef", "predicate", "validFrom", "confidence", "authority", "provenanceType", "provenanceRef"], "additionalProperties": false}, "dataHandling": "immutable_bitemporal_assertion"},
+    {"name": "omega_temporal_assertion_extract", "kind": "default", "inputSchema": {"type": "object", "required": ["sourceMemoryRef", "subjectType", "subjectRef", "validFrom", "idempotencyKey"], "additionalProperties": false}, "dataHandling": "schema_constrained_source_memory_extraction"},
+    {"name": "omega_temporal_assertions_as_of", "kind": "default", "inputSchema": {"type": "object", "required": ["planId", "query", "parentSearchReceiptRef", "selectedSubjectType", "selectedSubjectRef", "validAt", "recordedAt"], "additionalProperties": false}, "dataHandling": "receipt_bound_bitemporal_state"},
+    {"name": "omega_temporal_assertion_history", "kind": "default", "inputSchema": {"type": "object", "required": ["planId", "query", "parentSearchReceiptRef", "selectedSubjectType", "selectedSubjectRef", "validFrom", "recordedFrom"], "additionalProperties": false}, "dataHandling": "receipt_bound_immutable_fact_history"},
+    {"name": "omega_search_recipe", "kind": "default", "inputSchema": {"type": "object", "required": ["query", "recipe"], "additionalProperties": false}, "dataHandling": "named_graph_retrieval_recipe"},
+    {"name": "omega_conversation_context", "kind": "default", "inputSchema": {"type": "object", "required": ["query"], "additionalProperties": false}, "dataHandling": "governed_context_page_and_bounded_prompt"}
   ]
 }

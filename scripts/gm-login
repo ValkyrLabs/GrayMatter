@@ -15,6 +15,9 @@ FALLBACK_TMPDIR="${GRAYMATTER_TMPDIR:-${SCRIPT_DIR}/../tmp}"
 ALLOW_READONLY_TOKEN=${GRAYMATTER_ALLOW_READONLY_TOKEN:-0}
 CURL_CONNECT_TIMEOUT="${GRAYMATTER_CURL_CONNECT_TIMEOUT:-5}"
 CURL_MAX_TIME="${GRAYMATTER_CURL_MAX_TIME:-60}"
+HTTP_RETRIES="${GRAYMATTER_HTTP_RETRIES:-4}"
+HTTP_RETRY_DELAY="${GRAYMATTER_HTTP_RETRY_DELAY_SECONDS:-1}"
+HTTP_RETRY_MAX_TIME="${GRAYMATTER_HTTP_RETRY_MAX_TIME:-90}"
 BUY_CREDITS_URL_BASE="${VALKYR_BUY_CREDITS_URL:-https://valkyrlabs.com/graymatter/credits}"
 HUMAN_SIGNUP_URL_BASE="${VALKYR_HUMAN_SIGNUP_URL:-https://valkyrlabs.com/graymatter/activate}"
 GRAYMATTER_INSTALL_ID="${GRAYMATTER_INSTALL_ID:-${OPENCLAW_INSTANCE_ID:-}}"
@@ -238,6 +241,10 @@ set +e
 RESPONSE="$(curl --fail-with-body -sS \
   --connect-timeout "$CURL_CONNECT_TIMEOUT" \
   --max-time "$CURL_MAX_TIME" \
+  --retry "$HTTP_RETRIES" \
+  --retry-delay "$HTTP_RETRY_DELAY" \
+  --retry-max-time "$HTTP_RETRY_MAX_TIME" \
+  --retry-all-errors \
   -D "$HEADERS_FILE" -c "$COOKIE_JAR" -X POST "$LOGIN_URL" \
   -H 'accept: application/json' \
   -H 'content-type: application/json' \

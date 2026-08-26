@@ -89,6 +89,10 @@ Default agents receive `graymatter_remember`, `graymatter_recall`, `graymatter_o
 | `graymatter_chunk_read` / `graymatter_target_read` | `POST /graymatter/omega/tools/*` | Rechecks receipt-linked ACL visibility and returns bounded redacted evidence only. |
 | `graymatter_context_hydrate` | `POST /graymatter_ops/context_page/hydrate` | Hydrates only canonical ACL-checked ContextPage pointers. |
 | `graymatter_trajectory_inspect` / `graymatter_evaluate_outcome` | `GET /graymatter/omega/trajectories/{id}`, `POST /graymatter/omega/trajectories/{id}/outcome` | Reads redacted trajectory/usage or attaches content-free outcome references. |
+| `omega_temporal_assertion_record` / `omega_temporal_assertion_extract` | `POST /graymatter/omega/temporal/assertions/{record,extract}` | Records immutable bi-temporal assertions directly or extracts schema-constrained candidates from an authorized source memory. `SUGGEST_ONLY` never writes; `COMMIT_SAFE` revalidates every candidate through the canonical writer. |
+| `omega_temporal_assertions_as_of` / `omega_temporal_assertion_history` | Receipt-bound temporal assertion APIs | Retrieves effective assertions at independent valid/recorded coordinates or the full interval history, including immutable `supersedesRef`, derived `supersededByRef`, and `sourceMemoryId` provenance. |
+| `omega_search_recipe` | `POST /graymatter/omega/recall` | Runs a named server-versioned graph recipe: balanced hybrid RRF, fact timeline, entity neighborhood, episodic provenance, community overview, temporal as-of, or conversation context. |
+| `omega_conversation_context` | `POST /graymatter/omega/recall` + `POST /graymatter_ops/context_page/prompt` | Produces a governed ContextPage, receipt lineage, answer policy, and deterministic bounded chat prompt in one call. |
 
 | Tool | Backing API path | Description |
 | --- | --- | --- |

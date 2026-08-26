@@ -1,0 +1,66 @@
+{
+  "contractVersion": "v1",
+  "receiptRef": "gm_receipt_exec_01JMODELWORKER",
+  "coordination": {
+    "swarmCommandId": "swarm_cmd_01JMODELWORKER",
+    "executionId": "workflow_exec_01JMODELWORKER",
+    "traceId": "trace_01JMODELWORKER"
+  },
+  "originIntent": {
+    "intentRef": "intent_01JCREATEARTIFACT",
+    "intentDigest": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+  },
+  "workflowPackage": {
+    "packageId": "vswb_markdown_artifact",
+    "workflowId": "workflow_markdown_artifact",
+    "version": "1.0.0",
+    "digest": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+    "signingKeyId": "valkyrai-workflow-signing-2026-01"
+  },
+  "signedExecutionEnvelope": {
+    "envelopeRef": "envelope_01JMODELWORKER",
+    "digest": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+    "signatureVerified": true
+  },
+  "node": {
+    "nodeId": "lmstudio-workstation-01",
+    "nodeClass": "model-only",
+    "executionMode": "signed-workflow-only",
+    "nativeCapabilities": []
+  },
+  "inference": {
+    "provider": "lm-studio",
+    "modelRef": "local-model-alias/writer",
+    "endpointClass": "loopback"
+  },
+  "checkpoints": [
+    {
+      "sequence": 0,
+      "checkpointRef": "checkpoint_inference_complete",
+      "state": "COMPLETED",
+      "evidenceDigest": "sha256:4444444444444444444444444444444444444444444444444444444444444444",
+      "recordedAt": "2026-08-11T20:00:01Z"
+    }
+  ],
+  "artifacts": [
+    {
+      "artifactRef": "artifact_markdown_01JMODELWORKER",
+      "digest": "sha256:5555555555555555555555555555555555555555555555555555555555555555",
+      "mediaType": "text/markdown"
+    }
+  ],
+  "approvals": [],
+  "terminalOutcome": {
+    "status": "COMPLETED",
+    "code": "WORKFLOW_COMPLETED",
+    "startedAt": "2026-08-11T20:00:00Z",
+    "finishedAt": "2026-08-11T20:00:02Z",
+    "summary": "Signed workflow completed and produced one Markdown artifact."
+  },
+  "receiptReplay": {
+    "state": "DURABLE",
+    "attemptCount": 1,
+    "lastAttemptAt": "2026-08-11T20:00:03Z",
+    "durableReceiptRef": "gm_receipt_exec_01JMODELWORKER"
+  }
+}

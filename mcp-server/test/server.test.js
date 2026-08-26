@@ -215,6 +215,12 @@ test('stdio mode exposes the GrayMatter MCP tools for Codex plugin launch', asyn
         'omega_plan',
         'omega_resolve_domains',
         'omega_recall',
+        'omega_temporal_assertion_record',
+        'omega_temporal_assertion_extract',
+        'omega_temporal_assertions_as_of',
+        'omega_temporal_assertion_history',
+        'omega_search_recipe',
+        'omega_conversation_context',
         'omega_forget',
         'omega_trajectory_get',
         'omega_evaluate',
@@ -430,6 +436,12 @@ test('tools/list exposes the GrayMatter tool surface', async () => {
         'omega_plan',
         'omega_resolve_domains',
         'omega_recall',
+        'omega_temporal_assertion_record',
+        'omega_temporal_assertion_extract',
+        'omega_temporal_assertions_as_of',
+        'omega_temporal_assertion_history',
+        'omega_search_recipe',
+        'omega_conversation_context',
         'omega_forget',
         'omega_trajectory_get',
         'omega_evaluate',
@@ -919,6 +931,137 @@ test('portable OmegaRAG agent ABI routes bounded plan-authorized steps and rejec
     assert.match(denied.body.error.message, /Identity, tenant, organization, owner, role, permission, and ACL overrides are not accepted/);
     assert.equal(fakeApi.requests.length, requestCount);
     assert.deepEqual(new Set(fakeApi.requests.map((record) => record.path)), expectedPaths);
+  } finally {
+    server.close();
+    fakeApi.server.close();
+  }
+});
+
+test('temporal assertion tools, graph recipes, and conversation context preserve governed lineage', async () => {
+  const expectedPaths = new Set([
+    '/v1/graymatter/omega/temporal/assertions/record',
+    '/v1/graymatter/omega/temporal/assertions/extract',
+    '/v1/graymatter/omega/tools/temporal-assertions-as-of',
+    '/v1/graymatter/omega/temporal/assertions/history',
+    '/v1/graymatter/omega/recall',
+    '/v1/graymatter_ops/context_page/prompt'
+  ]);
+  const fakeApi = createFakeApi(async (_req, res, record) => {
+    assert.ok(expectedPaths.has(record.path), `Unexpected ${record.method} ${record.path}`);
+    assert.equal(record.body.ownerId, undefined);
+    assert.equal(record.body.tenantId, undefined);
+    assert.equal(record.body.organizationId, undefined);
+    assert.equal(record.body.acl, undefined);
+    res.writeHead(200, { 'content-type': 'application/json' });
+    if (record.path === '/v1/graymatter/omega/recall') {
+      res.end(JSON.stringify({ contextPageRef: 'context-temporal-1', recipe: record.body.recipe }));
+      return;
+    }
+    if (record.path === '/v1/graymatter_ops/context_page/prompt') {
+      res.end(JSON.stringify({ contextPageRef: record.body.contextPageRef, prompt: 'bounded prompt' }));
+      return;
+    }
+    res.end(JSON.stringify({ endpoint: record.path, accepted: true }));
+  });
+
+  const apiBase = await listen(fakeApi.server);
+  const server = createGrayMatterMcpServer({ apiBase: `${apiBase}/v1` });
+  const baseUrl = await listen(server);
+  const subjectRef = '11111111-1111-7111-8111-111111111111';
+  const sourceMemoryRef = '22222222-2222-7222-8222-222222222222';
+  const receiptInputs = {
+    planId: 'plan-temporal-1',
+    query: 'customer status timeline',
+    parentSearchReceiptRef: 'receipt-temporal-1',
+    selectedSubjectType: 'Customer',
+    selectedSubjectRef: subjectRef
+  };
+
+  try {
+    const calls = [
+      {
+        name: 'omega_temporal_assertion_record',
+        arguments: {
+          idempotencyKey: 'assertion-1',
+          assertionKind: 'FACT',
+          subjectType: 'Customer',
+          subjectRef,
+          predicate: 'status',
+          valueType: 'STRING',
+          literalValue: 'active',
+          validFrom: '2026-01-01T00:00:00Z',
+          confidence: 0.99,
+          authority: 1,
+          provenanceType: 'MemoryEntry',
+          provenanceRef: sourceMemoryRef,
+          sourceMemoryId: sourceMemoryRef
+        }
+      },
+      {
+        name: 'omega_temporal_assertion_extract',
+        arguments: {
+          sourceMemoryRef,
+          subjectType: 'Customer',
+          subjectRef,
+          validFrom: '2026-01-01T00:00:00Z',
+          mode: 'COMMIT_SAFE',
+          idempotencyKey: 'extract-1'
+        }
+      },
+      {
+        name: 'omega_temporal_assertions_as_of',
+        arguments: {
+          ...receiptInputs,
+          validAt: '2026-06-01T00:00:00Z',
+          recordedAt: '2026-06-02T00:00:00Z'
+        }
+      },
+      {
+        name: 'omega_temporal_assertion_history',
+        arguments: {
+          ...receiptInputs,
+          validFrom: '2025-01-01T00:00:00Z',
+          recordedFrom: '2025-01-01T00:00:00Z',
+          includeSuperseded: true
+        }
+      },
+      {
+        name: 'omega_search_recipe',
+        arguments: {
+          query: 'show the customer neighborhood',
+          recipe: 'ENTITY_NEIGHBORHOOD',
+          idempotencyKey: 'recipe-1'
+        }
+      },
+      {
+        name: 'omega_conversation_context',
+        arguments: {
+          query: 'what should I know before replying?',
+          idempotencyKey: 'conversation-context-1',
+          maxTokens: 1200
+        }
+      }
+    ];
+
+    const results = [];
+    for (const [index, tool] of calls.entries()) {
+      const result = await postRpc(baseUrl, {
+        jsonrpc: '2.0',
+        id: `temporal-${index}`,
+        method: 'tools/call',
+        params: tool
+      });
+      assert.equal(result.status, 200);
+      results.push(JSON.parse(result.body.result.content[0].text));
+    }
+
+    assert.equal(results[5].recall.contextPageRef, 'context-temporal-1');
+    assert.equal(results[5].recall.recipe, 'CONVERSATION_CONTEXT');
+    assert.equal(results[5].promptProjection.prompt, 'bounded prompt');
+    const recalls = fakeApi.requests.filter((request) => request.path === '/v1/graymatter/omega/recall');
+    assert.equal(recalls[0].body.recipe, 'ENTITY_NEIGHBORHOOD');
+    assert.equal(recalls[1].body.recipe, 'CONVERSATION_CONTEXT');
+    assert.deepEqual(new Set(fakeApi.requests.map((request) => request.path)), expectedPaths);
   } finally {
     server.close();
     fakeApi.server.close();
@@ -1495,6 +1638,36 @@ test('memory_write forwards per-request auth to api-0 MemoryEntry', async () => 
       ]
     });
     assert.equal(fakeApi.requests.length, 1);
+  } finally {
+    server.close();
+    fakeApi.server.close();
+  }
+});
+
+test('memory_write rejects the memory_update operation name before api-0', async () => {
+  const fakeApi = createFakeApi(async (_req, _res, record) => {
+    throw new Error(`Unexpected ${record.method} ${record.path}`);
+  });
+  const apiBase = await listen(fakeApi.server);
+  const server = createGrayMatterMcpServer({ apiBase: `${apiBase}/v1` });
+  const baseUrl = await listen(server);
+
+  try {
+    const result = await postRpc(baseUrl, {
+      jsonrpc: '2.0',
+      id: 'invalid-memory-type',
+      method: 'tools/call',
+      params: {
+        name: 'memory_write',
+        arguments: { type: 'memory_update', text: 'must not reach api-0' }
+      }
+    });
+
+    assert.equal(result.status, 200);
+    assert.equal(result.body.error.code, -32000);
+    assert.match(result.body.error.message, /memory_update is an operation, not a MemoryEntry type/);
+    assert.match(result.body.error.message, /Use the memory_update tool with an existing memory ID/);
+    assert.equal(fakeApi.requests.length, 0);
   } finally {
     server.close();
     fakeApi.server.close();

@@ -44,6 +44,9 @@ set -euo pipefail
 
 headers_file=""
 cookie_jar=""
+if [[ -n "${TEST_CURL_LOG:-}" ]]; then
+  printf '%s\n' "$*" >>"${TEST_CURL_LOG}"
+fi
 while [[ $# -gt 0 ]]; do
   case "$1" in
     -D)
@@ -166,6 +169,7 @@ test_login_stores_token_and_reusable_credentials() {
   make_fake_bin "${fake_bin}"
   export TEST_SECURITY_LOG="${temp_root}/security.log"
   export TEST_OSASCRIPT_LOG="${temp_root}/osascript.log"
+  export TEST_CURL_LOG="${temp_root}/curl.log"
 
   output="$(
     PATH="${fake_bin}:/usr/bin:/bin" \
@@ -183,6 +187,13 @@ test_login_stores_token_and_reusable_credentials() {
   assert_contains "${security_log}" "add-generic-password -U -a default -s VALKYR_AUTH_USERNAME -w valor" "gm-login should remember the username for autonomous refresh"
   assert_contains "${security_log}" "add-generic-password -U -a valor -s VALKYR_AUTH_PASSWORD -w fixture-password" "gm-login should store the password under a username-scoped keychain entry"
   assert_contains "${output}" "Stored GrayMatter credentials securely in macOS/iCloud Keychain" "gm-login should report credential persistence"
+  local curl_log
+  curl_log="$(cat "${temp_root}/curl.log")"
+  assert_contains "${curl_log}" "--retry 4" "gm-login should retry transient api-0 failures"
+  assert_contains "${curl_log}" "--retry-delay 1" "gm-login should bound retry cadence"
+  assert_contains "${curl_log}" "--retry-max-time 90" "gm-login should bound total retry time"
+  assert_contains "${curl_log}" "--retry-all-errors" "gm-login should retry transient transport failures"
+  unset TEST_CURL_LOG
 }
 
 test_login_uses_secure_password_popup_when_password_missing() {

@@ -457,6 +457,22 @@ test_success_passthrough() {
   assert_contains "${output}" '{"ok":true}' "graymatter_api should print response body on success"
 }
 
+test_safe_reads_use_bounded_transient_retries() {
+  local temp_root="$1"
+  local fake_bin="$2"
+  local script_copy="$3"
+
+  export TEST_CURL_SCENARIO="success"
+  run_api "${fake_bin}" "${script_copy}" "${temp_root}" >/dev/null
+
+  local curl_log
+  curl_log="$(cat "${temp_root}/curl.log")"
+  assert_contains "${curl_log}" "--retry 4" "safe GrayMatter reads should retry transient api-0 failures"
+  assert_contains "${curl_log}" "--retry-delay 1" "safe GrayMatter reads should bound retry cadence"
+  assert_contains "${curl_log}" "--retry-max-time 90" "safe GrayMatter reads should bound total retry time"
+  assert_contains "${curl_log}" "--retry-all-errors" "safe GrayMatter reads should retry transport failures"
+}
+
 test_success_triggers_bounded_auto_replay() {
   local temp_root="$1"
   local fake_bin="$2"
@@ -1048,6 +1064,7 @@ test_token_tenant_claim_sends_tenant_header() {
 }
 
 with_fixture test_success_passthrough
+with_fixture test_safe_reads_use_bounded_transient_retries
 with_fixture test_insufficient_funds_shows_links_and_uses_macos_prompt
 with_fixture test_insufficient_funds_falls_back_to_windows_prompt
 with_fixture test_unauthorized_refreshes_token_from_keychain_credentials

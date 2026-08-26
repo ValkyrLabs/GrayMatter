@@ -304,9 +304,14 @@ command_login() {
     echo "Updated GrayMatter Lite credentials for profile '${thor_name}'; active identity unchanged."
     return
   fi
-  thor_username="$(jq -r '.username' <<<"$thor_record")"
+  thor_username="$(gm_profile_username_value "$thor_record")"
   thor_service="$(jq -r '.keychainService' <<<"$thor_record")"
   thor_api_base="$(jq -r '.apiBase' <<<"$thor_record")"
+  if [[ -z "$thor_username" || "$thor_username" == "null" ]]; then
+    echo "GrayMatter profile '${thor_name}' is missing its account binding; no credential lookup or login was attempted." >&2
+    echo "Repair it with 'scripts/gm-profile add ${thor_name} --username <account> --replace', without printing a password or token." >&2
+    exit 65
+  fi
   env \
     -u GRAYMATTER_PROFILE \
     -u GRAYMATTER_PROFILES \

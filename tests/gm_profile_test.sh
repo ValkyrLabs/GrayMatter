@@ -28,6 +28,18 @@ test "$GRAYMATTER_LIGHT_MODE" = "true"
 test "$GRAYMATTER_LIGHT_PASSWORD" = "local-secret-one"
 test "$VALKYR_API_BASE" = "http://localhost:8787/v1"
 
+# A legacy profile missing its account binding must fail safely rather than
+# attempting Keychain access as the string "null".
+jq '.profiles.broken={accountFingerprint:"sha256:deadbeef",apiBase:"https://api-0.valkyrlabs.com/v1",keychainService:"VALKYR_AUTH"}' \
+  "$GRAYMATTER_STATE_DIR/profiles.json" >"$thor_tmp/profiles.json"
+mv "$thor_tmp/profiles.json" "$GRAYMATTER_STATE_DIR/profiles.json"
+set +e
+"$thor_root/scripts/gm-profile" login broken >"$thor_tmp/broken.out" 2>"$thor_tmp/broken.err"
+thor_status=$?
+set -e
+test "$thor_status" -eq 65
+grep -q 'missing its account binding' "$thor_tmp/broken.err"
+
 printf 'local-secret-two\n' | "$thor_root/scripts/gm-profile" add-local second \
   --api-base http://localhost:8877/v1 --password-stdin >/dev/null
 "$thor_root/scripts/gm-profile" blend lite second >/dev/null

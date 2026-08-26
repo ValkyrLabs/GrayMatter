@@ -38,8 +38,7 @@ fi
 require jq -e '.mcpServers.graymatter.command == "scripts/gm-mcp-launcher"' "$ROOT/.mcp.json" >/dev/null
 require jq -e '.mcpServers.graymatter.args == ["--stdio"]' "$ROOT/.mcp.json" >/dev/null
 require jq -e '.apps.graymatter == {
-  "id": "asdk_app_6a590a1720808191b3909ed57132a25d",
-  "required": true
+  "id": "asdk_app_6a590a1720808191b3909ed57132a25d"
 }' "$ROOT/.app.json" >/dev/null
 
 if find "$ROOT/scripts" "$ROOT/plugins/graymatter/scripts" -maxdepth 1 -type f -name '*.py' | grep -q .; then
@@ -65,8 +64,7 @@ require jq -e '.keywords | index("graymatter-light")' "$ROOT/plugins/graymatter/
 require jq -e '.keywords | index("valoride")' "$ROOT/plugins/graymatter/.codex-plugin/plugin.json" >/dev/null
 require jq -e '.interface.longDescription | contains("GrayMatter Light")' "$ROOT/plugins/graymatter/.codex-plugin/plugin.json" >/dev/null
 require jq -e '.apps.graymatter == {
-  "id": "asdk_app_6a590a1720808191b3909ed57132a25d",
-  "required": true
+  "id": "asdk_app_6a590a1720808191b3909ed57132a25d"
 }' "$ROOT/plugins/graymatter/.app.json" >/dev/null
 require jq -e '.mcpServers.graymatter.command == "scripts/gm-mcp-launcher"' "$ROOT/plugins/graymatter/.mcp.json" >/dev/null
 require jq -e '.mcpServers.graymatter.args == ["--stdio"]' "$ROOT/plugins/graymatter/.mcp.json" >/dev/null

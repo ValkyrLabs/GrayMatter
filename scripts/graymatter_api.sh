@@ -64,6 +64,9 @@ LOGIN_PATH="${GRAYMATTER_LOGIN_PATH:-/auth/login}"
 FALLBACK_TMPDIR="${GRAYMATTER_TMPDIR:-${SCRIPT_DIR}/../tmp}"
 CURL_CONNECT_TIMEOUT="${GRAYMATTER_CURL_CONNECT_TIMEOUT:-5}"
 CURL_MAX_TIME="${GRAYMATTER_CURL_MAX_TIME:-60}"
+HTTP_RETRIES="${GRAYMATTER_HTTP_RETRIES:-4}"
+HTTP_RETRY_DELAY="${GRAYMATTER_HTTP_RETRY_DELAY_SECONDS:-1}"
+HTTP_RETRY_MAX_TIME="${GRAYMATTER_HTTP_RETRY_MAX_TIME:-90}"
 TOKEN_REFRESH_SKEW_SECONDS="${GRAYMATTER_TOKEN_REFRESH_SKEW_SECONDS:-60}"
 GRAYMATTER_INSTALL_ID="${GRAYMATTER_INSTALL_ID:-${OPENCLAW_INSTANCE_ID:-${HOSTNAME:-graymatter-install}}}"
 GRAYMATTER_ACTIVATION_SOURCE="${GRAYMATTER_ACTIVATION_SOURCE:-graymatter}"
@@ -691,6 +694,17 @@ request_is_replay_safe() {
   esac
 }
 
+request_is_transient_retry_safe() {
+  case "$METHOD_UPPER" in
+    GET|HEAD|OPTIONS)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
 create_deferred_operation() {
   local response_file="${1:-}"
   local operation_kind="${2:-api_write}"
@@ -833,6 +847,10 @@ refresh_token() {
     curl -sS \
       --connect-timeout "$CURL_CONNECT_TIMEOUT" \
       --max-time "$CURL_MAX_TIME" \
+      --retry "$HTTP_RETRIES" \
+      --retry-delay "$HTTP_RETRY_DELAY" \
+      --retry-max-time "$HTTP_RETRY_MAX_TIME" \
+      --retry-all-errors \
       -o "$login_body" -D "$login_headers" -w "%{http_code}" \
       -X POST "${BASE%/}/${LOGIN_PATH#/}" \
       -H "accept: application/json" \
@@ -880,6 +898,10 @@ prepare_stateful_auth_for_write() {
     curl -sS \
       --connect-timeout "$CURL_CONNECT_TIMEOUT" \
       --max-time "$CURL_MAX_TIME" \
+      --retry "$HTTP_RETRIES" \
+      --retry-delay "$HTTP_RETRY_DELAY" \
+      --retry-max-time "$HTTP_RETRY_MAX_TIME" \
+      --retry-all-errors \
       -o "$login_body" -D "$login_headers" -c "$STATEFUL_COOKIE_JAR" \
       -w "%{http_code}" \
       -X POST "${BASE%/}/${LOGIN_PATH#/}" \
@@ -978,6 +1000,15 @@ perform_request() {
     -X "$METHOD_UPPER"
     "${COMMON_HEADERS[@]}"
   )
+
+  if request_is_transient_retry_safe; then
+    CURL_ARGS+=(
+      --retry "$HTTP_RETRIES"
+      --retry-delay "$HTTP_RETRY_DELAY"
+      --retry-max-time "$HTTP_RETRY_MAX_TIME"
+      --retry-all-errors
+    )
+  fi
 
   if [[ -n "$STATEFUL_COOKIE_JAR" && -s "$STATEFUL_COOKIE_JAR" ]]; then
     CURL_ARGS+=(

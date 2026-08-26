@@ -9,6 +9,15 @@ cp "$ROOT_DIR/scripts/gm-write" "$TMP_DIR/gm-write"
 cp "$ROOT_DIR/plugins/graymatter/scripts/gm-write" "$TMP_DIR/plugin-gm-write"
 chmod +x "$TMP_DIR/gm-write" "$TMP_DIR/plugin-gm-write"
 
+set +e
+INVALID_TYPE_OUTPUT="$($TMP_DIR/gm-write memory_update "must not reach api-0" 2>&1)"
+INVALID_TYPE_STATUS=$?
+set -e
+
+test "$INVALID_TYPE_STATUS" -eq 64
+grep -q "memory_update is an operation, not a MemoryEntry type" <<<"$INVALID_TYPE_OUTPUT"
+grep -q "Use the memory_update tool with an existing memory ID" <<<"$INVALID_TYPE_OUTPUT"
+
 cat > "$TMP_DIR/gm-fallback-append" <<'EOF'
 #!/usr/bin/env bash
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

@@ -24,8 +24,8 @@ jq -e '
 
 jq -e '.version == "v1" and .name == "graymatter_omegarag_agent_abi"' "$OMEGA_AGENT_ABI_CONTRACT" >/dev/null
 jq -e '.authorization.identity == "server_derived" and .authorization.tenant == "server_derived" and .authorization.acl == "generated_rbac_enforced" and .authorization.approval == "server_policy_enforced"' "$OMEGA_AGENT_ABI_CONTRACT" >/dev/null
-jq -e '.tools | map(.name) | sort == ["graymatter_chunk_read","graymatter_context_hydrate","graymatter_evaluate_outcome","graymatter_forget","graymatter_graph_expand","graymatter_keyword_search","graymatter_omega_plan","graymatter_omega_query","graymatter_recall","graymatter_remember","graymatter_schema_inspect","graymatter_semantic_search","graymatter_target_read","graymatter_trajectory_inspect"]' "$OMEGA_AGENT_ABI_CONTRACT" >/dev/null
-jq -e '.defaultTools | sort == ["graymatter_forget","graymatter_omega_plan","graymatter_omega_query","graymatter_recall","graymatter_remember","graymatter_schema_inspect","graymatter_trajectory_inspect"]' "$OMEGA_AGENT_ABI_CONTRACT" >/dev/null
+jq -e '.tools | map(.name) | sort == ["graymatter_chunk_read","graymatter_context_hydrate","graymatter_evaluate_outcome","graymatter_forget","graymatter_graph_expand","graymatter_keyword_search","graymatter_omega_plan","graymatter_omega_query","graymatter_recall","graymatter_remember","graymatter_schema_inspect","graymatter_semantic_search","graymatter_target_read","graymatter_trajectory_inspect","omega_conversation_context","omega_search_recipe","omega_temporal_assertion_extract","omega_temporal_assertion_history","omega_temporal_assertion_record","omega_temporal_assertions_as_of"]' "$OMEGA_AGENT_ABI_CONTRACT" >/dev/null
+jq -e '.defaultTools | sort == ["graymatter_forget","graymatter_omega_plan","graymatter_omega_query","graymatter_recall","graymatter_remember","graymatter_schema_inspect","graymatter_trajectory_inspect","omega_conversation_context","omega_search_recipe","omega_temporal_assertion_extract","omega_temporal_assertion_history","omega_temporal_assertion_record","omega_temporal_assertions_as_of"]' "$OMEGA_AGENT_ABI_CONTRACT" >/dev/null
 jq -e '.fineGrainedTools | sort == ["graymatter_chunk_read","graymatter_context_hydrate","graymatter_evaluate_outcome","graymatter_graph_expand","graymatter_keyword_search","graymatter_semantic_search","graymatter_target_read"]' "$OMEGA_AGENT_ABI_CONTRACT" >/dev/null
 jq -e '.tools[] | .inputSchema.additionalProperties == false' "$OMEGA_AGENT_ABI_CONTRACT" >/dev/null
 jq -e '
@@ -44,7 +44,7 @@ jq -e '
 jq -e '.tools | map(.name) | sort == ["memory_get","memory_health","memory_link","memory_put","memory_put_batch","memory_query","memory_replay_deferred","memory_retrieve_with_receipt","omega_evaluate","omega_forget","omega_index_job","omega_outcome","omega_plan","omega_recall","omega_remember","omega_resolve_domains","omega_trajectory_get","retrieval_receipt_get","retrieval_receipt_query"]' < <("${ROOT}/scripts/gm-mcp-contract") >/dev/null
 jq -e '.tools[] | select(.name == "memory_retrieve_with_receipt") | .outputSchema.required | index("graymatterPolicy")' < <("${ROOT}/scripts/gm-mcp-contract") >/dev/null
 jq -e '.tools | length > 0' < <("${ROOT}/scripts/gm-mcp-contract" --mode=portable --validate) >/dev/null
-jq -e '.name == "graymatter_omegarag_agent_abi" and (.tools | length == 14)' < <("${ROOT}/scripts/gm-mcp-contract" --mode=omega --validate) >/dev/null
+jq -e '.name == "graymatter_omegarag_agent_abi" and (.tools | length == 20)' < <("${ROOT}/scripts/gm-mcp-contract" --mode=omega --validate) >/dev/null
 jq -e '.errors.AUTH_REQUIRED and .errors.UPSTREAM_UNAVAILABLE' < <("${ROOT}/scripts/gm-mcp-contract" legacy) >/dev/null
 jq -e '.errors.AUTH_REQUIRED and .errors.UPSTREAM_UNAVAILABLE' < <("${ROOT}/scripts/gm-mcp-contract" --mode=legacy --validate) >/dev/null
 
@@ -53,7 +53,7 @@ cmp -s "$OMEGA_AGENT_ABI_CONTRACT" "$PLUGIN_OMEGA_AGENT_ABI_CONTRACT"
 cmp -s "$LEGACY_CONTRACT" "$PLUGIN_LEGACY_CONTRACT"
 jq -e '.tools[] | select(.name == "memory_retrieve_with_receipt") | .outputSchema.required | index("graymatterPolicy")' < <("${ROOT}/plugins/graymatter/scripts/gm-mcp-contract") >/dev/null
 jq -e '.tools | length > 0' < <("${ROOT}/plugins/graymatter/scripts/gm-mcp-contract" --mode=portable --validate) >/dev/null
-jq -e '.name == "graymatter_omegarag_agent_abi" and (.tools | length == 14)' < <("${ROOT}/plugins/graymatter/scripts/gm-mcp-contract" --mode=omega --validate) >/dev/null
+jq -e '.name == "graymatter_omegarag_agent_abi" and (.tools | length == 20)' < <("${ROOT}/plugins/graymatter/scripts/gm-mcp-contract" --mode=omega --validate) >/dev/null
 jq -e '.errors.AUTH_REQUIRED and .errors.UPSTREAM_UNAVAILABLE' < <("${ROOT}/plugins/graymatter/scripts/gm-mcp-contract" --mode=legacy --validate) >/dev/null
 
 echo "mcp_contract_test: ok"

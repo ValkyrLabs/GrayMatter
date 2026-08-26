@@ -101,6 +101,11 @@ gm_profile_keychain_value() {
   security find-generic-password -a "$thor_account" -s "$thor_service" -w 2>/dev/null
 }
 
+gm_profile_username_value() {
+  local thor_record="${1:-}"
+  jq -r '.username // empty' <<<"$thor_record"
+}
+
 gm_profile_auth_material_present() {
   local thor_name="${1:-}"
   local thor_record=""
@@ -113,8 +118,9 @@ gm_profile_auth_material_present() {
     [[ -n "$thor_password_file" && -f "$thor_password_file" && -r "$thor_password_file" ]]
     return
   fi
-  thor_account="$(jq -r '.username' <<<"$thor_record")"
+  thor_account="$(gm_profile_username_value "$thor_record")"
   thor_service="$(jq -r '.keychainService' <<<"$thor_record")"
+  [[ -n "$thor_account" && "$thor_account" != "null" ]] || return 1
   gm_profile_keychain_item_exists "$thor_account" "$thor_service" \
     || gm_profile_keychain_item_exists "$thor_account" "${thor_service}_PASSWORD"
 }
@@ -131,8 +137,9 @@ gm_profile_token_present() {
     [[ -n "$thor_password_file" && -f "$thor_password_file" && -r "$thor_password_file" ]]
     return
   fi
-  thor_account="$(jq -r '.username' <<<"$thor_record")"
+  thor_account="$(gm_profile_username_value "$thor_record")"
   thor_service="$(jq -r '.keychainService' <<<"$thor_record")"
+  [[ -n "$thor_account" && "$thor_account" != "null" ]] || return 1
   gm_profile_keychain_item_exists "$thor_account" "$thor_service"
 }
 

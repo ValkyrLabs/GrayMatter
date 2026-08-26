@@ -1,0 +1,184 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://valkyrlabs.com/contracts/graymatter/swarm-workflow-execution-receipt-v1.schema.json",
+  "title": "GrayMatter durable SWARM workflow execution receipt",
+  "description": "Provider-neutral, non-secret durable evidence for one signed ValkyrAI workflow execution. This is not a scheduler command or an execution journal.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contractVersion",
+    "receiptRef",
+    "coordination",
+    "originIntent",
+    "workflowPackage",
+    "signedExecutionEnvelope",
+    "node",
+    "inference",
+    "checkpoints",
+    "artifacts",
+    "approvals",
+    "terminalOutcome",
+    "receiptReplay"
+  ],
+  "properties": {
+    "contractVersion": {"const": "v1"},
+    "receiptRef": {"type": "string", "minLength": 1},
+    "coordination": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["swarmCommandId", "executionId", "traceId"],
+      "properties": {
+        "swarmCommandId": {"type": "string", "minLength": 1},
+        "executionId": {"type": "string", "minLength": 1},
+        "traceId": {"type": "string", "minLength": 1}
+      }
+    },
+    "originIntent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["intentRef", "intentDigest"],
+      "properties": {
+        "intentRef": {"type": "string", "minLength": 1},
+        "intentDigest": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "workflowPackage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["packageId", "workflowId", "version", "digest", "signingKeyId"],
+      "properties": {
+        "packageId": {"type": "string", "minLength": 1},
+        "workflowId": {"type": "string", "minLength": 1},
+        "version": {"type": "string", "minLength": 1},
+        "digest": {"$ref": "#/$defs/sha256"},
+        "signingKeyId": {"type": "string", "minLength": 1}
+      }
+    },
+    "signedExecutionEnvelope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["envelopeRef", "digest", "signatureVerified"],
+      "properties": {
+        "envelopeRef": {"type": "string", "minLength": 1},
+        "digest": {"$ref": "#/$defs/sha256"},
+        "signatureVerified": {"const": true}
+      }
+    },
+    "node": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["nodeId", "nodeClass", "executionMode", "nativeCapabilities"],
+      "properties": {
+        "nodeId": {"type": "string", "minLength": 1},
+        "nodeClass": {"enum": ["agentic-runtime", "model-only"]},
+        "executionMode": {"enum": ["advertised-native-capabilities", "signed-workflow-only"]},
+        "nativeCapabilities": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "inference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["provider", "modelRef", "endpointClass"],
+      "properties": {
+        "provider": {"enum": ["lm-studio", "ollama", "other"]},
+        "modelRef": {"type": "string", "minLength": 1},
+        "endpointClass": {"enum": ["loopback", "node-local"]}
+      }
+    },
+    "checkpoints": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/checkpoint"}
+    },
+    "artifacts": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/artifact"}
+    },
+    "approvals": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/approval"}
+    },
+    "terminalOutcome": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "code", "startedAt", "finishedAt"],
+      "properties": {
+        "status": {"enum": ["COMPLETED", "FAILED", "CANCELLED", "NACKED"]},
+        "code": {"type": "string", "minLength": 1},
+        "startedAt": {"type": "string", "format": "date-time"},
+        "finishedAt": {"type": "string", "format": "date-time"},
+        "summary": {"type": "string", "maxLength": 2048}
+      }
+    },
+    "receiptReplay": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state", "attemptCount"],
+      "properties": {
+        "state": {"enum": ["DURABLE", "QUEUED", "DEGRADED", "REPLAYED"]},
+        "attemptCount": {"type": "integer", "minimum": 0},
+        "lastAttemptAt": {"type": "string", "format": "date-time"},
+        "durableReceiptRef": {"type": "string", "minLength": 1}
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {"node": {"properties": {"nodeClass": {"const": "model-only"}}}}
+      },
+      "then": {
+        "properties": {
+          "node": {
+            "properties": {
+              "executionMode": {"const": "signed-workflow-only"},
+              "nativeCapabilities": {"maxItems": 0}
+            }
+          },
+          "inference": {
+            "properties": {"provider": {"enum": ["lm-studio", "ollama"]}}
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
+    "checkpoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sequence", "checkpointRef", "state", "evidenceDigest", "recordedAt"],
+      "properties": {
+        "sequence": {"type": "integer", "minimum": 0},
+        "checkpointRef": {"type": "string", "minLength": 1},
+        "state": {"enum": ["STARTED", "COMPLETED", "FAILED", "SUSPENDED", "COMPENSATED"]},
+        "evidenceDigest": {"$ref": "#/$defs/sha256"},
+        "recordedAt": {"type": "string", "format": "date-time"}
+      }
+    },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["artifactRef", "digest", "mediaType"],
+      "properties": {
+        "artifactRef": {"type": "string", "minLength": 1},
+        "digest": {"$ref": "#/$defs/sha256"},
+        "mediaType": {"type": "string", "minLength": 1}
+      }
+    },
+    "approval": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["approvalRef", "protectedAction", "contentDigest", "state"],
+      "properties": {
+        "approvalRef": {"type": "string", "pattern": "^gm_approval_[A-Za-z0-9._:-]+$"},
+        "protectedAction": {"enum": ["outbound.send", "production.deploy", "merge", "service.lifecycle.restart", "OTHER"]},
+        "contentDigest": {"$ref": "#/$defs/sha256"},
+        "state": {"enum": ["APPROVED", "DENIED", "EXPIRED", "CONSUMED"]}
+      }
+    }
+  }
+}

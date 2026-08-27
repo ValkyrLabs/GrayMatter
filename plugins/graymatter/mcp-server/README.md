@@ -96,9 +96,9 @@ Default agents receive `graymatter_remember`, `graymatter_recall`, `graymatter_o
 
 | Tool | Backing API path | Description |
 | --- | --- | --- |
-| `memory_put` / `memory_write` | `POST /MemoryEntry/write` | Write a durable `MemoryEntry` (`decision`, `todo`, `context`, `artifact`, or `preference`). |
+| `memory_put` / `memory_write` | `POST /MemoryEntry/write` | Write a durable `MemoryEntry` (`decision`, `todo`, `context`, `artifact`, or `preference`). The semantic `invariant` alias is normalized to `decision` plus the `invariant` tag. |
 | `memory_get` / `memory_read` | `GET /MemoryEntry/{id}` | Read a `MemoryEntry` by ID. |
-| `memory_query` | `POST /MemoryEntry/query` | Semantic search across GrayMatter memory. Hosted api-0 may consume credits. |
+| `memory_query` | `POST /MemoryEntry/query` | Semantic search across GrayMatter memory. Querying type `invariant` is normalized to `type=decision` plus `tag=invariant`, including lexical fallback. Hosted api-0 may consume credits. |
 | `memory_put_batch` | `POST /MemoryEntry/write` per item | Write up to 100 compact MemoryEntry records. |
 | `memory_link` | Portable contract hook | Record or defer a relation between memory records when graph-link persistence is available. |
 | `memory_health` | `GET /memory/status` | Check the configured GrayMatter memory backend. |

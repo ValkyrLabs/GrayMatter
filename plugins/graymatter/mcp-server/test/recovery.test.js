@@ -235,7 +235,9 @@ test('memory_query falls back to lexical MemoryEntry list when embeddings quota 
         content: [
           { id: 'mem-1', type: 'context', text: 'Stainless sprint CRM warm leads need founder-led follow-up', sourceChannel: 'codex:workspace:crm' },
           { id: 'mem-2', type: 'todo', text: 'Unrelated billing cleanup', sourceChannel: 'codex:workspace:crm' },
-          { id: 'mem-3', type: 'context', text: 'Stainless pricing objection notes', sourceChannel: 'codex:workspace:other' }
+          { id: 'mem-3', type: 'context', text: 'Stainless pricing objection notes', sourceChannel: 'codex:workspace:other' },
+          { id: 'mem-4', type: 'decision', text: 'Stainless outreach contract is binding', tags: [{ name: 'invariant' }], sourceChannel: 'codex:workspace:crm' },
+          { id: 'mem-5', type: 'decision', text: 'Stainless outreach draft', tags: ['draft'], sourceChannel: 'codex:workspace:crm' }
         ]
       }));
       return;
@@ -272,6 +274,26 @@ test('memory_query falls back to lexical MemoryEntry list when embeddings quota 
     assert.equal(out.results[0].id, 'mem-1');
     assert.equal(requests[0].path, '/v1/MemoryEntry/query');
     assert.equal(requests[1].path, '/v1/MemoryEntry');
+
+    const invariantBody = await postRpc(baseUrl, {
+      jsonrpc: '2.0',
+      id: 'quota-invariant',
+      method: 'tools/call',
+      params: {
+        name: 'memory_query',
+        arguments: {
+          query: 'Stainless outreach contract',
+          type: 'INVARIANT',
+          sourceChannel: 'codex:workspace:crm',
+          limit: 5
+        }
+      }
+    });
+    const invariantOut = JSON.parse(invariantBody.result.content[0].text);
+    assert.equal(invariantOut.count, 1);
+    assert.equal(invariantOut.results[0].id, 'mem-4');
+    assert.equal(requests[2].body.type, 'decision');
+    assert.deepEqual(requests[2].body.tags, ['invariant']);
   } finally {
     await closeServers(server, fakeApi);
   }

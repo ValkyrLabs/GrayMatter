@@ -215,6 +215,14 @@ test('stdio mode exposes the GrayMatter MCP tools for Codex plugin launch', asyn
         'omega_plan',
         'omega_resolve_domains',
         'omega_recall',
+        'omega_temporal_assertion_record',
+        'omega_temporal_assertion_extract',
+        'omega_temporal_extraction_receipts',
+        'omega_temporal_assertions_as_of',
+        'omega_temporal_assertion_history',
+        'omega_search_recipe',
+        'omega_conversation_context',
+        'get_context',
         'omega_forget',
         'omega_trajectory_get',
         'omega_evaluate',
@@ -430,6 +438,14 @@ test('tools/list exposes the GrayMatter tool surface', async () => {
         'omega_plan',
         'omega_resolve_domains',
         'omega_recall',
+        'omega_temporal_assertion_record',
+        'omega_temporal_assertion_extract',
+        'omega_temporal_extraction_receipts',
+        'omega_temporal_assertions_as_of',
+        'omega_temporal_assertion_history',
+        'omega_search_recipe',
+        'omega_conversation_context',
+        'get_context',
         'omega_forget',
         'omega_trajectory_get',
         'omega_evaluate',
@@ -2288,6 +2304,60 @@ test('hosted multi-tenant mode does not fall back to a process-wide token', asyn
     assert.equal(result.status, 200);
     assert.equal(result.body.result.structuredContent.reason, 'missing_auth');
     assert.equal(fakeApi.requests.length, 1);
+  } finally {
+    server.close();
+    fakeApi.server.close();
+  }
+});
+
+test('invariant alias is normalized for MemoryEntry writes, queries, and governed Omega remember', async () => {
+  const fakeApi = createFakeApi(async (_req, res, record) => {
+    if (record.path === '/v1/MemoryEntry/write') {
+      assert.equal(record.body.type, 'decision');
+      assert.deepEqual(record.body.tags, ['graymatter', 'invariant']);
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ id: 'mem-invariant-1', ...record.body }));
+      return;
+    }
+    if (record.path === '/v1/MemoryEntry/query') {
+      assert.deepEqual(record.body, {
+        query: 'compatibility contract',
+        type: 'decision',
+        tags: ['graymatter', 'invariant']
+      });
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ results: [] }));
+      return;
+    }
+    assert.equal(record.path, '/v1/graymatter/omega/remember');
+    assert.equal(record.body.type, 'decision');
+    assert.deepEqual(record.body.tags, ['invariant']);
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ accepted: true }));
+  });
+  const apiBase = await listen(fakeApi.server);
+  const server = createGrayMatterMcpServer({ apiBase: `${apiBase}/v1` });
+  const baseUrl = await listen(server);
+
+  try {
+    for (const [id, name, argumentsValue] of [
+      ['invariant-memory-write', 'memory_write', {
+        type: 'INVARIANT', text: 'persist the compatibility contract', tags: ['GrayMatter', 'Invariant']
+      }],
+      ['invariant-memory-query', 'memory_query', {
+        query: 'compatibility contract', type: 'invariant', tags: ['GrayMatter']
+      }],
+      ['invariant-omega-remember', 'graymatter_remember', {
+        type: 'invariant', text: 'persist the governed compatibility contract',
+        idempotencyKey: 'invariant-omega-remember-1'
+      }]
+    ]) {
+      const result = await postRpc(baseUrl, {
+        jsonrpc: '2.0', id, method: 'tools/call', params: { name, arguments: argumentsValue }
+      });
+      assert.equal(result.status, 200);
+    }
+    assert.equal(fakeApi.requests.length, 3);
   } finally {
     server.close();
     fakeApi.server.close();

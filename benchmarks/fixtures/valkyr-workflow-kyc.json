@@ -1,0 +1,85 @@
+{
+  "dataset": "valkyr-workflow-kyc",
+  "version": "2026-08-26.v1",
+  "license": "Valkyr Labs internal synthetic benchmark fixture",
+  "sessions": [
+    {
+      "id": "kyc-acme-intake",
+      "date": "2026-08-01T09:00:00Z",
+      "text": "KYC case KYC-ACME-104 opened for Acme Imports LLC. Initial risk is HIGH because beneficial owner documents are missing and the registered address needs verification. The case must not auto-approve."
+    },
+    {
+      "id": "kyc-acme-owner-update",
+      "date": "2026-08-03T15:30:00Z",
+      "text": "KYC case KYC-ACME-104 received verified passports and ownership declarations for beneficial owners Ava Chen and Marcus Reed. The beneficial-owner document gap is resolved."
+    },
+    {
+      "id": "kyc-acme-address-update",
+      "date": "2026-08-04T18:00:00Z",
+      "text": "KYC case KYC-ACME-104 address verification completed against the state registry. Risk was superseded from HIGH to LOW and the case status is APPROVED as of 2026-08-04."
+    },
+    {
+      "id": "kyc-beacon-review",
+      "date": "2026-08-05T10:00:00Z",
+      "text": "KYC case KYC-BEACON-212 remains WAITING_MANUAL_REVIEW due to a sanctions-name near match. No adverse identity decision may be made until a human reviewer resolves the match."
+    },
+    {
+      "id": "workflow-refund-definition",
+      "date": "2026-08-06T08:00:00Z",
+      "text": "Workflow WF-REFUND-7 uses a WAITING_APPROVAL checkpoint for refunds over 5000 USD. The exact checkpoint must bind approver assignment and ACL before any outbound email or continuation."
+    },
+    {
+      "id": "workflow-refund-delivery",
+      "date": "2026-08-06T08:05:00Z",
+      "text": "Workflow WF-REFUND-7 approval delivery is EMAIL plus IN_APP with signed Approve and Deny actions. Continuation is restart-safe, idempotent, and resumes only the content-bound checkpoint."
+    },
+    {
+      "id": "workflow-refund-execution",
+      "date": "2026-08-07T16:45:00Z",
+      "text": "Execution EX-REFUND-778 for workflow WF-REFUND-7 is WAITING_APPROVAL. Priya Shah is the assigned approver and the approval SLA expires 2026-08-08T16:45:00Z."
+    },
+    {
+      "id": "workflow-deploy-policy",
+      "date": "2026-08-08T12:00:00Z",
+      "text": "Production deployment workflow WF-DEPLOY-RC7 requires canonical tests, a fresh artifact hash, and explicit artifact-bound approval before publish. A stale approval cannot authorize a rebuilt artifact."
+    }
+  ],
+  "questions": [
+    {
+      "id": "kyc-current-status",
+      "question": "What is the current status and risk for KYC-ACME-104, and what evidence changed it?",
+      "answer": "APPROVED with LOW risk after beneficial-owner documents and state-registry address verification",
+      "evidence": ["kyc-acme-owner-update", "kyc-acme-address-update"]
+    },
+    {
+      "id": "kyc-prior-status",
+      "question": "What was the initial risk for KYC-ACME-104 and why was automatic approval prohibited?",
+      "answer": "HIGH because beneficial-owner documents were missing and the address needed verification",
+      "evidence": ["kyc-acme-intake"]
+    },
+    {
+      "id": "kyc-human-gate",
+      "question": "Which KYC case requires a human decision and why?",
+      "answer": "KYC-BEACON-212 because of a sanctions-name near match",
+      "evidence": ["kyc-beacon-review"]
+    },
+    {
+      "id": "workflow-approval-contract",
+      "question": "How must WF-REFUND-7 deliver approval and safely resume?",
+      "answer": "EMAIL plus IN_APP signed Approve and Deny, then restart-safe idempotent continuation of the content-bound checkpoint",
+      "evidence": ["workflow-refund-definition", "workflow-refund-delivery"]
+    },
+    {
+      "id": "workflow-live-approver",
+      "question": "Who is assigned to EX-REFUND-778 and when does its approval SLA expire?",
+      "answer": "Priya Shah, expiring 2026-08-08T16:45:00Z",
+      "evidence": ["workflow-refund-execution"]
+    },
+    {
+      "id": "workflow-deploy-gate",
+      "question": "Can a stale approval authorize a rebuilt RC7 production artifact?",
+      "answer": "No; approval must bind the fresh artifact hash after canonical tests",
+      "evidence": ["workflow-deploy-policy"]
+    }
+  ]
+}

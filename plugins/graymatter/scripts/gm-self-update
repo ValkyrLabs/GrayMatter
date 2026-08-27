@@ -31,6 +31,44 @@ have() { command -v "$1" >/dev/null 2>&1; }
 hash_file() { if have sha256sum; then sha256sum "$1" | awk '{print $1}'; else shasum -a 256 "$1" | awk '{print $1}'; fi; }
 now() { date +%s; }
 
+codex_build_stamp() {
+  local thor_version="$1"
+  [[ "$thor_version" == *"+codex."* ]] || return 1
+  local thor_suffix="${thor_version#*+codex.}"
+  local thor_stamp="${thor_suffix//[^0-9]/}"
+  [[ -n "$thor_stamp" ]] || return 1
+  printf '%s\n' "$thor_stamp"
+}
+
+version_is_newer() {
+  local thor_candidate="$1"
+  local thor_baseline="$2"
+  [[ -n "$thor_candidate" && -n "$thor_baseline" && "$thor_candidate" != "$thor_baseline" ]] || return 1
+
+  local thor_candidate_base="${thor_candidate%%+codex.*}"
+  local thor_baseline_base="${thor_baseline%%+codex.*}"
+  local thor_candidate_stamp=""
+  local thor_baseline_stamp=""
+  if [[ "$thor_candidate_base" == "$thor_baseline_base" ]]; then
+    thor_candidate_stamp="$(codex_build_stamp "$thor_candidate" 2>/dev/null || true)"
+    thor_baseline_stamp="$(codex_build_stamp "$thor_baseline" 2>/dev/null || true)"
+    if [[ -n "$thor_candidate_stamp" && -n "$thor_baseline_stamp" ]]; then
+      if (( ${#thor_candidate_stamp} != ${#thor_baseline_stamp} )); then
+        (( ${#thor_candidate_stamp} > ${#thor_baseline_stamp} ))
+        return
+      fi
+      [[ "$thor_candidate_stamp" > "$thor_baseline_stamp" ]]
+      return
+    fi
+  fi
+
+  if sort -V </dev/null >/dev/null 2>&1; then
+    [[ "$(printf '%s\n%s\n' "$thor_candidate" "$thor_baseline" | sort -V | tail -n 1)" == "$thor_candidate" ]]
+    return
+  fi
+  return 1
+}
+
 case "$MODE" in
   startup|maybe|check|force|active-root|rollback) ;;
   -h|--help) usage; exit 0 ;;
@@ -86,7 +124,15 @@ write_active() {
 }
 
 if [[ "$MODE" == "active-root" ]]; then
-  [[ -f "$ACTIVE_STATE" ]] && jq -r '.activeRoot // empty' "$ACTIVE_STATE"
+  if [[ -f "$ACTIVE_STATE" ]]; then
+    thor_active_root="$(jq -r '.activeRoot // empty' "$ACTIVE_STATE")"
+    thor_active_version="$(jq -r '.activeVersion // empty' "$ACTIVE_STATE")"
+    thor_current_version="$(jq -r '.version // empty' "$ROOT_DIR/.codex-plugin/plugin.json" 2>/dev/null || true)"
+    if [[ -n "$thor_active_root" && -d "$thor_active_root" ]] \
+      && ! version_is_newer "$thor_current_version" "$thor_active_version"; then
+      printf '%s\n' "$thor_active_root"
+    fi
+  fi
   exit 0
 fi
 acquire_lock
@@ -154,6 +200,11 @@ CURRENT_VERSION="$(jq -r '.version // empty' "$ROOT_DIR/.codex-plugin/plugin.jso
 if [[ "$CURRENT_VERSION" == "$RELEASE_VERSION" ]]; then
   write_state up-to-date "$CURRENT_VERSION"
   log "GrayMatter plugin ready: signed stable release $CURRENT_VERSION"
+  exit 0
+fi
+if version_is_newer "$CURRENT_VERSION" "$RELEASE_VERSION"; then
+  write_state current-newer "$CURRENT_VERSION"
+  log "GrayMatter plugin ready: current build $CURRENT_VERSION is newer than signed stable $RELEASE_VERSION"
   exit 0
 fi
 if [[ "$MODE" == "maybe" || "$MODE" == "check" ]]; then

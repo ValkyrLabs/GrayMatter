@@ -27,6 +27,7 @@ const PUBLIC_IDENTITY_KEYS = new Set([
 const PUBLIC_MAX_RESPONSE_ITEMS = 25;
 const PUBLIC_MAX_RESPONSE_STRING = 4000;
 const MEMORY_WRITE_TYPES = Object.freeze(['decision', 'todo', 'context', 'artifact', 'preference']);
+const MEMORY_TYPE_INPUTS = Object.freeze([...MEMORY_WRITE_TYPES, 'invariant']);
 const PUBLIC_SENSITIVE_MEMORY_PATTERNS = Object.freeze([
   /\b(?:save|store|remember|retain|keep|persist|use)\b.{0,100}\b(?:my|this|the|an?)?\s*(?:oauth\s+)?(?:access|refresh)?\s*token\b/i,
   /\b(?:access[_\s-]*token|refresh[_\s-]*token|api[_\s-]*key|client[_\s-]*secret|password|private[_\s-]*key)\s*[:=]\s*\S+/i,
@@ -107,7 +108,13 @@ const OMEGA_GRAPH_SEARCH_RECIPES = Object.freeze([
   'EPISODIC_PROVENANCE',
   'COMMUNITY_OVERVIEW',
   'TEMPORAL_AS_OF',
-  'CONVERSATION_CONTEXT'
+  'CONVERSATION_CONTEXT',
+  'DIVERSIFIED_MMR',
+  'CROSS_ENCODER_RERANK',
+  'NODE_DISTANCE',
+  'EPISODE_MENTION',
+  'BREADTH_FIRST',
+  'RAW_EPISODE'
 ]);
 
 const OMEGA_TEMPORAL_ASSERTION_RECORD_INPUT_SCHEMA = {
@@ -218,7 +225,7 @@ const tools = [
     inputSchema: {
       type: 'object',
       properties: {
-        type: { type: 'string', enum: ['decision', 'todo', 'context', 'artifact', 'preference'] },
+        type: { type: 'string', enum: MEMORY_TYPE_INPUTS },
         text: { type: 'string' },
         sourceChannel: { type: 'string' },
         scope: { type: 'string', description: 'Memory scope, for example automation, workspace, chat, or session.' },
@@ -246,7 +253,7 @@ const tools = [
     inputSchema: {
       type: 'object',
       properties: {
-        type: { type: 'string', enum: ['decision', 'todo', 'context', 'artifact', 'preference'] },
+        type: { type: 'string', enum: MEMORY_TYPE_INPUTS },
         content: { type: 'string' },
         source: { type: 'string' },
         metadata: { type: 'object', additionalProperties: true }
@@ -292,7 +299,8 @@ const tools = [
       properties: {
         query: { type: 'string' },
         limit: { type: 'integer', minimum: 1, maximum: 100 },
-        type: { type: 'string' },
+        type: { type: 'string', description: 'MemoryEntry type or the invariant alias (decision + invariant tag).' },
+        tags: { oneOf: [{ type: 'array', items: { type: 'string' } }, { type: 'string' }] },
         sourceChannel: { type: 'string' },
         scope: { type: 'string' },
         runtime: { type: 'string' },
@@ -397,7 +405,7 @@ const tools = [
       type: 'object',
       properties: {
         text: { type: 'string', minLength: 1, maxLength: 655350 },
-        type: { type: 'string', enum: ['configuration', 'preference', 'decision', 'todo', 'context', 'artifact'] },
+        type: { type: 'string', enum: ['configuration', 'preference', 'decision', 'todo', 'context', 'artifact', 'invariant'] },
         title: { type: 'string', maxLength: 255 },
         tags: { type: 'array', maxItems: 50, items: { type: 'string', maxLength: 128 } },
         sourceChannel: { type: 'string', maxLength: 128 },
@@ -490,6 +498,26 @@ const tools = [
     invoked: 'Temporal assertions extracted'
   }),
   defineTool({
+    name: 'omega_temporal_extraction_receipts',
+    title: 'Read temporal extraction receipts',
+    description: 'Read durable tenant- and ACL-scoped automatic extraction receipts for messages, documents, MemoryEntries, or business-object events. Receipts contain source hashes, lifecycle state, assertion references, schema and policy lineage, counts, and errors but never source content or SecureField values.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        receiptId: { type: 'string', maxLength: 128 },
+        sourceType: { type: 'string', maxLength: 128 },
+        sourceId: { type: 'string', format: 'uuid' },
+        sourceKind: { type: 'string', enum: ['MESSAGE', 'DOCUMENT', 'MEMORY_ENTRY', 'BUSINESS_OBJECT_EVENT'] },
+        status: { type: 'string', enum: ['QUEUED', 'RUNNING', 'SUCCEEDED', 'PARTIAL', 'FAILED', 'SKIPPED'] },
+        limit: { type: 'integer', minimum: 1, maximum: 100 }
+      },
+      additionalProperties: false
+    },
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true, idempotentHint: true },
+    invoking: 'Reading temporal extraction receipts',
+    invoked: 'Temporal extraction receipts ready'
+  }),
+  defineTool({
     name: 'omega_temporal_assertions_as_of',
     title: 'Read temporal assertions as of two times',
     description: 'Read the authorized assertion state at independent domain-valid and system-recorded coordinates. The request is bound to an Omega plan and parent search receipt and returns derived reverse supersession lineage without mutating history.',
@@ -549,6 +577,32 @@ const tools = [
     annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true, idempotentHint: true },
     invoking: 'Assembling conversational context',
     invoked: 'Conversational context ready'
+  }),
+  defineTool({
+    name: 'get_context',
+    title: 'Get complete GrayMatter context',
+    description: 'Default one-call context assembly across recent turns, hierarchical summaries, temporal facts and caveats, raw and consolidated episodes, and authorized business objects. Returns the governing retrieval receipt and ContextPage prompt projection; tenant, ACL, policy, provider, and disclosure gates remain server-owned.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', minLength: 1, maxLength: 12000 },
+        recentTurns: {
+          type: 'array',
+          maxItems: 24,
+          items: { type: 'string', minLength: 1, maxLength: 4000 }
+        },
+        idempotencyKey: { type: 'string', maxLength: 200, pattern: '^[A-Za-z0-9._:-]+$' },
+        asOf: { type: 'string', format: 'date-time' },
+        budgets: { type: 'object', additionalProperties: true },
+        maxTokens: { type: 'integer', minimum: 128, maximum: 16000 },
+        includeEvaluator: { type: 'boolean' }
+      },
+      required: ['query'],
+      additionalProperties: false
+    },
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true, idempotentHint: true },
+    invoking: 'Getting complete GrayMatter context',
+    invoked: 'Complete GrayMatter context ready'
   }),
   defineTool({
     name: 'omega_forget',
@@ -1836,14 +1890,8 @@ async function callTool(params, context) {
       assertNoPrincipalOverrides(args);
       requireString(args.text, 'text');
       requireString(args.idempotencyKey, 'idempotencyKey');
-      return execute(name, () => apiRequest(context, 'POST', 'graymatter/omega/remember', pickDefined({
-        text: args.text,
-        type: args.type,
-        title: args.title,
-        tags: args.tags,
-        sourceChannel: args.sourceChannel,
-        idempotencyKey: args.idempotencyKey
-      })));
+      return execute(name, () => apiRequest(context, 'POST', 'graymatter/omega/remember',
+        buildOmegaRememberPayload(args)));
     case 'graymatter_omega_plan':
     case 'omega_plan':
       assertNoPrincipalOverrides(args);
@@ -1899,6 +1947,25 @@ async function callTool(params, context) {
         'graymatter/omega/temporal/assertions/extract',
         temporalAssertionExtractionPayload(args)
       ));
+    case 'omega_temporal_extraction_receipts': {
+      assertNoPrincipalOverrides(args);
+      const example = pickDefined({
+        receiptId: args.receiptId,
+        sourceType: args.sourceType,
+        sourceId: args.sourceId,
+        sourceKind: args.sourceKind,
+        status: args.status
+      });
+      const limit = Number.isInteger(args.limit) ? Math.max(1, Math.min(args.limit, 100)) : 20;
+      const query = Object.keys(example).length > 0
+        ? `&example=${encodeURIComponent(JSON.stringify(example))}`
+        : '';
+      return execute(name, () => apiRequest(
+        context,
+        'GET',
+        `TemporalAssertionExtractionReceipt?page=0&size=${limit}${query}`
+      ));
+    }
     case 'omega_temporal_assertions_as_of':
       assertNoPrincipalOverrides(args);
       requireTemporalAssertionReceiptInputs(args);
@@ -1932,11 +1999,14 @@ async function callTool(params, context) {
         omegaQueryPayload(args)
       ));
     case 'omega_conversation_context':
+    case 'get_context':
       assertNoPrincipalOverrides(args);
       requireString(args.query, 'query');
       return execute(name, async () => {
+        const contextQuery = name === 'get_context' ? getContextQuery(args) : args.query;
         const recall = await apiRequest(context, 'POST', 'graymatter/omega/recall', omegaQueryPayload({
           ...args,
+          query: contextQuery,
           recipe: 'CONVERSATION_CONTEXT'
         }));
         const contextPageRef = recall?.contextPageRef || recall?.contextPage?.pageRef || recall?.contextPage?.id;
@@ -1944,10 +2014,20 @@ async function callTool(params, context) {
         const promptProjection = await apiRequest(context, 'POST', 'graymatter_ops/context_page/prompt', pickDefined({
           contextPageRef,
           surface: 'chat',
-          task: args.query,
+          task: contextQuery,
           maxTokens: args.maxTokens
         }));
-        return { recall, promptProjection };
+        return name === 'get_context'
+          ? {
+              recall,
+              promptProjection,
+              requestedContextStrata: [
+                'recent_turns', 'summaries', 'facts', 'episodes',
+                'temporal_caveats', 'business_objects'
+              ],
+              policyAuthority: 'server_owned'
+            }
+          : { recall, promptProjection };
       });
     case 'graymatter_forget':
     case 'omega_forget':
@@ -2401,6 +2481,7 @@ function queryArgumentTool(name) {
     'omega_recall',
     'omega_search_recipe',
     'omega_conversation_context',
+    'get_context',
     'graymatter_retrieval_context',
     'graymatter_invariant_preflight',
     'graymatter_semantic_search'
@@ -3139,7 +3220,8 @@ async function queryMemoryWithFallback(context, args) {
     const results = lexicalMemoryFallback(entries, {
       query: args.query,
       limit: args.limit,
-      type: args.type,
+      type: payload.type,
+      tags: payload.tags,
       source: payload.source
     });
 
@@ -3171,12 +3253,17 @@ function lexicalMemoryFallback(payload, options) {
   const terms = Array.from(new Set(query.split(/[^a-z0-9_-]+/u).filter((term) => term.length > 2)));
   const limit = clampInteger(options.limit, 10, 1, 100);
   const type = options.type || '';
+  const requiredTags = normalizeMemoryTagInput(options.tags);
   const source = options.source || '';
 
   return entries
     .map((entry) => ({ entry, score: lexicalMemoryScore(entry, query, terms) }))
     .filter(({ entry, score }) => {
       if (type && entry.type !== type) {
+        return false;
+      }
+      const entryTags = normalizeMemoryTagInput(entry && entry.tags);
+      if (requiredTags.some((tag) => !entryTags.includes(tag))) {
         return false;
       }
       if (source && entry.source !== source && entry.sourceChannel !== source) {
@@ -3394,6 +3481,7 @@ function firstDefined(...values) {
 }
 
 function buildMemoryWritePayload(args) {
+  const invariantAlias = isInvariantMemoryType(args.type);
   const memoryType = requireMemoryWriteType(args.type);
   const text = args.text || args.content;
   requireString(text, args.content ? 'content' : 'text');
@@ -3422,8 +3510,8 @@ function buildMemoryWritePayload(args) {
     payload.metadata = JSON.stringify(metadata);
   }
 
-  if (args.tags !== undefined) {
-    payload.tags = normalizeMemoryTagInput(args.tags);
+  if (args.tags !== undefined || invariantAlias) {
+    payload.tags = normalizeSemanticMemoryTags(args.tags, invariantAlias);
   }
 
   return stripClientManagedFields(payload);
@@ -3431,7 +3519,10 @@ function buildMemoryWritePayload(args) {
 
 function requireMemoryWriteType(value) {
   requireString(value, 'type');
-  const normalized = value.trim().toLowerCase().replace(/[-\s]+/g, '_');
+  const normalized = normalizeMemoryTypeToken(value);
+  if (normalized === 'invariant') {
+    return 'decision';
+  }
   if (MEMORY_WRITE_TYPES.includes(normalized)) {
     return normalized;
   }
@@ -3455,8 +3546,12 @@ function buildMemoryQueryPayload(args) {
   if (args.limit !== undefined) {
     payload.limit = args.limit;
   }
+  const invariantAlias = isInvariantMemoryType(args.type);
   if (args.type !== undefined) {
-    payload.type = args.type;
+    payload.type = invariantAlias ? 'decision' : args.type;
+  }
+  if (args.tags !== undefined || invariantAlias) {
+    payload.tags = normalizeSemanticMemoryTags(args.tags, invariantAlias);
   }
   if (source) {
     payload.source = source;
@@ -3925,6 +4020,22 @@ function omegaQueryPayload(args) {
   });
 }
 
+function getContextQuery(args) {
+  const query = String(args?.query || '').trim();
+  const recentTurns = Array.isArray(args?.recentTurns)
+    ? args.recentTurns
+        .slice(-24)
+        .map((turn) => String(turn || '').trim().slice(0, 4000))
+        .filter(Boolean)
+    : [];
+  if (recentTurns.length === 0) {
+    return query;
+  }
+  return `${query}\n\nRecent conversation turns:\n${recentTurns
+    .map((turn, index) => `${index + 1}. ${turn}`)
+    .join('\n')}`.slice(0, 50000);
+}
+
 function temporalAssertionRecordPayload(args) {
   return pickDefined({
     idempotencyKey: args.idempotencyKey,
@@ -4249,6 +4360,34 @@ function normalizeMemoryTagInput(tags) {
     if (name) normalized.add(name);
   }
   return Array.from(normalized);
+}
+
+function normalizeSemanticMemoryTags(tags, invariantAlias) {
+  const normalized = normalizeMemoryTagInput(tags).filter((tag) => tag !== 'invariant');
+  if (invariantAlias) normalized.push('invariant');
+  return normalized;
+}
+
+function normalizeMemoryTypeToken(value) {
+  return String(value || '').trim().toLowerCase().replace(/[-\s]+/g, '_');
+}
+
+function isInvariantMemoryType(value) {
+  return normalizeMemoryTypeToken(value) === 'invariant';
+}
+
+function buildOmegaRememberPayload(args) {
+  const invariantAlias = isInvariantMemoryType(args.type);
+  return pickDefined({
+    text: args.text,
+    type: invariantAlias ? 'decision' : args.type,
+    title: args.title,
+    tags: args.tags !== undefined || invariantAlias
+      ? normalizeSemanticMemoryTags(args.tags, invariantAlias)
+      : undefined,
+    sourceChannel: args.sourceChannel,
+    idempotencyKey: args.idempotencyKey
+  });
 }
 
 function normalizeTagName(name) {

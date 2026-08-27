@@ -12,12 +12,14 @@ state="$tmp/state"
 release="$tmp/release"
 install_id="gm-self-update-test"
 mkdir -p "$install/scripts" "$install/.codex-plugin" "$install/release" "$release"
+mkdir -p "$install/mcp-server"
 cp "$SCRIPT" "$install/scripts/gm-self-update"
 cp "$LAUNCHER" "$install/scripts/gm-mcp-launcher"
 cp "$ROOT/scripts/gm-schema-cache-lib" "$install/scripts/gm-schema-cache-lib"
 chmod +x "$install/scripts/"*
 printf '{"name":"graymatter","version":"0.3.1"}\n' >"$install/.codex-plugin/plugin.json"
 printf '{"mcpServers":{"graymatter":{"command":"scripts/gm-mcp-launcher","args":["--stdio"]}}}\n' >"$install/.mcp.json"
+printf 'process.stdout.write("local-install\\n");\n' >"$install/mcp-server/index.js"
 
 openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out "$tmp/private.pem" 2>/dev/null
 openssl rsa -in "$tmp/private.pem" -pubout -out "$tmp/public.pem" 2>/dev/null
@@ -100,5 +102,39 @@ restart_output="$(
 
 rollback_output="$(GRAYMATTER_STATE_DIR="$state" GRAYMATTER_INSTALLATIONS_DIR="$tmp/versions" GRAYMATTER_INSTALL_ID="$install_id" GRAYMATTER_SELF_UPDATE_STATE="$tmp/explicit-state.json" "$install/scripts/gm-self-update" rollback)"
 [[ "$rollback_output" == "active_root=$active" ]] || fail "rollback should atomically restore the prior version"
+
+artifact="$(make_release '0.3.3+codex.20260806225400' stale-signed-release)"
+run_update >"$tmp/update-stale-cache.out"
+stale_active="$(grep '^active_root=' "$tmp/update-stale-cache.out" | cut -d= -f2-)"
+[[ -d "$stale_active" ]] || fail "stale signed fixture should be staged before the local build advances"
+
+printf '{"name":"graymatter","version":"0.3.3+codex.20260826204505"}\n' >"$install/.codex-plugin/plugin.json"
+run_update >"$tmp/no-downgrade.out"
+[[ ! -s "$tmp/no-downgrade.out" ]] || fail "newer local build must not stage or activate an older signed release"
+[[ "$(jq -r '.status' "$tmp/explicit-state.json")" == "current-newer" ]] \
+  || fail "newer local build should record current-newer state"
+
+active_root_output="$(
+  GRAYMATTER_STATE_DIR="$state" \
+  GRAYMATTER_INSTALLATIONS_DIR="$tmp/versions" \
+  GRAYMATTER_INSTALL_ID="$install_id" \
+  GRAYMATTER_SELF_UPDATE_STATE="$tmp/explicit-state.json" \
+  "$install/scripts/gm-self-update" active-root
+)"
+[[ -z "$active_root_output" ]] || fail "active-root must ignore an older staged Codex build"
+
+local_restart_output="$(
+  GRAYMATTER_RELEASE_MANIFEST_URL="file://$release/manifest.json" \
+  GRAYMATTER_RELEASE_MANIFEST_SIGNATURE_URL="file://$release/manifest.sig" \
+  GRAYMATTER_STATE_DIR="$state" \
+  GRAYMATTER_INSTALLATIONS_DIR="$tmp/versions" \
+  GRAYMATTER_INSTALL_ID="$install_id" \
+  GRAYMATTER_SELF_UPDATE_STATE="$tmp/explicit-state.json" \
+  GRAYMATTER_SKIP_STARTUP_AUTH=true \
+  GRAYMATTER_SKIP_OPENAPI_SYNC=true \
+  "$install/scripts/gm-mcp-launcher" --stdio
+)"
+[[ "$local_restart_output" == "local-install" ]] \
+  || fail "MCP launcher must keep a newer local Codex build instead of redirecting to older signed stable"
 
 echo "gm_self_update_test.sh: PASS"

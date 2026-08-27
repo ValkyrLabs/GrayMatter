@@ -8,6 +8,14 @@ trap 'rm -rf "$thor_tmp"' EXIT
 export GRAYMATTER_STATE_DIR="$thor_tmp/state"
 export GRAYMATTER_SKIP_SELF_UPDATE=true
 
+thor_file_mode() {
+  if stat -f '%Lp' "$1" >/dev/null 2>&1; then
+    stat -f '%Lp' "$1"
+  else
+    stat -c '%a' "$1"
+  fi
+}
+
 printf 'local-secret-one\n' | "$thor_root/scripts/gm-profile" add-local lite \
   --api-base http://localhost:8787/v1 --password-stdin --activate >/dev/null
 
@@ -17,7 +25,7 @@ if grep -q 'local-secret-one' "$GRAYMATTER_STATE_DIR/profiles.json"; then
   echo "local profile secret leaked into profiles.json" >&2
   exit 1
 fi
-test "$(stat -f '%Lp' "$GRAYMATTER_STATE_DIR/secrets/lite.password" 2>/dev/null || stat -c '%a' "$GRAYMATTER_STATE_DIR/secrets/lite.password")" = "600"
+test "$(thor_file_mode "$GRAYMATTER_STATE_DIR/secrets/lite.password")" = "600"
 
 unset GRAYMATTER_PROFILE_RESOLVED GRAYMATTER_PROFILE_MODE GRAYMATTER_ACTIVE_PROFILE
 source "$thor_root/scripts/gm-profile-lib"

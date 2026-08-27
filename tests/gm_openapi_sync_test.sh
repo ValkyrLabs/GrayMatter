@@ -46,7 +46,7 @@ printf '200\n' >"$GRAYMATTER_API_RESPONSE_STATUS"
 EOF
 chmod +x "$tmp/scripts/graymatter_api.sh"
 export TEST_GRAYMATTER_API_LOG="$tmp/api.log"
-export VALKYR_AUTH_TOKEN="header.payload.signature"
+export VALKYR_AUTH_TOKEN="header.bm90LWpzb24.signature"
 export VALKYR_API_BASE="http://127.0.0.1:9/v1"
 out="$tmp/cache/api-docs.json"
 

@@ -78,10 +78,13 @@ decode_base64_url() {
 token_claims_json() {
   local token="${1:-}"
   local payload=""
+  local claims=""
   [[ -n "$token" ]] || return 1
   payload="$(printf '%s' "$token" | cut -d'.' -f2)"
   [[ -n "$payload" && "$payload" != "$token" ]] || return 1
-  decode_base64_url "$payload"
+  claims="$(decode_base64_url "$payload" 2>/dev/null)" || return 1
+  jq -e 'type == "object"' <<<"$claims" >/dev/null 2>&1 || return 1
+  printf '%s\n' "$claims"
 }
 
 token_health_state() {

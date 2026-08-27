@@ -24,6 +24,7 @@ gm_schema_token_claims() {
   local token="${1:-}"
   local payload=""
   local padded=""
+  local claims=""
   local remainder=0
   [[ -n "$token" ]] || return 1
   payload="$(printf '%s' "$token" | cut -d'.' -f2)"
@@ -36,7 +37,9 @@ gm_schema_token_claims() {
     1) padded="${padded}===" ;;
   esac
   padded="$(printf '%s' "$padded" | tr '_-' '/+')"
-  printf '%s' "$padded" | base64 --decode 2>/dev/null || printf '%s' "$padded" | base64 -D 2>/dev/null
+  claims="$(printf '%s' "$padded" | base64 --decode 2>/dev/null || printf '%s' "$padded" | base64 -D 2>/dev/null)" || return 1
+  jq -e 'type == "object"' <<<"$claims" >/dev/null 2>&1 || return 1
+  printf '%s\n' "$claims"
 }
 
 gm_schema_current_token() {

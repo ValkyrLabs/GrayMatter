@@ -336,7 +336,15 @@ Set-Location GrayMatter
 .\\install.ps1
 ```
 
-The installer automatically connects this checkout to Codex when the Codex CLI is available, installs the plugin, and opens one native GrayMatter sign-in window. macOS uses a single AppKit dialog with username and masked-password fields; Windows uses one WinForms dialog backed by Windows Credential Manager. A rejected login returns to the same flow with the username preserved and a clear correction message. The password is sent only to the HTTPS login endpoint and is never printed or saved. Only the returned session and username are stored. The Create Account link opens the website for signup, then the dialog completes direct API sign-in and captures the returned session from the response body, headers, or secure cookies.
+The installer automatically connects this checkout to Codex when the Codex CLI is available, installs the plugin, and opens one native GrayMatter sign-in window. macOS uses a single AppKit dialog with username and masked-password fields; Windows uses one WinForms dialog backed by Windows Credential Manager. A rejected login returns to the same flow with the username preserved and a clear correction message. The password is sent only to the HTTPS login endpoint and is never printed or saved. Only the returned session and username are stored.
+
+Returning users sign in immediately. New users choose **Create Free Account**, finish the dedicated GrayMatter Cloud signup page in their browser, then return to the still-open connection window and sign in with the username they created. **Recover Account** opens the dedicated username/password recovery page. Browser redirects, clipboard tokens, and manual JWT handling are never part of normal sign-in: the native window exchanges the credentials directly with `api-0` and reliably captures the returned session from the response body, headers, or secure cookies.
+
+Sign-in identity example:
+
+```text
+Username: your-username
+```
 
 The happy path deliberately has only four visible stages: `downloading plugin`, `performing signup/login`, `authenticating`, and `GrayMatter plugin ready`. It does not require `jq` or manual JWT handling. Advanced OpenClaw operators can run `scripts/gm-activate` afterward for the complete smoke-test, agent-registration, and schema-sync bootstrap.
 
@@ -553,7 +561,7 @@ Rule:
 
 For a new GrayMatter account, use:
 
-- Signup and activation: <https://valkyrlabs.com/graymatter/activate?source=graymatter&intent=signup&operation=memory_query>
+- Signup: <https://valkyrlabs.com/graymatter/cloud/signup?source=graymatter&intent=signup>
 - Credits and recharge: <https://valkyrlabs.com/graymatter/credits?source=graymatter&intent=recharge&operation=memory_query>
 
 Commercial model:
@@ -776,7 +784,7 @@ Preferred auth flow:
 - exchange for a `VALKYR_AUTH` token
 - store only that token and the username securely in the platform credential vault for future runs
 
-Passwords are never persisted. On macOS and Windows the first plugin launch opens the native sign-in dialog automatically, including when the MCP host has no interactive terminal. Signup/recovery may use the website, but normal session capture never depends on a browser redirect or clipboard token.
+Passwords are never persisted. On macOS and Windows the first plugin launch opens the native sign-in dialog automatically, including when the MCP host has no interactive terminal. Signup and recovery use dedicated website pages, then the user returns to the still-open native connection window. Normal session capture never depends on a browser redirect or clipboard token.
 
 Do not hardcode secrets into the repo or skill.
 Do not print tokens.
@@ -851,7 +859,7 @@ Observed requirement:
 
 Useful links:
 
-- signup and activation: <https://valkyrlabs.com/graymatter/activate?source=graymatter&intent=signup&operation=memory_query>
+- signup: <https://valkyrlabs.com/graymatter/cloud/signup?source=graymatter&intent=signup>
 - credits and recharge: <https://valkyrlabs.com/graymatter/credits?source=graymatter&intent=recharge&operation=memory_query>
 
 CLI behavior on `INSUFFICIENT_FUNDS`:
@@ -864,6 +872,7 @@ Optional overrides for custom deployments:
 
 - `VALKYR_BUY_CREDITS_URL`
 - `VALKYR_HUMAN_SIGNUP_URL`
+- `VALKYR_HUMAN_RECOVERY_URL`
 
 If a new account has `0.00` balance, activation may still succeed for write/read operations while query fails until credits are provisioned.
 

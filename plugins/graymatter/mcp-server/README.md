@@ -187,7 +187,7 @@ For public or shared deployments, use a hosted session/OAuth handoff or short-li
 
 ```bash
 GRAYMATTER_MCP_MODE=hosted-multi-tenant \
-GRAYMATTER_ALLOWED_ORIGINS=https://claude.ai,https://chatgpt.com \
+GRAYMATTER_ALLOWED_ORIGINS=https://claude.ai,https://chatgpt.com,https://platform.openai.com \
 npm start
 ```
 
@@ -253,4 +253,4 @@ CMD ["node", "index.js"]
 
 ## Credits
 
-Some hosted GrayMatter operations, notably `memory_query` and receipt-backed retrieval/evaluation lanes, consume api-0 credits. Fresh signups should receive 500 starter credits automatically. Recharge at <https://valkyrlabs.com/graymatter/credits?source=graymatter&intent=recharge&operation=memory_query>, or activate a new workspace at <https://valkyrlabs.com/graymatter/activate?source=graymatter&intent=signup&operation=memory_query>.
+Some hosted GrayMatter operations, notably `memory_query` and receipt-backed retrieval/evaluation lanes, consume api-0 credits. Fresh signups should receive 500 starter credits automatically. Recharge at <https://valkyrlabs.com/graymatter/credits?source=graymatter&intent=recharge&operation=memory_query>, or create a new workspace at <https://valkyrlabs.com/graymatter/cloud/signup?source=graymatter&intent=signup>.

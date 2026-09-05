@@ -179,7 +179,7 @@ grep -q 'scripts/gm-read' "$ROOT/plugins/graymatter/skills/graymatter/SKILL.md" 
   echo "Codex marketplace plugin skill missing memory read guidance" >&2
   exit 1
 }
-grep -q 'valkyrlabs.com/graymatter/activate' "$ROOT/plugins/graymatter/skills/graymatter/SKILL.md" || {
+grep -q 'valkyrlabs.com/graymatter/cloud/signup' "$ROOT/plugins/graymatter/skills/graymatter/SKILL.md" || {
   echo "Codex marketplace plugin skill missing routed signup guidance" >&2
   exit 1
 }

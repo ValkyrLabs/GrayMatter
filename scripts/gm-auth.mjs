@@ -13,7 +13,8 @@ const thor_loginUrl = `${thor_apiBase}/${thor_loginPath.replace(/^\//u, '')}`;
 const thor_service = process.env.VALKYR_KEYCHAIN_SERVICE || 'VALKYR_AUTH';
 const thor_usernameService = process.env.VALKYR_USERNAME_KEYCHAIN_SERVICE || `${thor_service}_USERNAME`;
 const thor_legacyPasswordService = process.env.VALKYR_PASSWORD_KEYCHAIN_SERVICE || `${thor_service}_PASSWORD`;
-const thor_signupUrl = process.env.VALKYR_HUMAN_SIGNUP_URL || 'https://valkyrlabs.com/graymatter/activate';
+const thor_signupUrl = process.env.VALKYR_HUMAN_SIGNUP_URL || 'https://valkyrlabs.com/graymatter/cloud/signup?source=graymatter&intent=signup';
+const thor_recoveryUrl = process.env.VALKYR_HUMAN_RECOVERY_URL || 'https://valkyrlabs.com/forgot-password?source=graymatter';
 const thor_platform = process.env.GRAYMATTER_TEST_PLATFORM || process.platform;
 const thor_windowsHelper = path.join(thor_scriptDir, 'gm-windows-credential.ps1');
 const thor_macosHelper = path.join(thor_scriptDir, 'gm-macos-signin.js');
@@ -120,6 +121,7 @@ function promptMac(thor_defaultUsername = '', thor_errorMessage = '') {
     env: {
       ...process.env,
       GRAYMATTER_SIGNUP_URL: thor_signupUrl,
+      GRAYMATTER_RECOVERY_URL: thor_recoveryUrl,
       GRAYMATTER_DEFAULT_USERNAME: thor_defaultUsername,
       GRAYMATTER_AUTH_ERROR: thor_errorMessage
     },
@@ -136,6 +138,7 @@ function promptMac(thor_defaultUsername = '', thor_errorMessage = '') {
 function promptWindows(thor_defaultUsername = '', thor_errorMessage = '') {
   const thor_output = thor_windowsHelperCall('Prompt', [
     '-SignupUrl', thor_signupUrl,
+    '-RecoveryUrl', thor_recoveryUrl,
     '-DefaultUsername', thor_defaultUsername,
     '-ErrorMessage', thor_errorMessage
   ]);
@@ -148,7 +151,7 @@ function promptWindows(thor_defaultUsername = '', thor_errorMessage = '') {
 
 function promptTerminal(thor_defaultUsername = '', thor_errorMessage = '') {
   if (!process.stdin.isTTY || !process.stderr.isTTY) {
-    throw new Error(`Interactive sign-in is unavailable. Create an account at ${thor_signupUrl}, then rerun GrayMatter from a desktop session.`);
+    throw new Error(`Interactive sign-in is unavailable. Create an account at ${thor_signupUrl}, or recover access at ${thor_recoveryUrl}, then rerun GrayMatter from a desktop session.`);
   }
   if (thor_errorMessage) process.stderr.write(`${thor_errorMessage}\n`);
   return new Promise((thor_resolve, thor_reject) => {
@@ -309,7 +312,8 @@ async function main() {
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   main().catch((thor_error) => {
     process.stderr.write(`GrayMatter sign-in failed: ${thor_error.message}\n`);
-    process.stderr.write(`Create or recover an account: ${thor_signupUrl}\n`);
+    process.stderr.write(`Create a free account: ${thor_signupUrl}\n`);
+    process.stderr.write(`Recover access: ${thor_recoveryUrl}\n`);
     process.exitCode = 4;
   });
 }

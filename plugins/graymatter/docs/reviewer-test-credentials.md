@@ -19,10 +19,10 @@ The account must include sample data that demonstrates:
 
 OpenAI review must be able to access the demo account without extra setup.
 
-- Use a dedicated demo login and password, or an OAuth test account if the submitted app uses OAuth.
+- Use a dedicated demo username. Transfer its secret only through the approved secure review channel, or use an OAuth test account if the submitted app uses OAuth.
 - Disable MFA, SMS verification, email-code verification, hardware-key requirements, and signup approval for the reviewer account.
 - Keep the account scoped to sample data only.
-- Reset the password or revoke the test token after review completes.
+- Rotate the account secret or revoke the test token after review completes.
 
 ## Secure Handoff
 

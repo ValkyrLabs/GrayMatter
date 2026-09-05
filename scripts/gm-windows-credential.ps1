@@ -2,7 +2,8 @@ param(
   [Parameter(Mandatory = $true)][ValidateSet('Prompt', 'Read', 'Write', 'Delete')][string]$Action,
   [string]$Target = '',
   [string]$UserName = 'default',
-  [string]$SignupUrl = 'https://valkyrlabs.com/graymatter/activate',
+  [string]$SignupUrl = 'https://valkyrlabs.com/graymatter/cloud/signup?source=graymatter&intent=signup',
+  [string]$RecoveryUrl = 'https://valkyrlabs.com/forgot-password?source=graymatter',
   [string]$DefaultUsername = '',
   [string]$ErrorMessage = ''
 )
@@ -126,10 +127,10 @@ switch ($Action) {
     $thor_form.FormBorderStyle = 'FixedDialog'
     $thor_form.MaximizeBox = $false
     $thor_form.MinimizeBox = $false
-    $thor_form.ClientSize = New-Object System.Drawing.Size(440, 260)
+    $thor_form.ClientSize = New-Object System.Drawing.Size(440, 286)
 
     $thor_intro = New-Object System.Windows.Forms.Label
-    $thor_intro.Text = if ($ErrorMessage) { $ErrorMessage } else { 'Give your AI agents secure, durable memory. Your password is never saved.' }
+    $thor_intro.Text = if ($ErrorMessage) { $ErrorMessage } else { 'Enter your GrayMatter username. Your password is never saved.' }
     $thor_intro.ForeColor = if ($ErrorMessage) { [System.Drawing.Color]::Firebrick } else { [System.Drawing.SystemColors]::ControlText }
     $thor_intro.SetBounds(20, 16, 400, 42)
     $thor_form.Controls.Add($thor_intro)
@@ -139,6 +140,7 @@ switch ($Action) {
     $thor_form.Controls.Add($thor_userLabel)
     $thor_user = New-Object System.Windows.Forms.TextBox
     $thor_user.Text = $DefaultUsername
+    $thor_user.AccessibleName = 'GrayMatter username'
     $thor_user.SetBounds(115, 69, 305, 24)
     $thor_form.Controls.Add($thor_user)
     $thor_passwordLabel = New-Object System.Windows.Forms.Label
@@ -147,22 +149,38 @@ switch ($Action) {
     $thor_form.Controls.Add($thor_passwordLabel)
     $thor_password = New-Object System.Windows.Forms.TextBox
     $thor_password.UseSystemPasswordChar = $true
+    $thor_password.AccessibleName = 'GrayMatter password; required and never saved'
     $thor_password.SetBounds(115, 106, 305, 24)
     $thor_form.Controls.Add($thor_password)
     $thor_signup = New-Object System.Windows.Forms.LinkLabel
-    $thor_signup.Text = 'Create an account or recover access'
-    $thor_signup.SetBounds(20, 149, 250, 24)
-    $thor_signup.Add_LinkClicked({ Start-Process $SignupUrl })
+    $thor_signup.Text = 'New to GrayMatter? Create a free account'
+    $thor_signup.SetBounds(20, 149, 300, 24)
+    $thor_signup.Add_LinkClicked({
+      $thor_form.TopMost = $false
+      $thor_intro.Text = 'Finish creating your account in the browser, then return here and sign in with your username.'
+      $thor_intro.ForeColor = [System.Drawing.SystemColors]::ControlText
+      Start-Process $SignupUrl
+    })
     $thor_form.Controls.Add($thor_signup)
+    $thor_recovery = New-Object System.Windows.Forms.LinkLabel
+    $thor_recovery.Text = 'Forgot your username or password?'
+    $thor_recovery.SetBounds(20, 177, 240, 24)
+    $thor_recovery.Add_LinkClicked({
+      $thor_form.TopMost = $false
+      $thor_intro.Text = 'Finish recovering your account in the browser, then return here and sign in with your username.'
+      $thor_intro.ForeColor = [System.Drawing.SystemColors]::ControlText
+      Start-Process $RecoveryUrl
+    })
+    $thor_form.Controls.Add($thor_recovery)
     $thor_cancel = New-Object System.Windows.Forms.Button
     $thor_cancel.Text = 'Cancel'
     $thor_cancel.DialogResult = [System.Windows.Forms.DialogResult]::Cancel
-    $thor_cancel.SetBounds(250, 205, 80, 30)
+    $thor_cancel.SetBounds(250, 231, 80, 30)
     $thor_form.Controls.Add($thor_cancel)
     $thor_signin = New-Object System.Windows.Forms.Button
     $thor_signin.Text = 'Sign In'
     $thor_signin.DialogResult = [System.Windows.Forms.DialogResult]::OK
-    $thor_signin.SetBounds(340, 205, 80, 30)
+    $thor_signin.SetBounds(340, 231, 80, 30)
     $thor_form.Controls.Add($thor_signin)
     $thor_form.AcceptButton = $thor_signin
     $thor_form.CancelButton = $thor_cancel

@@ -11,7 +11,7 @@ const { URL } = require('node:url');
 
 const DEFAULT_API_BASE = 'https://api-0.valkyrlabs.com/v1';
 const DEFAULT_WIDGET_DOMAIN = 'https://graymatter.valkyrlabs.com';
-const DEFAULT_SIGNUP_URL = 'https://valkyrlabs.com/graymatter/activate';
+const DEFAULT_SIGNUP_URL = 'https://valkyrlabs.com/graymatter/cloud/signup';
 const DEFAULT_LOGIN_PATH = '/auth/login';
 const DEFAULT_PORT = 3333;
 const DEFAULT_PUBLIC_MCP_PATH = '/graymatter/mcp';

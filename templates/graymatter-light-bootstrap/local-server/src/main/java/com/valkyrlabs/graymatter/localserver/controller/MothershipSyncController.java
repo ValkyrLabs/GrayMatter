@@ -51,7 +51,7 @@ public class MothershipSyncController {
             Map.entry("message", "Local GrayMatter Light is ready to activate or promote through Valkyr Cloud."),
             Map.entry("target", "https://valkyrlabs.com"),
             Map.entry("apiBase", "https://api-0.valkyrlabs.com/v1"),
-            Map.entry("activationUrl", "https://valkyrlabs.com/graymatter/activate?source=graymatter&intent=signup&operation=memory_query"),
+            Map.entry("activationUrl", "https://valkyrlabs.com/graymatter/cloud/signup?source=graymatter&intent=signup&operation=memory_query"),
             Map.entry("creditsUrl", "https://valkyrlabs.com/graymatter/credits?source=graymatter&intent=recharge&operation=memory_query"),
             Map.entry("generatedAt", Instant.now().toString()),
             Map.entry("principal", principal.getUsername()),
@@ -85,7 +85,7 @@ public class MothershipSyncController {
             Map.entry("knowledgePackCount", knowledgePacks.countByOwnerUsernameIgnoreCase(principal.getUsername())),
             Map.entry("workbookCount", workbooks.countByOwnerUsernameIgnoreCase(principal.getUsername())),
             Map.entry("activation", Map.of(
-                "signup", "https://valkyrlabs.com/graymatter/activate?source=graymatter&intent=signup&operation=memory_query",
+                "signup", "https://valkyrlabs.com/graymatter/cloud/signup?source=graymatter&intent=signup&operation=memory_query",
                 "credits", "https://valkyrlabs.com/graymatter/credits?source=graymatter&intent=recharge&operation=memory_query",
                 "starterCredits", 500)),
             Map.entry("swarmProtocol", "graymatter-swarm-v0.1"));

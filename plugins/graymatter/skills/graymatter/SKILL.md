@@ -212,7 +212,7 @@ Local/server packaging:
 - `scripts/package-local-server`
 
 MCP server:
-- `mcp-server/` exposes `memory_write`, `memory_read`, `memory_query`, `memory_retrieve_with_receipt`, high-level `omega_remember`, `omega_plan`, `omega_resolve_domains`, `omega_recall`, `omega_forget`, `omega_trajectory_get`, `omega_evaluate`, `omega_outcome`, and `omega_index_job`, `retrieval_receipt_get`, `retrieval_receipt_query`, `graph_get`, GrayMatter status/semantic/retrieval/activation/MCP-bundle tools, `graymatter_invariant_preflight`, `entity_list`, `entity_get`, `entity_create`, and `schema_summary`
+- `mcp-server/` exposes `memory_write`, `memory_read`, `memory_query`, `memory_retrieve_with_receipt`, `retrieval_receipt_get`, `retrieval_receipt_query`, `graph_get`, GrayMatter status/semantic/retrieval/activation/MCP-bundle tools, `graymatter_invariant_preflight`, `entity_list`, `entity_get`, `entity_create`, and `schema_summary`
 - set `VALKYR_API_BASE` to hosted api-0 for Cloud mode or to the running GrayMatter Light base URL for local ThorAPI mode
 
 Design boundary:
@@ -223,7 +223,7 @@ Design boundary:
 ## Account signup and credits
 
 For a new GrayMatter account, use:
-- Signup and activation: <https://valkyrlabs.com/graymatter/activate?source=graymatter&intent=signup&operation=memory_query>
+- Signup: <https://valkyrlabs.com/graymatter/cloud/signup?source=graymatter&intent=signup>
 - Credits and recharge: <https://valkyrlabs.com/graymatter/credits?source=graymatter&intent=recharge&operation=memory_query>
 
 Commercial model:
@@ -289,9 +289,7 @@ Every Codex/OpenClaw/agent process using GrayMatter should:
 4. let `scripts/graymatter_api.sh` and the MCP server refresh expired process-scoped auth automatically
 5. use `scripts/gm-openapi-sync` for online-first ETag validation; scoped metadata must report freshness, revision, API base, tenant/principal fingerprints, and document SHA-256
 6. run `scripts/gm-doctor --quick` after startup, plugin updates, or suspicious auth/transport behavior
-7. rely on bounded automatic replay after authenticated connectivity and
-   authorized tenant context are restored; use `scripts/gm-replay-deferred`
-   only for an explicit operator retry or verification
+7. run `scripts/gm-replay-deferred` only after authenticated connectivity and authorized tenant context are restored
 
 The repository `install.sh` and `install.ps1` entrypoints use the same cross-platform Node installer. When Codex is present they add the checked-out marketplace and install `graymatter@graymatter` automatically, then reuse or establish vault-backed authentication and validate the portable MCP runtime without requiring `jq` or a manually pasted JWT. `scripts/gm-activate` remains the expanded OpenClaw smoke, registration, and schema-sync flow.
 
@@ -410,7 +408,7 @@ and neither local passwords nor hosted sessions are stored in `profiles.json`.
 `graymatter_api.sh` uses:
 - `VALKYR_API_BASE`, defaulting to `https://api-0.valkyrlabs.com/v1`
 - `VALKYR_KEYCHAIN_SERVICE`, defaulting to `VALKYR_AUTH`
-- platform credential-vault lookup for `VALKYR_AUTH` using macOS Keychain, Windows Credential Manager, or Linux Secret Service
+- platform credential-vault lookup for `VALKYR_AUTH`
 - `VALKYR_AUTH_TOKEN` if already present as an override/debug path
 - `VALKYR_JWT_SESSION` as a compatible env fallback
 
@@ -524,10 +522,10 @@ Known operational note:
 - `/MemoryEntry/query` may require credits even when write/read paths succeed
 - new signups should receive an automatic 500-credit grant so GrayMatter query works immediately during activation
 - after starter credits are exhausted, recharge is required for full GrayMatter functionality
-- signup and activation: <https://valkyrlabs.com/graymatter/activate?source=graymatter&intent=signup&operation=memory_query>
+- signup: <https://valkyrlabs.com/graymatter/cloud/signup?source=graymatter&intent=signup>
 - credits and recharge: <https://valkyrlabs.com/graymatter/credits?source=graymatter&intent=recharge&operation=memory_query>
 - `scripts/graymatter_api.sh` prints both links on `INSUFFICIENT_FUNDS` and attempts a popup prompt on macOS/Windows
-- optional overrides: `VALKYR_BUY_CREDITS_URL`, `VALKYR_HUMAN_SIGNUP_URL`
+- optional overrides: `VALKYR_BUY_CREDITS_URL`, `VALKYR_HUMAN_SIGNUP_URL`, `VALKYR_HUMAN_RECOVERY_URL`
 
 ## Local fallback
 

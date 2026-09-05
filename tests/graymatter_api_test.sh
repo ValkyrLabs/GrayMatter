@@ -270,11 +270,6 @@ case "$cmd" in
       exit 0
     fi
 
-    if [[ "$service" == "VALKYR_AUTH_PASSWORD" && "$account" == "valor" ]]; then
-      printf 'fixture-password\n'
-      exit 0
-    fi
-
     if [[ "$service" == "VALKYR_AUTH" && "$account" == "default" ]]; then
       if [[ "${TEST_SECURITY_SCENARIO:-}" == "missing-token" ]]; then
         exit 44
@@ -552,7 +547,7 @@ test_insufficient_funds_falls_back_to_windows_prompt() {
   export TEST_OSASCRIPT_STATUS="1"
   export TEST_POWERSHELL_STATUS="0"
   export VALKYR_BUY_CREDITS_URL="https://valkyrlabs.com/graymatter/credits?source=graymatter&intent=recharge&operation=memory_query"
-  export VALKYR_HUMAN_SIGNUP_URL="https://valkyrlabs.com/graymatter/activate?source=graymatter&intent=signup&operation=memory_query"
+  export VALKYR_HUMAN_SIGNUP_URL="https://valkyrlabs.com/graymatter/cloud/signup?source=graymatter&intent=signup&operation=memory_query"
 
   local result
   local status

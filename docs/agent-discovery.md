@@ -90,7 +90,7 @@ scripts/gm-activate
 
 Activation and signup:
 
-<https://valkyrlabs.com/graymatter/activate?source=graymatter&intent=signup&operation=memory_query>
+<https://valkyrlabs.com/graymatter/cloud/signup?source=graymatter&intent=signup>
 
 Credits and recharge:
 

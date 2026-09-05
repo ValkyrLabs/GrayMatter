@@ -347,6 +347,7 @@ EOF
 set -euo pipefail
 printf 'gm-login called\n' >>"${TEST_GM_LOGIN_LOG}"
 printf 'export VALKYR_API_BASE="https://api-0.valkyrlabs.com/v1"\n'
+printf 'export GRAYMATTER_XSRF_TOKEN="stateful-xsrf"\n'
 case "${TEST_GM_LOGIN_SCENARIO:-write-capable}" in
   read-only)
     printf 'export VALKYR_AUTH_TOKEN="%s"\n' 'eyJhbGciOiJub25lIn0.eyJyb2xlcyI6WyJFVkVSWU9ORSJdLCJzY29wZXMiOlsiU0NPUEVfc2NoZW1hLnJlYWQiXSwidXNlcm5hbWUiOiJ2YWxvciJ9.'
@@ -677,7 +678,7 @@ test_insufficient_funds_urls_do_not_leak_token_or_memory_body() {
 }
 
 with_fixture test_insufficient_funds_urls_do_not_leak_token_or_memory_body
-test_unauthorized_refreshes_token_from_keychain_credentials() {
+test_unauthorized_reopens_login_without_loading_a_stored_password() {
   local temp_root="$1"
   local fake_bin="$2"
   local script_copy="$3"
@@ -707,8 +708,10 @@ test_unauthorized_refreshes_token_from_keychain_credentials() {
   local security_log
   security_log="$(cat "${temp_root}/security.log")"
   assert_contains "${security_log}" "find-generic-password -a default -s VALKYR_AUTH_USERNAME -w" "graymatter_api should load the remembered username from Keychain"
-  assert_contains "${security_log}" "find-generic-password -a valor -s VALKYR_AUTH_PASSWORD -w" "graymatter_api should load the remembered password from Keychain"
-  assert_contains "${security_log}" "add-generic-password -U -a valor -s VALKYR_AUTH -w refreshed-token" "graymatter_api should update the username-scoped token"
+  if [[ "${security_log}" == *"VALKYR_AUTH_PASSWORD"* ]]; then
+    fail "graymatter_api must not read a reusable hosted password from Keychain"
+  fi
+  assert_contains "$(cat "${temp_root}/gm-login.log")" "gm-login called" "graymatter_api should reopen the secure login flow for an expired session"
 }
 
 test_missing_token_runs_login_before_request() {
@@ -769,9 +772,7 @@ test_expired_keychain_token_refreshes_before_original_request() {
   [[ "${status}" == "0" ]] || fail "graymatter_api should proactively refresh an expired keychain JWT before calling the target endpoint"
   assert_contains "${output}" "$(printf '{"ok":true,"%s":"%s"}' token refreshed-token)" "graymatter_api should use the refreshed token for the original request"
 
-  local first_curl
-  first_curl="$(sed -n '1p' "${temp_root}/curl.log")"
-  assert_contains "${first_curl}" "/auth/login" "graymatter_api should call login before the original endpoint when the stored JWT is already expired"
+  assert_contains "$(cat "${temp_root}/gm-login.log")" "gm-login called" "graymatter_api should reopen secure login before the original endpoint when the stored JWT is already expired"
 }
 
 test_curl_requests_use_default_timeouts() {
@@ -942,7 +943,8 @@ test_write_uses_stateful_cookie_and_xsrf_after_login() {
 
   [[ "${status}" == "0" ]] || fail "graymatter_api should satisfy stateful XSRF-protected writes after login"
   assert_contains "${result}" '{"ok":true,"stateful":true}' "graymatter_api should retry the write with cookie jar and XSRF header"
-  assert_contains "$(cat "${temp_root}/curl.log")" "/auth/login" "graymatter_api should establish a stateful login before hosted writes"
+  assert_contains "$(cat "${temp_root}/gm-login.log")" "gm-login called" "graymatter_api should establish a stateful login before hosted writes"
+  assert_contains "$(cat "${temp_root}/curl.log")" "X-XSRF-TOKEN: stateful-xsrf" "graymatter_api should carry the XSRF value captured by secure login"
 }
 
 test_memory_write_access_denied_names_missing_permission() {
@@ -1067,7 +1069,7 @@ with_fixture test_success_passthrough
 with_fixture test_safe_reads_use_bounded_transient_retries
 with_fixture test_insufficient_funds_shows_links_and_uses_macos_prompt
 with_fixture test_insufficient_funds_falls_back_to_windows_prompt
-with_fixture test_unauthorized_refreshes_token_from_keychain_credentials
+with_fixture test_unauthorized_reopens_login_without_loading_a_stored_password
 with_fixture test_missing_token_runs_login_before_request
 with_fixture test_expired_keychain_token_refreshes_before_original_request
 with_fixture test_curl_requests_use_default_timeouts

@@ -30,6 +30,16 @@ assert_file_exists() {
 make_fake_bin() {
   local dir="$1"
 
+  cat >"${dir}/node" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "$*" >>"${TEST_NODE_LOG}"
+printf 'export VALKYR_API_BASE="https://api-0.valkyrlabs.com/v1"\n'
+printf 'export VALKYR_AUTH_TOKEN="test-token"\n'
+printf 'GrayMatter sign-in complete. Session stored; password was not saved.\n' >&2
+EOF
+  chmod +x "${dir}/node"
+
   cat >"${dir}/jq" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -172,7 +182,7 @@ run_activate() {
   make_fake_bin "${fake_bin}"
   make_activation_fixture "${fixture_dir}" "${smoke_mode}"
 
-  export TEST_SECURITY_LOG="${temp_root}/security.log"
+  export TEST_NODE_LOG="${temp_root}/node.log"
   export TEST_SELF_UPDATE_LOG="${temp_root}/self-update.log"
   export TEST_REGISTER_CALLED="${temp_root}/register.called"
   export TEST_SYNC_CALLED="${temp_root}/sync.called"
@@ -197,7 +207,7 @@ run_activate() {
   printf '%s' "${output}"
 }
 
-test_activate_stores_runtime_keychain_service() {
+test_activate_uses_portable_auth_and_completes() {
   local result
   local status
   local temp_root
@@ -210,12 +220,12 @@ test_activate_stores_runtime_keychain_service() {
 
   [[ "${status}" == "0" ]] || fail "gm-activate should succeed in the happy path"
 
-  local security_log
-  security_log="$(cat "${temp_root}/security.log")"
+  local node_log
+  node_log="$(cat "${temp_root}/node.log")"
   local self_update_log
   self_update_log="$(cat "${temp_root}/self-update.log")"
   assert_contains "${self_update_log}" "force" "gm-activate should force self-update during activation by default"
-  assert_contains "${security_log}" "-s VALKYR_AUTH" "gm-activate should store the token under the VALKYR_AUTH keychain service"
+  assert_contains "${node_log}" "gm-auth.mjs env" "gm-activate should use the cross-platform authentication helper"
   assert_contains "${output}" "GrayMatter activation complete" "gm-activate should report completion in the happy path"
 }
 
@@ -238,7 +248,7 @@ test_activate_continues_when_smoke_query_is_credit_gated() {
   assert_contains "${output}" "not optional" "gm-activate should pester about restoring full memory"
 }
 
-test_activate_stores_runtime_keychain_service
+test_activate_uses_portable_auth_and_completes
 test_activate_continues_when_smoke_query_is_credit_gated
 
 printf 'PASS: gm_activate_test.sh\n'

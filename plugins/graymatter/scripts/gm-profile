@@ -18,8 +18,8 @@ Usage:
   gm-profile with <name> <name> [name...] -- <read-command> [args...]
 
 Named profiles are local aliases for separate GrayMatter login accounts. The
-registry stores only account-routing metadata; tokens and reusable passwords
-remain in macOS Keychain.
+registry stores only account-routing metadata; hosted sessions remain in the
+platform credential vault and hosted passwords are never persisted.
 
 Commands:
   add

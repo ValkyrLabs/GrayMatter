@@ -3016,7 +3016,15 @@ function isRefreshableAuthError(error) {
 
 function readTokenFromKeychain() {
   if (process.platform !== 'darwin') {
-    return '';
+    try {
+      return execFileSync(process.execPath, [path.join(__dirname, '..', 'scripts', 'gm-auth.mjs'), 'read-token'], {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+        timeout: 5000
+      }).trim();
+    } catch {
+      return '';
+    }
   }
 
   const service = process.env.VALKYR_KEYCHAIN_SERVICE || 'VALKYR_AUTH';
@@ -3055,7 +3063,10 @@ function readTokenFromKeychain() {
 
 function runLoginCommand(context) {
   const loginCommand = context.loginCommand || process.env.GRAYMATTER_LOGIN_COMMAND || path.join(__dirname, '..', 'scripts', 'gm-login');
-  const output = execFileSync(loginCommand, ['env'], {
+  const thor_portableLogin = process.platform === 'win32' && !process.env.GRAYMATTER_LOGIN_COMMAND;
+  const output = execFileSync(thor_portableLogin ? process.execPath : loginCommand, thor_portableLogin
+    ? [path.join(__dirname, '..', 'scripts', 'gm-auth.mjs'), 'env']
+    : ['env'], {
     encoding: 'utf8',
     env: {
       ...process.env,

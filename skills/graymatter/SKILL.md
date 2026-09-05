@@ -75,8 +75,7 @@ scripts/gm-openapi-sync
 scripts/gm-doctor --quick
 ```
 
-Auth should be treated as an OpenClaw-managed first-run step.
-The user should be prompted for `api-0` username and password, and the resulting session should be stored securely in macOS/iCloud Keychain for reuse.
+Auth is an automatic first-run step. The plugin opens a native secure dialog on macOS or Windows for the `api-0` username and password, exchanges them directly over HTTPS, and stores only the resulting session and username in macOS Keychain or Windows Credential Manager. Linux uses Secret Service when available and a hidden terminal fallback otherwise. The password must never be printed or persisted.
 The user should not need to manually fetch or paste a raw auth token.
 
 ## What this skill gives the agent
@@ -272,7 +271,7 @@ scripts/gm-openapi-sync
 scripts/gm-openapi-summary
 ```
 
-`scripts/gm-login` is the intended OpenClaw login UX: prompt once for username/password, store securely in Keychain, and let the rest of the skill use that session automatically.
+`scripts/gm-login` is the intended login UX: prompt once with a native dialog, store only the session in the platform credential vault, and let the rest of the skill use it automatically. Account creation may open the activation website, but JWT/session capture must come from the direct API login response rather than a browser redirect or manual paste.
 
 `scripts/gm-register-agent` should run immediately after auth succeeds so the OpenClaw server creates or refreshes an Agent record for itself in api-0 before normal operation.
 
@@ -280,11 +279,11 @@ After that, GrayMatter is ready to use as primary durable memory and schema cont
 
 ## Startup and self-healing
 
-The MCP entrypoint is `scripts/gm-mcp-launcher`. It performs a bounded signed-release check, auth/connectivity check, conditional OpenAPI refresh, and authenticated tenant-context replay check before it execs Node. Startup failures are surfaced on stderr; the MCP protocol stream remains clean, and a valid stale schema is discovery-only.
+The cross-platform MCP entrypoint is `node scripts/gm-mcp-launcher.mjs --stdio`. It owns first-run native authentication and then preserves the bounded signed-release, schema-refresh, and replay checks on supported Unix installs before starting the MCP server. Startup failures are surfaced on stderr so the MCP protocol stream remains clean.
 
 Every Codex/OpenClaw/agent process using GrayMatter should:
 
-1. use `scripts/gm-mcp-launcher` for MCP startup
+1. use `node scripts/gm-mcp-launcher.mjs --stdio` for cross-platform MCP startup; it opens native sign-in automatically when the session is missing or expired
 2. run `scripts/gm-activate` on first install, auth failure, suspicious transport behavior, or after a refresh is due
 3. rely on `scripts/gm-login` to store reusable auth in the OS keychain when available
 4. let `scripts/graymatter_api.sh` and the MCP server refresh expired process-scoped auth automatically
@@ -396,22 +395,23 @@ reads across at least two profiles and blocks all writes until one profile is
 selected. MCP supports the same blended memory query/read/health subset and
 returns read-only recovery for mutating or unsupported tools.
 
-Local passwords remain in mode-0600 profile secret files; hosted tokens remain
-in Keychain. Neither secret is stored in `profiles.json`.
+Local-only passwords remain in mode-0600 profile secret files; hosted sessions
+remain in the platform credential vault. Hosted passwords are never persisted,
+and neither local passwords nor hosted sessions are stored in `profiles.json`.
 
 `graymatter_api.sh` uses:
 - `VALKYR_API_BASE`, defaulting to `https://api-0.valkyrlabs.com/v1`
 - `VALKYR_KEYCHAIN_SERVICE`, defaulting to `VALKYR_AUTH`
-- macOS/iCloud Keychain lookup for `VALKYR_AUTH`
+- platform credential-vault lookup for `VALKYR_AUTH` using macOS Keychain, Windows Credential Manager, or Linux Secret Service
 - `VALKYR_AUTH_TOKEN` if already present as an override/debug path
 - `VALKYR_JWT_SESSION` as a compatible env fallback
 
 Preferred auth behavior is OpenClaw-first:
-- check Keychain for `VALKYR_AUTH` first
+- check the platform credential vault for `VALKYR_AUTH` first
 - if present, reuse it automatically
 - otherwise prompt for username/password
 - exchange for a `VALKYR_AUTH` token
-- store it in Keychain
+- store only the session and username in the platform credential vault
 
 If activation can write/read by id and register the agent but semantic memory query is blocked by missing credits, treat that as a degraded startup state rather than total activation failure. Preserve auth, register the agent, sync the schema, and surface that query/list capability is limited until credits are available.
 

@@ -35,8 +35,8 @@ if [[ "$CLAW_HUB_VERSION" != "$PLUGIN_VERSION" ]]; then
   exit 1
 fi
 
-require jq -e '.mcpServers.graymatter.command == "scripts/gm-mcp-launcher"' "$ROOT/.mcp.json" >/dev/null
-require jq -e '.mcpServers.graymatter.args == ["--stdio"]' "$ROOT/.mcp.json" >/dev/null
+require jq -e '.mcpServers.graymatter.command == "node"' "$ROOT/.mcp.json" >/dev/null
+require jq -e '.mcpServers.graymatter.args == ["scripts/gm-mcp-launcher.mjs", "--stdio"]' "$ROOT/.mcp.json" >/dev/null
 require jq -e '.apps.graymatter == {
   "id": "asdk_app_6a590a1720808191b3909ed57132a25d"
 }' "$ROOT/.app.json" >/dev/null
@@ -66,8 +66,8 @@ require jq -e '.interface.longDescription | contains("GrayMatter Light")' "$ROOT
 require jq -e '.apps.graymatter == {
   "id": "asdk_app_6a590a1720808191b3909ed57132a25d"
 }' "$ROOT/plugins/graymatter/.app.json" >/dev/null
-require jq -e '.mcpServers.graymatter.command == "scripts/gm-mcp-launcher"' "$ROOT/plugins/graymatter/.mcp.json" >/dev/null
-require jq -e '.mcpServers.graymatter.args == ["--stdio"]' "$ROOT/plugins/graymatter/.mcp.json" >/dev/null
+require jq -e '.mcpServers.graymatter.command == "node"' "$ROOT/plugins/graymatter/.mcp.json" >/dev/null
+require jq -e '.mcpServers.graymatter.args == ["scripts/gm-mcp-launcher.mjs", "--stdio"]' "$ROOT/plugins/graymatter/.mcp.json" >/dev/null
 [[ -f "$ROOT/plugins/graymatter/skills/graymatter/SKILL.md" ]] || {
   echo "Codex marketplace plugin skill missing" >&2
   exit 1
@@ -201,6 +201,18 @@ grep -q 'Normalized object writes' "$ROOT/plugins/graymatter/skills/graymatter/S
 }
 [[ -x "$ROOT/plugins/graymatter/scripts/gm-mcp-launcher" ]] || {
   echo "Codex marketplace MCP startup launcher missing or not executable" >&2
+  exit 1
+}
+[[ -f "$ROOT/plugins/graymatter/scripts/gm-mcp-launcher.mjs" ]] || {
+  echo "Codex marketplace portable MCP startup launcher missing" >&2
+  exit 1
+}
+[[ -f "$ROOT/plugins/graymatter/scripts/gm-auth.mjs" ]] || {
+  echo "Codex marketplace cross-platform authentication helper missing" >&2
+  exit 1
+}
+[[ -f "$ROOT/plugins/graymatter/scripts/gm-windows-credential.ps1" ]] || {
+  echo "Codex marketplace Windows credential helper missing" >&2
   exit 1
 }
 [[ -x "$ROOT/plugins/graymatter/scripts/gm-schema-cache-lib" ]] || {
@@ -606,6 +618,10 @@ grep -q '^graymatter/scripts/gm-record$' "$ZIP_LIST"
 grep -q '^graymatter/scripts/package-graymatter$' "$ZIP_LIST"
 grep -q '^graymatter/scripts/package_graymatter.sh$' "$ZIP_LIST"
 grep -q '^graymatter/scripts/gm-login$' "$ZIP_LIST"
+grep -q '^graymatter/scripts/gm-auth.mjs$' "$ZIP_LIST"
+grep -q '^graymatter/scripts/gm-windows-credential.ps1$' "$ZIP_LIST"
+grep -q '^graymatter/scripts/gm-mcp-launcher.mjs$' "$ZIP_LIST"
+grep -q '^graymatter/scripts/gm-activate.ps1$' "$ZIP_LIST"
 grep -q '^graymatter/scripts/gm-install-check$' "$ZIP_LIST"
 grep -q '^graymatter/scripts/gm-doctor$' "$ZIP_LIST"
 grep -q '^graymatter/scripts/gm-agent-smoke-matrix$' "$ZIP_LIST"
@@ -619,6 +635,9 @@ grep -q '^graymatter/templates/graymatter-light-bootstrap/local-server/bin/graym
 grep -q '^graymatter/mcp-server/index.js$' "$ZIP_LIST"
 grep -q '^graymatter/.mcp.json$' "$ZIP_LIST"
 grep -q '^graymatter/graymatter-bootstrap$' "$ZIP_LIST"
+grep -q '^graymatter/graymatter-bootstrap.ps1$' "$ZIP_LIST"
+grep -q '^graymatter/install.sh$' "$ZIP_LIST"
+grep -q '^graymatter/install.ps1$' "$ZIP_LIST"
 grep -q '^graymatter/references/contracts/mcp/graymatter_mcp_tools_v1.json$' "$ZIP_LIST"
 grep -q '^graymatter/references/contracts/mcp/graymatter_mcp_contract_v1.json$' "$ZIP_LIST"
 grep -q '^graymatter/references/mcp/memory-tool-contract.v1.json$' "$ZIP_LIST"

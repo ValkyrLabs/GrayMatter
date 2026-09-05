@@ -43,3 +43,47 @@ jobs:
         run: |
           set -euo pipefail
           npm test --prefix mcp-server
+
+  windows-auth-and-install:
+    name: Windows Auth And Install Surfaces
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Validate portable JavaScript
+        shell: pwsh
+        run: |
+          node --check scripts/gm-auth.mjs
+          node --check scripts/gm-mcp-launcher.mjs
+          node --check mcp-server/index.js
+
+      - name: Verify Windows Credential Manager round trip
+        shell: pwsh
+        run: |
+          $thor_target = "GrayMatter:CI:$([guid]::NewGuid())"
+          try {
+            [Console]::SetIn([System.IO.StringReader]::new('ci-session'))
+            & .\scripts\gm-windows-credential.ps1 -Action Write -Target $thor_target -UserName ci
+            $thor_value = & .\scripts\gm-windows-credential.ps1 -Action Read -Target $thor_target
+            if ($thor_value -ne 'ci-session') { throw 'Credential Manager round trip failed.' }
+          } finally {
+            & .\scripts\gm-windows-credential.ps1 -Action Delete -Target $thor_target
+          }
+
+      - name: Verify Windows bootstrap and activation scripts parse
+        shell: pwsh
+        run: |
+          $thor_allErrors = @()
+          foreach ($thor_file in @('.\install.ps1', '.\graymatter-bootstrap.ps1', '.\scripts\gm-activate.ps1', '.\scripts\gm-windows-credential.ps1')) {
+            $thor_tokens = $null
+            $thor_errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $thor_file), [ref]$thor_tokens, [ref]$thor_errors) | Out-Null
+            $thor_allErrors += $thor_errors
+          }
+          if ($thor_allErrors.Count -gt 0) { throw ($thor_allErrors | Out-String) }

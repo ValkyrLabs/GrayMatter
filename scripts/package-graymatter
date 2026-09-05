@@ -10,6 +10,9 @@ REQUIRED=(
   .mcp.json
   SKILL.md
   graymatter-bootstrap
+  graymatter-bootstrap.ps1
+  install.sh
+  install.ps1
   vaix
   deploy/docker-compose.lite.yml
   skills/graymatter/SKILL.md
@@ -53,7 +56,10 @@ REQUIRED=(
   scripts/gm-profile
   scripts/gm-profile-lib
   scripts/gm-login
+  scripts/gm-auth.mjs
+  scripts/gm-windows-credential.ps1
   scripts/gm-activate
+  scripts/gm-activate.ps1
   scripts/gm-install-check
   scripts/gm-doctor
   scripts/gm-smoke
@@ -63,6 +69,7 @@ REQUIRED=(
   scripts/gm-self-update
   scripts/gm-schema-cache-lib
   scripts/gm-mcp-launcher
+  scripts/gm-mcp-launcher.mjs
   scripts/gm-openapi-sync
   scripts/gm-openapi-summary
   scripts/gm-mcp-contract

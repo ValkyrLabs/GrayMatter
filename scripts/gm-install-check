@@ -29,7 +29,6 @@ TOKEN=${VALKYR_AUTH_TOKEN:-${VALKYR_JWT_SESSION:-}}
 LIGHT_MODE="${GRAYMATTER_LIGHT_MODE:-false}"
 KEYCHAIN_SERVICE="${VALKYR_KEYCHAIN_SERVICE:-VALKYR_AUTH}"
 USERNAME_SERVICE="${VALKYR_USERNAME_KEYCHAIN_SERVICE:-${KEYCHAIN_SERVICE}_USERNAME}"
-PASSWORD_SERVICE="${VALKYR_PASSWORD_KEYCHAIN_SERVICE:-${KEYCHAIN_SERVICE}_PASSWORD}"
 USERNAME=${GRAYMATTER_USERNAME:-${VALKYR_USERNAME:-}}
 
 if [[ "${GRAYMATTER_SKIP_SELF_UPDATE:-false}" != "true" && -x "${SCRIPT_DIR}/gm-self-update" ]]; then
@@ -201,7 +200,7 @@ fi
 
 if [[ -z "$TOKEN" && "$LIGHT_MODE" != "true" ]]; then
   if ! run_login || [[ -z "$TOKEN" ]]; then
-    fail "No GrayMatter auth found. Checked VALKYR_AUTH_TOKEN, VALKYR_JWT_SESSION, macOS Keychain secret ${KEYCHAIN_SERVICE}, reusable credentials, and login did not produce a token."
+    fail "No GrayMatter auth found. Checked environment and platform credential-vault sessions; native sign-in did not produce a token."
   fi
 fi
 

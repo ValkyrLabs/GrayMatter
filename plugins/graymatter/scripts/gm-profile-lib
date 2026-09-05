@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 
 # Shared named-login profile helpers. Profile files contain only local routing
-# metadata. Authentication tokens and reusable passwords remain in Keychain.
+# metadata. Hosted sessions remain in the platform vault; hosted passwords are
+# never persisted. Local-only profile passwords remain in mode-0600 files.
 
 gm_profile_state_dir() {
   printf '%s\n' "${GRAYMATTER_STATE_DIR:-${HOME:-.}/.graymatter}"
@@ -121,8 +122,7 @@ gm_profile_auth_material_present() {
   thor_account="$(gm_profile_username_value "$thor_record")"
   thor_service="$(jq -r '.keychainService' <<<"$thor_record")"
   [[ -n "$thor_account" && "$thor_account" != "null" ]] || return 1
-  gm_profile_keychain_item_exists "$thor_account" "$thor_service" \
-    || gm_profile_keychain_item_exists "$thor_account" "${thor_service}_PASSWORD"
+  gm_profile_keychain_item_exists "$thor_account" "$thor_service"
 }
 
 gm_profile_token_present() {

@@ -55,9 +55,9 @@ LIGHT_USERNAME="${GRAYMATTER_LIGHT_USERNAME:-admin}"
 LIGHT_PASSWORD="${GRAYMATTER_LIGHT_PASSWORD:-}"
 KEYCHAIN_SERVICE="${VALKYR_KEYCHAIN_SERVICE:-VALKYR_AUTH}"
 USERNAME_SERVICE="${VALKYR_USERNAME_KEYCHAIN_SERVICE:-${KEYCHAIN_SERVICE}_USERNAME}"
-PASSWORD_SERVICE="${VALKYR_PASSWORD_KEYCHAIN_SERVICE:-${KEYCHAIN_SERVICE}_PASSWORD}"
 USERNAME=${GRAYMATTER_USERNAME:-${VALKYR_USERNAME:-}}
 PASSWORD=${GRAYMATTER_PASSWORD:-${VALKYR_PASSWORD:-}}
+XSRF_TOKEN=${GRAYMATTER_XSRF_TOKEN:-}
 BUY_CREDITS_URL_BASE="${VALKYR_BUY_CREDITS_URL:-https://valkyrlabs.com/graymatter/credits}"
 HUMAN_SIGNUP_URL_BASE="${VALKYR_HUMAN_SIGNUP_URL:-https://valkyrlabs.com/graymatter/activate}"
 LOGIN_PATH="${GRAYMATTER_LOGIN_PATH:-/auth/login}"
@@ -421,20 +421,14 @@ run_login() {
 
   eval "$("$login_cmd" env)"
   TOKEN=${VALKYR_AUTH_TOKEN:-${VALKYR_JWT_SESSION:-}}
+  XSRF_TOKEN=${GRAYMATTER_XSRF_TOKEN:-}
   if [[ -z "$USERNAME" ]] && command -v security >/dev/null 2>&1; then
     USERNAME=$(keychain_read default "$USERNAME_SERVICE")
-  fi
-  if [[ -z "$PASSWORD" && -n "$USERNAME" ]] && command -v security >/dev/null 2>&1; then
-    PASSWORD=$(keychain_read "$USERNAME" "$PASSWORD_SERVICE")
   fi
 }
 
 if [[ -z "$USERNAME" && -z "${GRAYMATTER_ACTIVE_PROFILE:-}" ]] && command -v security >/dev/null 2>&1; then
   USERNAME=$(keychain_read default "$USERNAME_SERVICE")
-fi
-
-if [[ -z "$PASSWORD" && -n "$USERNAME" ]] && command -v security >/dev/null 2>&1; then
-  PASSWORD=$(keychain_read "$USERNAME" "$PASSWORD_SERVICE")
 fi
 
 if [[ -z "$TOKEN" && "$LIGHT_MODE" != "true" ]] && command -v security >/dev/null 2>&1; then
@@ -882,6 +876,16 @@ refresh_token() {
 }
 
 prepare_stateful_auth_for_write() {
+  if [[ -n "$TOKEN" && -n "$XSRF_TOKEN" && "$LIGHT_MODE" != "true" ]]; then
+    STATEFUL_COOKIE_JAR="$(portable_mktemp graymatter-login-cookie.XXXXXX)"
+    {
+      printf '# Netscape HTTP Cookie File\n'
+      printf 'api-0.valkyrlabs.com\tFALSE\t/\tTRUE\t0\tVALKYR_AUTH\t%s\n' "$TOKEN"
+      printf 'api-0.valkyrlabs.com\tFALSE\t/\tTRUE\t0\tXSRF-TOKEN\t%s\n' "$XSRF_TOKEN"
+    } >"$STATEFUL_COOKIE_JAR"
+    STATEFUL_XSRF_TOKEN="$XSRF_TOKEN"
+    return 0
+  fi
   if [[ -z "$USERNAME" || -z "$PASSWORD" || "$LIGHT_MODE" == "true" ]]; then
     return 1
   fi

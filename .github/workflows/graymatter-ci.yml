@@ -59,6 +59,7 @@ jobs:
       - name: Validate portable JavaScript
         shell: pwsh
         run: |
+          node --check scripts/gm-install.mjs
           node --check scripts/gm-auth.mjs
           node --check scripts/gm-mcp-launcher.mjs
           node --check mcp-server/index.js
@@ -71,6 +72,10 @@ jobs:
             'ci-session' | & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File .\scripts\gm-windows-credential.ps1 -Action Write -Target $thor_target -UserName ci
             $thor_value = & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File .\scripts\gm-windows-credential.ps1 -Action Read -Target $thor_target
             if ($thor_value -ne 'ci-session') { throw 'Credential Manager round trip failed.' }
+            $thor_largeSession = 'jwt.' + ('x' * 7000) + '.signature'
+            $thor_largeSession | & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File .\scripts\gm-windows-credential.ps1 -Action Write -Target $thor_target -UserName ci
+            $thor_largeValue = & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File .\scripts\gm-windows-credential.ps1 -Action Read -Target $thor_target
+            if ($thor_largeValue -ne $thor_largeSession) { throw 'Large Credential Manager session round trip failed.' }
           } finally {
             & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File .\scripts\gm-windows-credential.ps1 -Action Delete -Target $thor_target
           }
@@ -86,3 +91,22 @@ jobs:
             $thor_allErrors += $thor_errors
           }
           if ($thor_allErrors.Count -gt 0) { throw ($thor_allErrors | Out-String) }
+
+  macos-auth-dialog:
+    name: macOS Native Sign-In Surface
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Compile native sign-in dialog
+        run: |
+          set -euo pipefail
+          osacompile -l JavaScript -o "$RUNNER_TEMP/GrayMatterSignIn.scpt" scripts/gm-macos-signin.js
+
+      - name: Validate portable JavaScript
+        run: |
+          set -euo pipefail
+          node --check scripts/gm-install.mjs
+          node --check scripts/gm-auth.mjs
+          node --check scripts/gm-mcp-launcher.mjs

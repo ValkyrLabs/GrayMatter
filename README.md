@@ -336,7 +336,9 @@ Set-Location GrayMatter
 .\\install.ps1
 ```
 
-Installation or first plugin launch opens a native GrayMatter sign-in dialog. macOS uses a Keychain-backed system dialog; Windows uses a WinForms dialog backed by Windows Credential Manager. The password is sent only to the HTTPS login endpoint and is never printed or saved. Only the returned session and username are stored. The Create Account link opens the website for signup, then the same dialog completes direct API sign-in and captures the returned session from the response body, headers, or secure cookie.
+The installer automatically connects this checkout to Codex when the Codex CLI is available, installs the plugin, and opens one native GrayMatter sign-in window. macOS uses a single AppKit dialog with username and masked-password fields; Windows uses one WinForms dialog backed by Windows Credential Manager. A rejected login returns to the same flow with the username preserved and a clear correction message. The password is sent only to the HTTPS login endpoint and is never printed or saved. Only the returned session and username are stored. The Create Account link opens the website for signup, then the dialog completes direct API sign-in and captures the returned session from the response body, headers, or secure cookies.
+
+The happy path deliberately has only four visible stages: `downloading plugin`, `performing signup/login`, `authenticating`, and `GrayMatter plugin ready`. It does not require `jq` or manual JWT handling. Advanced OpenClaw operators can run `scripts/gm-activate` afterward for the complete smoke-test, agent-registration, and schema-sync bootstrap.
 
 Before task planning, code edits, production-affecting actions, or answers based on project history, agents must immediately run the invariant preflight for the current workspace/product:
 
@@ -579,11 +581,13 @@ That means GrayMatter should feel like:
 - store securely
 - use forever after until refresh is needed
 
+Temporary network or server failures do not discard a stored session or reopen a misleading password prompt. Only an explicit `401` or `403` invalidates startup authentication. Windows stores oversized sessions as transparent protected Credential Manager chunks, so long JWTs do not fall through the platform's per-entry size limit.
+
 Manual token handling is a fallback/debug path, not the primary user experience.
 
 ### Repo-based install
 
-Use `./install.sh` on macOS/Linux or `.\\install.ps1` from Windows PowerShell after cloning the repository.
+Use `./install.sh` on macOS/Linux or `.\install.ps1` from Windows PowerShell after cloning the repository. When Codex is installed, these commands add the repository marketplace and install `graymatter@graymatter` automatically; otherwise they prepare the standalone runtime and authentication surface.
 
 `scripts/gm-activate` is the intended one-shot bootstrap for OpenClaw installs. It first runs `scripts/gm-self-update force` by default so activation and recovery do not skip the source-of-truth update check just because the weekly startup interval has not elapsed, then authenticates and validates the install. Set `GRAYMATTER_ACTIVATE_SELF_UPDATE_MODE=maybe` only when an operator intentionally wants interval-gated startup behavior. It can use:
 

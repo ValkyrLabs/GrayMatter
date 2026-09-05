@@ -75,7 +75,7 @@ scripts/gm-openapi-sync
 scripts/gm-doctor --quick
 ```
 
-Auth is an automatic first-run step. The plugin opens a native secure dialog on macOS or Windows for the `api-0` username and password, exchanges them directly over HTTPS, and stores only the resulting session and username in macOS Keychain or Windows Credential Manager. Linux uses Secret Service when available and a hidden terminal fallback otherwise. The password must never be printed or persisted.
+Auth is an automatic first-run step. The plugin opens one native secure dialog on macOS or Windows for the `api-0` username and masked password, exchanges them directly over HTTPS, and stores only the resulting session and username in macOS Keychain or Windows Credential Manager. Rejected credentials reopen the dialog with the username preserved and an actionable error. Temporary validation outages preserve the stored session; only explicit `401` or `403` responses invalidate it. Windows transparently chunks oversized sessions across protected Credential Manager entries. Linux uses Secret Service when available and a hidden terminal fallback otherwise. The password must never be printed or persisted.
 The user should not need to manually fetch or paste a raw auth token.
 
 ## What this skill gives the agent
@@ -292,6 +292,8 @@ Every Codex/OpenClaw/agent process using GrayMatter should:
 7. rely on bounded automatic replay after authenticated connectivity and
    authorized tenant context are restored; use `scripts/gm-replay-deferred`
    only for an explicit operator retry or verification
+
+The repository `install.sh` and `install.ps1` entrypoints use the same cross-platform Node installer. When Codex is present they add the checked-out marketplace and install `graymatter@graymatter` automatically, then reuse or establish vault-backed authentication and validate the portable MCP runtime without requiring `jq` or a manually pasted JWT. `scripts/gm-activate` remains the expanded OpenClaw smoke, registration, and schema-sync flow.
 
 User-facing progress should stay simple:
 

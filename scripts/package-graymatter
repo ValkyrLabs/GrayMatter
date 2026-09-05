@@ -56,7 +56,9 @@ REQUIRED=(
   scripts/gm-profile
   scripts/gm-profile-lib
   scripts/gm-login
+  scripts/gm-install.mjs
   scripts/gm-auth.mjs
+  scripts/gm-macos-signin.js
   scripts/gm-windows-credential.ps1
   scripts/gm-activate
   scripts/gm-activate.ps1

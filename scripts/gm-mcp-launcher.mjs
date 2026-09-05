@@ -14,18 +14,20 @@ function thor_log(thor_message) {
   process.stderr.write(`graymatter-mcp-startup: ${thor_message}\n`);
 }
 
-async function thor_authReady(thor_token) {
-  if (!thor_token) return false;
+export async function authState(thor_token, thor_candidateApiBase = thor_apiBase) {
+  if (!thor_token) return 'missing';
   const thor_controller = new AbortController();
   const thor_timeout = setTimeout(() => thor_controller.abort(), Number(process.env.GRAYMATTER_MCP_AUTH_TIMEOUT_MS || 8000));
   try {
-    const thor_response = await fetch(`${thor_apiBase}/auth/me`, {
+    const thor_response = await fetch(`${thor_candidateApiBase}/auth/me`, {
       headers: { Authorization: `Bearer ${thor_token}`, VALKYR_AUTH: thor_token, Cookie: `VALKYR_AUTH=${thor_token}` },
       signal: thor_controller.signal
     });
-    return thor_response.ok;
+    if (thor_response.ok) return 'valid';
+    if (thor_response.status === 401 || thor_response.status === 403) return 'invalid';
+    return 'unavailable';
   } catch {
-    return false;
+    return 'unavailable';
   } finally {
     clearTimeout(thor_timeout);
   }
@@ -51,7 +53,11 @@ function thor_spawn(thor_command, thor_args, thor_env) {
 
 async function main() {
   let thor_token = readStoredToken();
-  if (process.env.GRAYMATTER_SKIP_STARTUP_AUTH !== 'true' && !(await thor_authReady(thor_token))) {
+  let thor_authStateValue = await authState(thor_token);
+  if (thor_authStateValue === 'unavailable') {
+    thor_log('session validation is temporarily unavailable; continuing with the stored session');
+  }
+  if (process.env.GRAYMATTER_SKIP_STARTUP_AUTH !== 'true' && ['missing', 'invalid'].includes(thor_authStateValue)) {
     thor_log('sign-in required; opening the secure GrayMatter dialog');
     const thor_auth = spawn(process.execPath, [path.join(thor_scriptDir, 'gm-auth.mjs'), 'keychain'], {
       cwd: thor_pluginRoot,
@@ -65,7 +71,8 @@ async function main() {
     });
     if (thor_status !== 0) throw new Error('GrayMatter sign-in did not complete.');
     thor_token = readStoredToken();
-    if (!(await thor_authReady(thor_token))) throw new Error('GrayMatter could not verify the new session.');
+    thor_authStateValue = await authState(thor_token);
+    if (thor_authStateValue === 'missing' || thor_authStateValue === 'invalid') throw new Error('GrayMatter could not verify the new session.');
   }
 
   const thor_env = { ...process.env, VALKYR_API_BASE: thor_apiBase, VALKYR_AUTH_TOKEN: thor_token };
@@ -78,7 +85,9 @@ async function main() {
   thor_spawn(process.execPath, [path.join(thor_pluginRoot, 'mcp-server', 'index.js'), '--stdio', ...thor_args], thor_env);
 }
 
-main().catch((thor_error) => {
-  thor_log(thor_error.message);
-  process.exitCode = 4;
-});
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  main().catch((thor_error) => {
+    thor_log(thor_error.message);
+    process.exitCode = 4;
+  });
+}

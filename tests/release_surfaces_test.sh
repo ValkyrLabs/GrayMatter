@@ -211,6 +211,14 @@ grep -q 'Normalized object writes' "$ROOT/plugins/graymatter/skills/graymatter/S
   echo "Codex marketplace cross-platform authentication helper missing" >&2
   exit 1
 }
+[[ -f "$ROOT/plugins/graymatter/scripts/gm-install.mjs" ]] || {
+  echo "Codex marketplace cross-platform installer missing" >&2
+  exit 1
+}
+[[ -f "$ROOT/plugins/graymatter/scripts/gm-macos-signin.js" ]] || {
+  echo "Codex marketplace native macOS sign-in helper missing" >&2
+  exit 1
+}
 [[ -f "$ROOT/plugins/graymatter/scripts/gm-windows-credential.ps1" ]] || {
   echo "Codex marketplace Windows credential helper missing" >&2
   exit 1
@@ -619,6 +627,8 @@ grep -q '^graymatter/scripts/package-graymatter$' "$ZIP_LIST"
 grep -q '^graymatter/scripts/package_graymatter.sh$' "$ZIP_LIST"
 grep -q '^graymatter/scripts/gm-login$' "$ZIP_LIST"
 grep -q '^graymatter/scripts/gm-auth.mjs$' "$ZIP_LIST"
+grep -q '^graymatter/scripts/gm-install.mjs$' "$ZIP_LIST"
+grep -q '^graymatter/scripts/gm-macos-signin.js$' "$ZIP_LIST"
 grep -q '^graymatter/scripts/gm-windows-credential.ps1$' "$ZIP_LIST"
 grep -q '^graymatter/scripts/gm-mcp-launcher.mjs$' "$ZIP_LIST"
 grep -q '^graymatter/scripts/gm-activate.ps1$' "$ZIP_LIST"

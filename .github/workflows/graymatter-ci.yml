@@ -68,12 +68,11 @@ jobs:
         run: |
           $thor_target = "GrayMatter:CI:$([guid]::NewGuid())"
           try {
-            [Console]::SetIn([System.IO.StringReader]::new('ci-session'))
-            & .\scripts\gm-windows-credential.ps1 -Action Write -Target $thor_target -UserName ci
-            $thor_value = & .\scripts\gm-windows-credential.ps1 -Action Read -Target $thor_target
+            'ci-session' | & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File .\scripts\gm-windows-credential.ps1 -Action Write -Target $thor_target -UserName ci
+            $thor_value = & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File .\scripts\gm-windows-credential.ps1 -Action Read -Target $thor_target
             if ($thor_value -ne 'ci-session') { throw 'Credential Manager round trip failed.' }
           } finally {
-            & .\scripts\gm-windows-credential.ps1 -Action Delete -Target $thor_target
+            & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File .\scripts\gm-windows-credential.ps1 -Action Delete -Target $thor_target
           }
 
       - name: Verify Windows bootstrap and activation scripts parse

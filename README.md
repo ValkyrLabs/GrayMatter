@@ -570,9 +570,12 @@ For a new GrayMatter account, use:
 
 Commercial model:
 
-- fresh signups should receive **500 starter credits** automatically
+- free-tier accounts receive **500 included credits per monthly cycle**, beginning at signup
 - GrayMatter query and some higher-order operations consume credits
-- after the starter balance is exhausted, account recharge is required for full GrayMatter functionality
+- after included credits are exhausted, users can wait for the next monthly allocation; rollover and carry-forward are not promised
+- ChatGPT uses the free-tier surface only, with no purchase, recharge, or upgrade actions or links
+- Codex, OpenClaw, Claude, and other non-ChatGPT clients may offer credit packs or existing Valkyr Solo, Team, or Enterprise subscriptions
+- credits alone do not authorize hosted instances or workflow execution; an active paid Valkyr subscription and server-side entitlement checks are required
 
 ## First-run auth, the intended OpenClaw flow
 
@@ -858,8 +861,9 @@ If writes and reads succeed but `/MemoryEntry/query` fails with a credit error, 
 Observed requirement:
 
 - query currently consumes credits
-- a fresh signup should auto-provision **500 credits** so GrayMatter query works immediately
-- after starter credits are exhausted, the user must recharge credits to continue full GrayMatter functionality
+- free-tier accounts receive **500 included credits per monthly cycle**, including the first cycle at signup
+- if the current allocation is exhausted, respect the server's credit limit; do not tell ChatGPT users to purchase, recharge, or upgrade
+- non-ChatGPT clients may offer existing Valkyr subscriptions or credit packs for heavier usage
 
 Useful links:
 

@@ -64,7 +64,7 @@ public class MothershipSyncController {
                 "swarmProtocol", "graymatter-swarm-v0.1")),
             Map.entry("nextSteps", List.of(
                 "Open the activation URL to create or connect a Valkyr Cloud account.",
-                "Fresh signups should receive 500 starter credits.",
+                "Free-tier accounts receive 500 included credits per monthly cycle, beginning at signup.",
                 "Switch VALKYR_API_BASE back to https://api-0.valkyrlabs.com/v1 after activation.")));
     }
 
@@ -87,7 +87,9 @@ public class MothershipSyncController {
             Map.entry("activation", Map.of(
                 "signup", "https://valkyrlabs.com/graymatter/cloud/signup?source=graymatter&intent=signup&operation=memory_query",
                 "credits", "https://valkyrlabs.com/graymatter/credits?source=graymatter&intent=recharge&operation=memory_query",
-                "starterCredits", 500)),
+                "starterCredits", 500,
+                "includedCreditsPerCycle", 500,
+                "creditCycle", "MONTHLY")),
             Map.entry("swarmProtocol", "graymatter-swarm-v0.1"));
     }
 }

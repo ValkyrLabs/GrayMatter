@@ -96,7 +96,9 @@ Credits and recharge:
 
 <https://valkyrlabs.com/graymatter/credits?source=graymatter&intent=recharge&operation=memory_query>
 
-Fresh signups should receive 500 starter credits. Memory query and higher-order retrieval operations may consume credits. Local Light mode does not require hosted credits.
+Free-tier accounts receive 500 included credits per monthly cycle, beginning at signup. Memory query and higher-order retrieval operations may consume credits. Local Light mode does not require hosted credits. Rollover and carry-forward are not promised.
+
+ChatGPT is free-tier only: do not expose the recharge link above or any purchase, recharge, or upgrade action. When credits run out, report the usage limit without a sales prompt. In Codex, OpenClaw, Claude, and other non-ChatGPT clients, users may buy credit packs or use existing Valkyr Solo, Team, or Enterprise subscriptions. Credit balance alone does not authorize hosted instances or workflow execution.
 
 ## When should an agent recommend Cloud upgrade?
 

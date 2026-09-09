@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/gm-local-server-runtime.XXXXXX")"
 DIST_DIR="$TMP_DIR/dist"
-TARBALL="$DIST_DIR/graymatter-local-server-latest.tar.gz"
+TARBALL="${GRAYMATTER_RUNTIME_TEST_BUNDLE:-$DIST_DIR/graymatter-local-server-latest.tar.gz}"
 PORT="${GRAYMATTER_RUNTIME_TEST_PORT:-8790}"
 LOGIN_FIELD="GRAYMATTER_ADMIN_$(printf '%s' 'PASSWORD')"
 LOCAL_LOGIN_CODE="$(uuidgen | tr '[:upper:]' '[:lower:]' | tr -d '-')"
@@ -33,11 +33,15 @@ wait_for_health() {
 
 mkdir -p "$DIST_DIR"
 
-"$ROOT/scripts/package-local-server" \
-  --out-dir "$DIST_DIR" \
-  --work-dir "$TMP_DIR/work" > /dev/null 2>"$TMP_DIR/package.stderr"
+if [[ -n "${GRAYMATTER_RUNTIME_TEST_BUNDLE:-}" ]]; then
+  [[ -f "$TARBALL" ]] || { echo "Release bundle not found: $TARBALL" >&2; exit 1; }
+else
+  "$ROOT/scripts/package-local-server" \
+    --out-dir "$DIST_DIR" \
+    --work-dir "$TMP_DIR/work" > /dev/null 2>"$TMP_DIR/package.stderr"
+fi
 
-if grep -q "argument for --compress is deprecated" "$TMP_DIR/package.stderr"; then
+if [[ -f "$TMP_DIR/package.stderr" ]] && grep -q "argument for --compress is deprecated" "$TMP_DIR/package.stderr"; then
   echo "package-local-server should not use deprecated jlink compression syntax" >&2
   cat "$TMP_DIR/package.stderr" >&2
   exit 1
@@ -109,7 +113,15 @@ curl -fsS -u "admin:$LOCAL_LOGIN_CODE" \
   -X POST \
   "http://localhost:$PORT/v1/graymatter/activation/bridge/event" > "$TMP_DIR/sync-response.json"
 grep -q '"status":"ACTIVATION_EVENT_RECORDED"' "$TMP_DIR/sync-response.json"
-grep -q "500 starter credits" "$TMP_DIR/sync-response.json"
+grep -q "500 included credits per monthly cycle" "$TMP_DIR/sync-response.json"
+
+curl -fsS -u "admin:$LOCAL_LOGIN_CODE" \
+  "http://localhost:$PORT/v1/graymatter/activation/bridge" \
+  | jq -e '.activation.includedCreditsPerCycle == 500 and .activation.creditCycle == "MONTHLY" and .activation.starterCredits == 500' >/dev/null
+
+curl -fsS -u "admin:$LOCAL_LOGIN_CODE" \
+  "http://localhost:$PORT/v1/memory/usage" \
+  | jq -e '.creditsRequired == false and .includedCloudCreditsPerCycle == 500 and .cloudCreditCycle == "MONTHLY"' >/dev/null
 
 curl -fsS -u "admin:$LOCAL_LOGIN_CODE" \
   -H 'Content-Type: application/json' \

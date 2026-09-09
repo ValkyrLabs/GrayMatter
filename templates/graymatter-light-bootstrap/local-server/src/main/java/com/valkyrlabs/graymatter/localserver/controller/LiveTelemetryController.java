@@ -75,7 +75,9 @@ public class LiveTelemetryController {
             "memoryEntryCount", memoryEntries.countByPrincipalUsernameIgnoreCase(principal.getUsername()),
             "workbookCount", workbooks.countByOwnerUsernameIgnoreCase(principal.getUsername()),
             "creditsRequired", false,
-            "starterCreditsInCloud", 500);
+            "starterCreditsInCloud", 500,
+            "includedCloudCreditsPerCycle", 500,
+            "cloudCreditCycle", "MONTHLY");
     }
 
     private Map<String, Object> metric(String id, String label, Object value, String unit, String state) {

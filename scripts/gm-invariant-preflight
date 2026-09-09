@@ -83,7 +83,8 @@ command -v jq >/dev/null 2>&1 || {
 
 STATUS_FILE="$(mktemp "${TMPDIR:-/tmp}/gm-invariant-status.XXXXXX")"
 RESPONSE_FILE="$(mktemp "${TMPDIR:-/tmp}/gm-invariant-preflight.XXXXXX")"
-trap 'rm -f "$STATUS_FILE" "$RESPONSE_FILE"' EXIT
+THOR_MATCH_FILE="$(mktemp "${TMPDIR:-/tmp}/gm-invariant-matches.XXXXXX")"
+trap 'rm -f "$STATUS_FILE" "$RESPONSE_FILE" "$THOR_MATCH_FILE"' EXIT
 
 STATUS_STATE="ready"
 if ! "$GRAYMATTER_API_COMMAND" GET /memory/status >"$STATUS_FILE" 2>/dev/null; then
@@ -91,7 +92,8 @@ if ! "$GRAYMATTER_API_COMMAND" GET /memory/status >"$STATUS_FILE" 2>/dev/null; t
   printf '{"status":"unavailable"}\n' >"$STATUS_FILE"
 fi
 
-"$GRAYMATTER_API_COMMAND" GET /MemoryEntry >"$RESPONSE_FILE"
+GRAYMATTER_API_COMMAND="$GRAYMATTER_API_COMMAND" node "$SCRIPT_DIR/../mcp-server/lib/memory-scan.cjs" >"$RESPONSE_FILE"
+COVERAGE="$(jq -c .coverage "$RESPONSE_FILE")"
 
 TERMS_JSON="$(
   if [[ ${#TERMS[@]} -eq 0 ]]; then
@@ -100,6 +102,7 @@ TERMS_JSON="$(
     printf '%s\n' "${TERMS[@]}" | jq -R . | jq -cs .
   fi
 )"
+THOR_TASK_TERMS_JSON="$TERMS_JSON"
 TERMS_JSON="$(
   jq -nc --argjson terms "$TERMS_JSON" '
     [
@@ -156,7 +159,8 @@ FILTERED="$(
     --arg source "$SOURCE_CHANNEL" \
     --arg workspace "$WORKSPACE_NAME" \
     --argjson limit "$LIMIT" \
-    --argjson terms "$TERMS_JSON" '
+    --argjson terms "$TERMS_JSON" \
+    --argjson taskTerms "$THOR_TASK_TERMS_JSON" '
       def entries:
         if type == "array" then .
         elif (.content? | type) == "array" then .content
@@ -164,6 +168,7 @@ FILTERED="$(
         elif (.data? | type) == "array" then .data
         elif (.results? | type) == "array" then .results
         elif (.records? | type) == "array" then .records
+        elif (.entries? | type) == "array" then .entries
         else []
         end;
       def tag_names:
@@ -210,6 +215,10 @@ FILTERED="$(
         or (searchable | contains($workspace | ascii_downcase));
       def invariant_match:
         (.type == "decision")
+        and (.trashed != true)
+        and (.supersededByRef == null)
+        and ((.status // "" | ascii_downcase) as $status | ["superseded","retracted","archived","obsolete"] | index($status) == null)
+        and (tag_names | all(. != "superseded" and . != "retracted" and . != "obsolete" and . != "status:superseded" and . != "status:retracted"))
         and (
           (tag_names as $tags | any(invariant_tags[]; . as $tag | ($tags | index($tag) != null)))
           or (searchable | contains("invariant"))
@@ -217,13 +226,23 @@ FILTERED="$(
         );
       def term_score:
         . as $entry
-        | reduce ($terms[]? | ascii_downcase) as $term (0; . + if ($entry | searchable | contains($term)) then 1 else 0 end);
+        | (reduce ($terms[]? | ascii_downcase) as $term (0; . + if ($entry | searchable | contains($term)) then 1 else 0 end))
+          + (reduce ($taskTerms[]? | ascii_downcase) as $term (0; . + if ($term != "" and ($entry | searchable | contains($term))) then 4 else 0 end));
       entries
       | map(select(source_match and invariant_match) | . + {preflightScore: term_score})
-      | sort_by([-(.preflightScore // 0), (.sourceChannel // ""), (.createdDate // "")])
-      | .[:$limit]
+      | sort_by([(.preflightScore // 0), (.createdDate // ""), (.id // "")]) | reverse
     ' "$RESPONSE_FILE"
 )"
+MATCHING_INVARIANTS="$(jq length <<<"$FILTERED")"
+FILTERED="$(jq -c --argjson limit "$LIMIT" '.[:$limit]' <<<"$FILTERED")"
+printf '%s\n' "$FILTERED" >"$THOR_MATCH_FILE"
+READY_TO_PROCEED=false
+if [[ "$(jq -r .complete <<<"$COVERAGE")" == true && "$MATCHING_INVARIANTS" -le "$LIMIT" && "$STATUS_STATE" == ready ]]; then
+  READY_TO_PROCEED=true
+fi
+if [[ "$READY_TO_PROCEED" != true ]]; then
+  echo "gm-invariant-preflight: incomplete preflight; inspect coverage and omittedInvariants before proceeding" >&2
+fi
 
 if [[ "$FORMAT" == "json" ]]; then
   jq -n \
@@ -233,19 +252,27 @@ if [[ "$FORMAT" == "json" ]]; then
     --slurpfile status "$STATUS_FILE" \
     --argjson terms "$TERMS_JSON" \
     --argjson memoryContract "$MEMORY_CONTRACT_JSON" \
-    --argjson entries "$FILTERED" \
-    '{
+    --slurpfile matches "$THOR_MATCH_FILE" \
+    --argjson coverage "$COVERAGE" \
+    --argjson matching "$MATCHING_INVARIANTS" \
+    --argjson ready "$READY_TO_PROCEED" \
+    '$matches[0] as $entries | {
       sourceChannel:$source,
       workspace:$workspace,
       status:{state:$statusState, response:($status[0] // null)},
       terms:$terms,
       count:($entries|length),
       entries:$entries,
+      coverage:$coverage,
+      matchingInvariants:$matching,
+      omittedInvariants:($matching - ($entries|length)),
+      readyToProceed:$ready,
       failClosed:true,
       memoryContract:$memoryContract,
       instruction:"Treat returned invariant decisions as binding. Missing or degraded retrieval is not permission to ignore known durable rules."
     }'
-  exit 0
+  [[ "$READY_TO_PROCEED" == true ]] && exit 0
+  exit 2
 fi
 
 jq -nr \
@@ -254,7 +281,11 @@ jq -nr \
   --arg statusState "$STATUS_STATE" \
   --argjson terms "$TERMS_JSON" \
   --argjson memoryContract "$MEMORY_CONTRACT_JSON" \
-  --argjson entries "$FILTERED" '
+  --argjson coverage "$COVERAGE" \
+  --argjson matching "$MATCHING_INVARIANTS" \
+  --argjson ready "$READY_TO_PROCEED" \
+  --slurpfile matches "$THOR_MATCH_FILE" '
+    $matches[0] as $entries |
     "GrayMatter invariant preflight",
     "sourceChannel=" + $source,
     "workspace=" + $workspace,
@@ -264,6 +295,9 @@ jq -nr \
     "sourceOfTruth=" + $memoryContract.sourceOfTruth,
     "localFallbackPolicy=" + $memoryContract.localFallbackPolicy,
     "matches=" + (($entries | length) | tostring),
+    "coverage=" + ($coverage | tojson),
+    "omittedInvariants=" + (($matching - ($entries | length)) | tostring),
+    "readyToProceed=" + ($ready | tostring),
     (
       $entries[]
       | "- [" + (.sourceChannel // "") + "] "
@@ -275,3 +309,4 @@ jq -nr \
 if [[ "$(jq 'length' <<<"$FILTERED")" -eq 0 ]]; then
   echo "No binding invariants were found by direct scan. Agents must not treat this as proof that no invariant exists if the user or known IDs indicate otherwise." >&2
 fi
+[[ "$READY_TO_PROCEED" == true ]] || exit 2

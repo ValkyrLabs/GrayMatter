@@ -204,6 +204,7 @@ test('stdio mode exposes the GrayMatter MCP tools for Codex plugin launch', asyn
         'memory_write',
         'memory_put',
         'memory_read',
+        'memory_contribution_report',
         'memory_get',
         'memory_query',
         'memory_put_batch',
@@ -427,6 +428,7 @@ test('tools/list exposes the GrayMatter tool surface', async () => {
         'memory_write',
         'memory_put',
         'memory_read',
+        'memory_contribution_report',
         'memory_get',
         'memory_query',
         'memory_put_batch',
@@ -1160,7 +1162,7 @@ test('memory_query accepts small-model query aliases and raw string arguments', 
     assert.equal(record.method, 'POST');
     seenQueries.push(record.body.query);
     res.writeHead(200, { 'content-type': 'application/json' });
-    res.end(JSON.stringify({ results: [] }));
+    res.end(JSON.stringify({ results: [{ id: 'alias-result' }] }));
   });
 
   const apiBase = await listen(fakeApi.server);
@@ -1302,6 +1304,7 @@ test('graymatter_invariant_preflight returns binding decisions from direct memor
       return;
     }
     if (record.path === '/v1/MemoryEntry') {
+      if (record.query.get('page') !== '0') { res.end('[]'); return; }
       res.end(JSON.stringify([
         {
           id: 'acl-rule',
@@ -1354,6 +1357,9 @@ test('graymatter_invariant_preflight returns binding decisions from direct memor
     assert.equal(payload.sourceChannel, 'codex:workspace:ValkyrAI');
     assert.equal(payload.status.state, 'ready');
     assert.equal(payload.failClosed, true);
+    assert.equal(payload.coverage.complete, true);
+    assert.equal(payload.coverage.scanned, 3);
+    assert.equal(payload.readyToProceed, true);
     assert.equal(payload.count, 1);
     assert.equal(payload.entries[0].id, 'acl-rule');
     assert.equal(payload.entries[0].preflightScore > 0, true);
@@ -1722,7 +1728,7 @@ test('memory_query normalizes invariant alias for semantic and tag retrieval', a
       tags: ['graymatter', 'invariant']
     });
     res.writeHead(200, { 'content-type': 'application/json' });
-    res.end(JSON.stringify({ results: [] }));
+    res.end(JSON.stringify({ results: [{ id: 'invariant-result' }] }));
   });
   const apiBase = await listen(fakeApi.server);
   const server = createGrayMatterMcpServer({ apiBase: `${apiBase}/v1` });
@@ -1829,7 +1835,7 @@ test('memory_query forwards explicit tenant context ahead of JWT fallback', asyn
     assert.equal(record.headers['x-tenant-id'], 'tenant-abc');
     assert.equal(record.body.query, 'tenant scoped');
     res.writeHead(200, { 'content-type': 'application/json' });
-    res.end(JSON.stringify({ results: [] }));
+    res.end(JSON.stringify({ results: [{ id: 'tenant-result' }] }));
   });
 
   const apiBase = await listen(fakeApi.server);

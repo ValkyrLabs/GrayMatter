@@ -23,9 +23,11 @@ REQUIRED=(
   skills/graymatter-context/SKILL.md
   skills/graymatter-context/agents/openai.yaml
   mcp-server/README.md
+  mcp-server/Dockerfile
   mcp-server/index.js
   mcp-server/package.json
   docs/agent-discovery.md
+  docs/contribution-evidence.md
   docs/awesome-codex-plugins.md
   docs/graymatter-light.md
   docs/graymatter-lite.md
@@ -45,6 +47,9 @@ REQUIRED=(
   CODE_OF_CONDUCT.md
   scripts/gm-activation-fastlane
   scripts/gm-invariant-preflight
+  mcp-server/lib/memory-scan.cjs
+  mcp-server/lib/contribution-report.cjs
+  scripts/gm-contribution-report
   scripts/gm-client
   scripts/gm-query
   scripts/gm-read

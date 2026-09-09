@@ -75,7 +75,7 @@ jq -n \
     | .source = (.source // "chat")
     | .status = "pending_replay"
     | .items += [{
-        type:"hookEvent",
+        type:"context",
         event:$event,
         text:$text,
         owner:$owner,

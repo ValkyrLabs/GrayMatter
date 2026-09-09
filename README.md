@@ -1,5 +1,9 @@
 # GrayMatter Lite
 
+[Retrieval coverage and contribution evidence](docs/contribution-evidence.md)
+explains complete-list discovery, explicit reuse versus write verification, and
+receipt-to-decision-to-artifact-to-test reporting without invented savings.
+
 GrayMatter Lite is a real open-source memory product for one person or one
 workspace. It runs locally or on infrastructure you control and includes the
 same useful product loop from the first launch: sign in, create durable memory,

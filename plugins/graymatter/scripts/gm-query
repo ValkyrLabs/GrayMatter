@@ -339,6 +339,7 @@ fallback_memoryentry_filter() {
         elif (.data? | type) == "array" then .data
         elif (.results? | type) == "array" then .results
         elif (.records? | type) == "array" then .records
+        elif (.entries? | type) == "array" then .entries
         else []
         end;
       def tag_text:
@@ -375,6 +376,10 @@ fallback_memoryentry_filter() {
       | map(. as $entry | (searchable_text) as $text | $entry + {"_gmLexicalScore": lexical_score($text)})
       | map(select(
           ($type == "" or (.type? == $type))
+          and (.trashed != true)
+          and (.supersededByRef == null)
+          and ((.status // "" | ascii_downcase) as $status | ["superseded","retracted","archived","obsolete"] | index($status) == null)
+          and ((.tags // [] | map(if type == "object" then (.name // "") else tostring end) | map(ascii_downcase)) | all(. != "superseded" and . != "obsolete" and . != "retracted" and . != "status:superseded" and . != "status:retracted"))
           and ($source == "" or (.source? == $source) or (.sourceChannel? == $source))
           and ((searchable_text | contains($q)) or (._gmLexicalScore > 0))
         ))
@@ -394,8 +399,10 @@ run_memoryentry_timeout_fallback() {
   list_body="$(mktemp "${TMPDIR:-/tmp}/gm-query-memoryentry-list.XXXXXX")"
   trap 'rm -f "$list_body"' RETURN
 
-  "$GRAYMATTER_API_COMMAND" GET /MemoryEntry >"$list_body"
+  GRAYMATTER_API_COMMAND="$GRAYMATTER_API_COMMAND" node "$SCRIPT_DIR/../mcp-server/lib/memory-scan.cjs" >"$list_body"
+  jq -c '.coverage' "$list_body" | sed 's/^/gm-query: lexical coverage=/' >&2
   fallback_memoryentry_filter "$list_body"
+  [[ "$(jq -r .coverage.complete "$list_body")" == true ]] || return 2
 }
 
 format_response() {
@@ -463,6 +470,13 @@ QUERY_RESPONSE="$(mktemp "${TMPDIR:-/tmp}/gm-query-response.XXXXXX")"
 trap 'rm -f "$QUERY_RESPONSE"' EXIT
 
 if run_memoryentry_query >"$QUERY_RESPONSE"; then
+  if [[ "$LIMIT" != 0 && "${GRAYMATTER_QUERY_EMPTY_FALLBACK:-true}" == true ]] && jq -e '(if type == "array" then . else (.content // .items // .data // .results // .records // null) end) == []' "$QUERY_RESPONSE" >/dev/null 2>&1; then
+    echo 'gm-query: semantic search returned no matches; trying paginated lexical discovery' >&2
+    THOR_FALLBACK_STATUS=0
+    run_memoryentry_timeout_fallback >"$QUERY_RESPONSE" || THOR_FALLBACK_STATUS=$?
+    format_response "$QUERY_RESPONSE"
+    exit "$THOR_FALLBACK_STATUS"
+  fi
   format_response "$QUERY_RESPONSE"
   exit 0
 else
@@ -478,9 +492,10 @@ if [[ "${GRAYMATTER_QUERY_TIMEOUT_FALLBACK:-true}" == "true" ]] && is_query_degr
   echo "gm-query: MemoryEntry/query degraded; falling back to MemoryEntry list filtering" >&2
   FALLBACK_RESPONSE="$(mktemp "${TMPDIR:-/tmp}/gm-query-fallback-response.XXXXXX")"
   trap 'rm -f "$QUERY_RESPONSE" "$FALLBACK_RESPONSE"' EXIT
-  run_memoryentry_timeout_fallback >"$FALLBACK_RESPONSE"
+  THOR_FALLBACK_STATUS=0
+  run_memoryentry_timeout_fallback >"$FALLBACK_RESPONSE" || THOR_FALLBACK_STATUS=$?
   format_response "$FALLBACK_RESPONSE"
-  exit 0
+  exit "$THOR_FALLBACK_STATUS"
 fi
 
 exit "$QUERY_STATUS"

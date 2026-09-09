@@ -592,6 +592,12 @@ RELEASE_TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/graymatter-release-surfaces.XXXXXX
 trap 'rm -rf "$RELEASE_TMP_DIR"' EXIT
 ZIP_LIST="$RELEASE_TMP_DIR/graymatter-skill-list.txt"
 unzip -Z1 "$ROOT/graymatter.skill" >"$ZIP_LIST"
+for thor_path in mcp-server/Dockerfile mcp-server/lib/memory-scan.cjs mcp-server/lib/contribution-report.cjs scripts/gm-contribution-report docs/contribution-evidence.md; do
+  grep -Fxq "graymatter/$thor_path" "$ZIP_LIST" || { echo "Standalone archive missing $thor_path" >&2; exit 1; }
+done
+unzip -q "$ROOT/graymatter.skill" 'graymatter/mcp-server/*' -d "$RELEASE_TMP_DIR/standalone-load"
+node -e 'const assert=require("node:assert/strict"); const server=require(process.argv[1]); assert(server.tools.some(tool=>tool.name==="memory_contribution_report"));' \
+  "$RELEASE_TMP_DIR/standalone-load/graymatter/mcp-server/index.js"
 grep -q '^graymatter/SKILL.md$' "$ZIP_LIST"
 grep -q '^graymatter/skills/graymatter-analytics/SKILL.md$' "$ZIP_LIST"
 grep -q '^graymatter/skills/graymatter-analytics/references/semantic-layer-template.md$' "$ZIP_LIST"

@@ -1,0 +1,4 @@
+-------------------------------------------------------------------------------
+Test set: com.valkyrlabs.graymatter.localserver.bootstrap.StarterKnowledgePackBootstrapTest
+-------------------------------------------------------------------------------
+Tests run: 1, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 2.850 s -- in com.valkyrlabs.graymatter.localserver.bootstrap.StarterKnowledgePackBootstrapTest

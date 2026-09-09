@@ -15,6 +15,10 @@ set -euo pipefail
 
 METHOD="${1:-}"
 PATH_PART="${2:-}"
+if [[ "$PATH_PART" == "/MemoryEntry?page="* ]]; then
+  [[ "$PATH_PART" == *"page=0&"* ]] || { printf "[]\n"; exit 0; }
+  PATH_PART="/MemoryEntry"
+fi
 
 if [[ "$METHOD" == "GET" && "$PATH_PART" == "/memory/status" ]]; then
   printf '{"ready":true,"memoryLayer":"ready"}\n'
@@ -85,6 +89,10 @@ set -euo pipefail
 
 METHOD="${1:-}"
 PATH_PART="${2:-}"
+if [[ "$PATH_PART" == "/MemoryEntry?page="* ]]; then
+  [[ "$PATH_PART" == *"page=0&"* ]] || { printf "[]\n"; exit 0; }
+  PATH_PART="/MemoryEntry"
+fi
 
 if [[ "$METHOD" == "GET" && "$PATH_PART" == "/memory/status" ]]; then
   printf '{"ready":true,"memoryLayer":"ready"}\n'
@@ -107,5 +115,27 @@ GRAYMATTER_API_COMMAND="$fake_api" \
 
 grep -q "matches=0" "$out"
 grep -q "No binding invariants were found" "$err"
+
+cat >"$fake_api" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ "$2" == /memory/status ]]; then printf '{"ready":true}\n'; exit 0; fi
+node -e '
+  const page = Number(new URL(process.argv[1], "https://test/").searchParams.get("page"));
+  process.stdout.write(JSON.stringify(page >= 3 ? [] : Array.from({length:100}, (_,i) => ({
+    id:`large-${page*100+i}`, type:"decision", sourceChannel:"codex:workspace:GrayMatter",
+    text:"Rule: GrayMatter pagination invariant " + "x".repeat(5000), tags:["invariant"]
+  }))));
+' "$2"
+SH
+chmod +x "$fake_api"
+GRAYMATTER_API_COMMAND="$fake_api" "$ROOT_DIR/scripts/gm-invariant-preflight" GrayMatter --limit 500 --format json >"$out" 2>"$err"
+jq -e '.count == 300 and .coverage.complete and .coverage.pages == 4 and .readyToProceed' "$out" >/dev/null
+set +e
+GRAYMATTER_API_COMMAND="$fake_api" "$ROOT_DIR/scripts/gm-invariant-preflight" GrayMatter --limit 20 --format json >"$out" 2>"$err"
+thor_status=$?
+set -e
+[[ "$thor_status" == 2 ]]
+jq -e '.count == 20 and .omittedInvariants == 280 and .readyToProceed == false' "$out" >/dev/null
 
 echo "gm_invariant_preflight_test: PASS"

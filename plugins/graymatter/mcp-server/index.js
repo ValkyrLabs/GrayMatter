@@ -8,6 +8,8 @@ const readline = require('node:readline');
 const { execFileSync } = require('node:child_process');
 const path = require('node:path');
 const { URL } = require('node:url');
+const { scanMemoryEntries, isActiveMemory } = require('./lib/memory-scan.cjs');
+const { contributionReport, CONTRIBUTION_INPUT_SCHEMA, READ_PURPOSES } = require('./lib/contribution-report.cjs');
 
 const DEFAULT_API_BASE = 'https://api-0.valkyrlabs.com/v1';
 const DEFAULT_WIDGET_DOMAIN = 'https://graymatter.valkyrlabs.com';
@@ -228,6 +230,8 @@ const tools = [
         type: { type: 'string', enum: MEMORY_TYPE_INPUTS },
         text: { type: 'string' },
         sourceChannel: { type: 'string' },
+        sourceMessageId: { type: 'string', maxLength: 256, description: 'External task/message reference; not an authorization or generated Task ID.' },
+        sourceUrl: { type: 'string', maxLength: 2048, description: 'Credential-free https or file artifact URL.' },
         scope: { type: 'string', description: 'Memory scope, for example automation, workspace, chat, or session.' },
         runtime: { type: 'string', description: 'Runtime namespace used when deriving sourceChannel. Defaults to codex.' },
         user: { type: 'string' },
@@ -270,12 +274,24 @@ const tools = [
     description: 'Read a durable GrayMatter MemoryEntry by id.',
     inputSchema: {
       type: 'object',
-      properties: { id: { type: 'string' } },
+      properties: {
+        id: { type: 'string' },
+        purpose: { type: 'string', enum: READ_PURPOSES, description: 'Explicit purpose. Only choose reuse when this memory is actually being used; verification does not count as reuse.' },
+        taskRef: { type: 'string', maxLength: 256 }
+      },
       required: ['id']
     },
     annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true, idempotentHint: true },
     invoking: 'Reading memory',
     invoked: 'Memory ready'
+  }),
+  defineTool({
+    name: 'memory_contribution_report',
+    title: 'Inspect GrayMatter contribution evidence',
+    description: 'Build a bounded, read-only contribution chain from authorized durable trajectories and explicit read observations. Separates write verification from declared reuse; never invents productivity, cost, or defect savings. Use omega_outcome to persist decision/action, artifact/outcome, and test references against a retrieval trajectory.',
+    inputSchema: CONTRIBUTION_INPUT_SCHEMA,
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true, idempotentHint: true },
+    invoking: 'Inspecting contribution evidence', invoked: 'Contribution evidence ready'
   }),
   defineTool({
     name: 'memory_get',
@@ -1153,7 +1169,7 @@ const tools = [
           ],
           description: 'Task keywords to score invariant relevance.'
         },
-        limit: { type: 'integer', minimum: 1, maximum: 50 }
+        limit: { type: 'integer', minimum: 1, maximum: 1000, description: 'Output limit, independent of scan coverage. Increase when omittedInvariants is nonzero.' }
       }
     },
     annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true, idempotentHint: true },
@@ -1770,7 +1786,18 @@ async function callTool(params, context) {
     case 'memory_get':
     case 'memory_read':
       requireString(args.id, 'id');
-      return execute('memory_read', () => apiRequest(context, 'GET', `MemoryEntry/${encodeURIComponent(args.id)}`));
+      return execute('memory_read', async () => {
+        if (args.purpose && !READ_PURPOSES.includes(args.purpose)) throw new Error('Invalid read purpose');
+        const entry = await apiRequest(context, 'GET', `MemoryEntry/${encodeURIComponent(args.id)}`);
+        if (!args.purpose) return entry;
+        return { ...entry, graymatterReadObservation: {
+          observationId: crypto.randomUUID(), memoryId: args.id, purpose: args.purpose,
+          ...pickDefined({ taskRef: args.taskRef })
+        } };
+      });
+    case 'memory_contribution_report':
+      return execute('memory_contribution_report', () => contributionReport(
+        endpoint => apiRequest(context, 'GET', endpoint), args));
     case 'memory_query':
       requireString(args.query, 'query');
       return execute('memory_query', () => queryMemoryWithFallback(context, args));
@@ -1805,7 +1832,7 @@ async function callTool(params, context) {
     case 'memory_retrieve_with_receipt':
       requireString(args.query, 'query');
       return execute('memory_retrieve_with_receipt', async () => decorateRetrievalReceiptResult(
-        await apiRequest(context, 'POST', 'graymatter-retrieval-receipts', buildRetrievalReceiptPayload(args))
+        await apiRequest(context, 'POST', 'graymatter-retrieval-receipts', buildRetrievalReceiptPayload(args)), context.apiBase
       ));
     case 'graymatter_omega_query':
       assertNoPrincipalOverrides(args);
@@ -2136,11 +2163,11 @@ async function callTool(params, context) {
     case 'retrieval_receipt_get':
       requireString(args.receiptId, 'receiptId');
       return execute('retrieval_receipt_get', async () => decorateRetrievalReceiptResult(
-        await apiRequest(context, 'GET', `graymatter-retrieval-receipts/${encodeURIComponent(args.receiptId)}`)
+        await apiRequest(context, 'GET', `graymatter-retrieval-receipts/${encodeURIComponent(args.receiptId)}`), context.apiBase
       ));
     case 'retrieval_receipt_query':
       return execute('retrieval_receipt_query', async () => decorateRetrievalReceiptResult(
-        await apiRequest(context, 'GET', buildRetrievalReceiptQueryEndpoint(args))
+        await apiRequest(context, 'GET', buildRetrievalReceiptQueryEndpoint(args)), context.apiBase
       ));
     case 'graph_get': {
       const graphPath = args.path ? `swarm-ops/graph/${trimSlashes(args.path)}` : 'swarm-ops/graph';
@@ -2346,7 +2373,7 @@ async function callPublicTool(params, context) {
       case 'retrieval_receipt_get': {
         const receiptId = boundedRequiredString(args.receiptId, 'receiptId', 128);
         const response = decorateRetrievalReceiptResult(
-          await apiRequest(context, 'GET', `graymatter-retrieval-receipts/${encodeURIComponent(receiptId)}`)
+          await apiRequest(context, 'GET', `graymatter-retrieval-receipts/${encodeURIComponent(receiptId)}`), context.apiBase
         );
         return publicToolSuccess(response, 'Authorized retrieval receipt retrieved.');
       }
@@ -3220,15 +3247,19 @@ function buildRecoveryResult(error, operation, context) {
 
 async function queryMemoryWithFallback(context, args) {
   const payload = buildMemoryQueryPayload(args);
+  let reason = 'semantic_no_matches';
   try {
-    return await apiRequest(context, 'POST', 'MemoryEntry/query', payload);
+    const response = await apiRequest(context, 'POST', 'MemoryEntry/query', payload);
+    if (normalizeMemoryEntries(response).length > 0 || Number(args.limit) === 0) return response;
   } catch (error) {
     if (!isEmbeddingQuotaFailure(error)) {
       throw error;
     }
 
-    const entries = await apiRequest(context, 'GET', 'MemoryEntry');
-    const results = lexicalMemoryFallback(entries, {
+    reason = 'embedding_quota_exhausted';
+  }
+    const scan = await scanMemoryEntries(endpoint => apiRequest(context, 'GET', endpoint));
+    const results = lexicalMemoryFallback(scan.entries, {
       query: args.query,
       limit: args.limit,
       type: payload.type,
@@ -3238,15 +3269,15 @@ async function queryMemoryWithFallback(context, args) {
 
     return {
       degraded: true,
-      reason: 'embedding_quota_exhausted',
+      reason,
+      coverage: scan.coverage,
       retrievalMode: 'lexical_fallback',
       query: args.query,
       count: results.length,
-      warning: 'Semantic memory search is unavailable because the embedding provider quota is exhausted. Results are lexical fallback matches from MemoryEntry list.',
+      warning: `Semantic search ${reason === 'semantic_no_matches' ? 'returned no matches' : 'is unavailable'}. These are lexical matches, not semantic similarity scores.${scan.coverage.complete ? '' : ' Coverage is incomplete; absence is not evidence that a memory does not exist.'}`,
       action: 'Try semantic memory_query again later.',
       results
     };
-  }
 }
 
 function isEmbeddingQuotaFailure(error) {
@@ -3261,13 +3292,14 @@ function isEmbeddingQuotaFailure(error) {
 function lexicalMemoryFallback(payload, options) {
   const entries = normalizeMemoryEntries(payload);
   const query = String(options.query || '').toLowerCase();
-  const terms = Array.from(new Set(query.split(/[^a-z0-9_-]+/u).filter((term) => term.length > 2)));
+  const terms = Array.from(new Set(query.split(/[^\p{L}\p{N}_-]+/u).filter((term) => term.length > 1)));
   const limit = clampInteger(options.limit, 10, 1, 100);
   const type = options.type || '';
   const requiredTags = normalizeMemoryTagInput(options.tags);
   const source = options.source || '';
 
   return entries
+    .filter(isActiveMemory)
     .map((entry) => ({ entry, score: lexicalMemoryScore(entry, query, terms) }))
     .filter(({ entry, score }) => {
       if (type && entry.type !== type) {
@@ -3282,7 +3314,9 @@ function lexicalMemoryFallback(payload, options) {
       }
       return score > 0;
     })
-    .sort((left, right) => right.score - left.score)
+    .sort((left, right) => right.score - left.score
+      || String(right.entry.createdDate || '').localeCompare(String(left.entry.createdDate || ''))
+      || String(left.entry.id || '').localeCompare(String(right.entry.id || '')))
     .slice(0, limit)
     .map(({ entry }) => entry);
 }
@@ -3509,7 +3543,9 @@ function buildMemoryWritePayload(args) {
   const payload = {
     type: memoryType,
     text,
-    content: text
+    content: text,
+    ...pickDefined({ sourceMessageId: args.sourceMessageId || args.chatKey || args.sessionKey,
+      sourceUrl: args.sourceUrl })
   };
 
   if (sourceChannel || args.source) {
@@ -3606,32 +3642,44 @@ function buildRetrievalReceiptQueryEndpoint(args) {
   return `graymatter-retrieval-receipts${suffix}`;
 }
 
-function decorateRetrievalReceiptResult(value) {
-  if (Array.isArray(value)) {
-    return value.map((item) => decorateRetrievalReceiptContainer(item));
-  }
-  return decorateRetrievalReceiptContainer(value);
+function receiptInspectionLink(thor_receipt, thor_apiBase) {
+  // Only this known deployment maps to the public shared shell. Never export
+  // local or customer-hosted identifiers to a guessed web origin.
+  if (withoutTrailingSlash(thor_apiBase || '') !== DEFAULT_API_BASE) return null;
+  const thor_reference = firstDefined(thor_receipt.receiptId, thor_receipt.receipt_id, thor_receipt.id);
+  const thor_validReference = (thor_value) => typeof thor_value === 'string'
+    && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/.test(thor_value);
+  if (!thor_validReference(thor_reference)) return null;
+  const thor_query = new URLSearchParams({ open: 'graymatter-memory', receiptRef: thor_reference });
+  const thor_trace = firstDefined(thor_receipt.traceId, thor_receipt.trace_id);
+  if (thor_validReference(thor_trace)) thor_query.set('traceId', thor_trace);
+  return {
+    url: `https://valkyrlabs.com/dashboard?${thor_query}`,
+    requiresAuthentication: true,
+  };
 }
 
-function decorateRetrievalReceiptContainer(value) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    return value;
+function decorateRetrievalReceiptResult(value, thor_apiBase) {
+  if (Array.isArray(value)) {
+    return value.map((item) => decorateRetrievalReceiptContainer(item, thor_apiBase));
   }
+  return decorateRetrievalReceiptContainer(value, thor_apiBase);
+}
+
+function decorateRetrievalReceiptContainer(value, thor_apiBase) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
   const receipt = value.receipt && typeof value.receipt === 'object' && !Array.isArray(value.receipt)
-    ? value.receipt
-    : value;
+    ? value.receipt : value;
   const graymatterPolicy = retrievalReceiptPolicy(receipt);
-  if (!graymatterPolicy) {
-    return value;
-  }
-  if (receipt === value) {
-    return { ...value, graymatterPolicy };
-  }
-  return {
-    ...value,
-    receipt: { ...receipt, graymatterPolicy },
-    graymatterPolicy
-  };
+  const thor_inspection = receiptInspectionLink(receipt, thor_apiBase);
+  const thor_decorated = graymatterPolicy
+    ? receipt === value ? { ...value, graymatterPolicy }
+      : { ...value, receipt: { ...receipt, graymatterPolicy }, graymatterPolicy }
+    : { ...value };
+  // This connector owns the navigation hint. Do not accept an upstream URL.
+  delete thor_decorated.graymatterInspection;
+  if (thor_inspection) thor_decorated.graymatterInspection = thor_inspection;
+  return thor_decorated;
 }
 
 function retrievalReceiptPolicy(receipt) {
@@ -3742,16 +3790,18 @@ async function buildInvariantPreflight(context, args) {
   const sourceChannel = args.sourceChannel || (workspaceKey.includes(':') ? workspaceKey : `codex:workspace:${workspaceKey}`);
   const workspace = workspaceKey.includes(':') ? workspaceKey.split(':').pop() : workspaceKey;
   const terms = normalizeInvariantTerms(args);
-  const limit = clampInteger(args.limit, 20, 1, 50);
+  const limit = clampInteger(args.limit, 20, 1, 1000);
 
   const statusResult = await settle(() => apiRequest(context, 'GET', 'memory/status'));
-  const entries = await apiRequest(context, 'GET', 'MemoryEntry');
-  const matches = filterInvariantEntries(entries, {
+  const scan = await scanMemoryEntries(endpoint => apiRequest(context, 'GET', endpoint));
+  const allMatches = filterInvariantEntries(scan.entries, {
     sourceChannel,
     workspace,
     terms,
-    limit
+    taskTerms: invariantTaskTerms(args),
+    limit: scan.entries.length
   });
+  const matches = allMatches.slice(0, limit);
 
   return {
     sourceChannel,
@@ -3762,9 +3812,13 @@ async function buildInvariantPreflight(context, args) {
       : { state: 'degraded', error: statusResult.error.message },
     count: matches.length,
     entries: matches,
+    coverage: scan.coverage,
+    matchingInvariants: allMatches.length,
+    omittedInvariants: Math.max(0, allMatches.length - matches.length),
+    readyToProceed: scan.coverage.complete && allMatches.length <= limit && statusResult.ok,
     failClosed: true,
     memoryContract: PRIMARY_MEMORY_CONTRACT,
-    instruction: 'Treat returned invariant decisions as binding. Missing or degraded retrieval is not permission to ignore known durable rules.'
+    instruction: 'Honor active invariant decisions. Incomplete coverage or omitted invariants require further retrieval before proceeding. Supersession requires explicit lifecycle metadata; conflicting prose requires review, never silent deletion.'
   };
 }
 
@@ -3796,7 +3850,7 @@ function replayDeferredMemory(context, args = {}) {
   };
 }
 
-function normalizeInvariantTerms(args) {
+function invariantTaskTerms(args) {
   const values = [];
   if (typeof args.query === 'string') {
     values.push(...args.query.split(/\s+/u));
@@ -3806,8 +3860,12 @@ function normalizeInvariantTerms(args) {
   } else if (Array.isArray(args.keywords)) {
     values.push(...args.keywords);
   }
+  return uniqueStrings(values);
+}
+
+function normalizeInvariantTerms(args) {
   return uniqueStrings([
-    ...values,
+    ...invariantTaskTerms(args),
     'invariant',
     'decision',
     'methodology',
@@ -3828,17 +3886,19 @@ function filterInvariantEntries(response, options) {
   const terms = options.terms.map((term) => term.toLowerCase());
 
   return entries
+    .filter(isActiveMemory)
     .filter((entry) => sourceMatchesInvariantScope(entry, sourceChannel, workspaceLower))
     .filter(isBindingInvariantEntry)
     .map((entry) => ({
       ...entry,
       preflightScore: scoreInvariantEntry(entry, terms)
+        + 4 * scoreInvariantEntry(entry, (options.taskTerms || []).map(term => term.toLowerCase()))
     }))
     .sort((a, b) => {
       const scoreDelta = (b.preflightScore || 0) - (a.preflightScore || 0);
       if (scoreDelta !== 0) return scoreDelta;
-      return String(a.sourceChannel || '').localeCompare(String(b.sourceChannel || ''))
-        || String(a.createdDate || '').localeCompare(String(b.createdDate || ''));
+      return String(b.createdDate || '').localeCompare(String(a.createdDate || ''))
+        || String(a.id || '').localeCompare(String(b.id || ''));
     })
     .slice(0, options.limit);
 }

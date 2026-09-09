@@ -16,6 +16,10 @@ set -euo pipefail
 
 METHOD="${1:-}"
 PATH_PART="${2:-}"
+if [[ "$PATH_PART" == "/MemoryEntry?page="* ]]; then
+  [[ "$PATH_PART" == *"page=0&"* ]] || { printf "[]\n"; exit 0; }
+  PATH_PART="/MemoryEntry"
+fi
 
 if [[ "$METHOD" == "POST" && "$PATH_PART" == "/MemoryEntry/query" ]]; then
   printf '{"path":"uri=/v1/MemoryEntry/query","error":"Runtime Error","message":"transaction timeout expired"}\n'
@@ -72,6 +76,10 @@ set -euo pipefail
 
 METHOD="${1:-}"
 PATH_PART="${2:-}"
+if [[ "$PATH_PART" == "/MemoryEntry?page="* ]]; then
+  [[ "$PATH_PART" == *"page=0&"* ]] || { printf "[]\n"; exit 0; }
+  PATH_PART="/MemoryEntry"
+fi
 
 if [[ "$METHOD" == "POST" && "$PATH_PART" == "/MemoryEntry/query" ]]; then
   cat <<'JSON'
@@ -130,6 +138,10 @@ set -euo pipefail
 
 METHOD="${1:-}"
 PATH_PART="${2:-}"
+if [[ "$PATH_PART" == "/MemoryEntry?page="* ]]; then
+  [[ "$PATH_PART" == *"page=0&"* ]] || { printf "[]\n"; exit 0; }
+  PATH_PART="/MemoryEntry"
+fi
 
 if [[ "$METHOD" == "POST" && "$PATH_PART" == "/MemoryEntry/query" ]]; then
   cat <<'JSON'
@@ -174,6 +186,10 @@ set -euo pipefail
 
 METHOD="${1:-}"
 PATH_PART="${2:-}"
+if [[ "$PATH_PART" == "/MemoryEntry?page="* ]]; then
+  [[ "$PATH_PART" == *"page=0&"* ]] || { printf "[]\n"; exit 0; }
+  PATH_PART="/MemoryEntry"
+fi
 
 if [[ "$METHOD" == "POST" && "$PATH_PART" == "/MemoryEntry/query" ]]; then
   printf '{"error":"Unauthorized","message":"SESSION_EXPIRED"}\n'
@@ -214,6 +230,10 @@ set -euo pipefail
 
 METHOD="${1:-}"
 PATH_PART="${2:-}"
+if [[ "$PATH_PART" == "/MemoryEntry?page="* ]]; then
+  [[ "$PATH_PART" == *"page=0&"* ]] || { printf "[]\n"; exit 0; }
+  PATH_PART="/MemoryEntry"
+fi
 
 if [[ "$METHOD" == "POST" && "$PATH_PART" == "/MemoryEntry/query" ]]; then
   printf '{"error":"Runtime Error","message":"transaction timeout expired"}\n'
@@ -255,6 +275,10 @@ set -euo pipefail
 
 METHOD="${1:-}"
 PATH_PART="${2:-}"
+if [[ "$PATH_PART" == "/MemoryEntry?page="* ]]; then
+  [[ "$PATH_PART" == *"page=0&"* ]] || { printf "[]\n"; exit 0; }
+  PATH_PART="/MemoryEntry"
+fi
 
 if [[ "$METHOD" == "POST" && "$PATH_PART" == "/MemoryEntry/query" ]]; then
   printf '{"details":{"message":"timed out waiting for transaction"}}\n'
@@ -301,6 +325,10 @@ set -euo pipefail
 
 METHOD="${1:-}"
 PATH_PART="${2:-}"
+if [[ "$PATH_PART" == "/MemoryEntry?page="* ]]; then
+  [[ "$PATH_PART" == *"page=0&"* ]] || { printf "[]\n"; exit 0; }
+  PATH_PART="/MemoryEntry"
+fi
 
 if [[ "$METHOD" == "POST" && "$PATH_PART" == "/MemoryEntry/query" ]]; then
   printf '{"message":"transaction timeout expired"}\n'
@@ -353,6 +381,10 @@ set -euo pipefail
 
 METHOD="${1:-}"
 PATH_PART="${2:-}"
+if [[ "$PATH_PART" == "/MemoryEntry?page="* ]]; then
+  [[ "$PATH_PART" == *"page=0&"* ]] || { printf "[]\n"; exit 0; }
+  PATH_PART="/MemoryEntry"
+fi
 
 if [[ "$METHOD" == "POST" && "$PATH_PART" == "/MemoryEntry/query" ]]; then
   printf '{"message":"transaction timeout expired"}\n'

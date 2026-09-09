@@ -229,9 +229,10 @@ test('memory_query falls back to lexical MemoryEntry list when embeddings quota 
       return;
     }
 
-    if (req.method === 'GET' && req.url === '/v1/MemoryEntry') {
+    if (req.method === 'GET' && req.url.startsWith('/v1/MemoryEntry?')) {
       res.writeHead(200, { 'content-type': 'application/json' });
       res.end(JSON.stringify({
+        last: true,
         content: [
           { id: 'mem-1', type: 'context', text: 'Stainless sprint CRM warm leads need founder-led follow-up', sourceChannel: 'codex:workspace:crm' },
           { id: 'mem-2', type: 'todo', text: 'Unrelated billing cleanup', sourceChannel: 'codex:workspace:crm' },
@@ -292,8 +293,9 @@ test('memory_query falls back to lexical MemoryEntry list when embeddings quota 
     const invariantOut = JSON.parse(invariantBody.result.content[0].text);
     assert.equal(invariantOut.count, 1);
     assert.equal(invariantOut.results[0].id, 'mem-4');
-    assert.equal(requests[2].body.type, 'decision');
-    assert.deepEqual(requests[2].body.tags, ['invariant']);
+    const thor_semanticRequests = requests.filter(thor_request => thor_request.path === '/v1/MemoryEntry/query');
+    assert.equal(thor_semanticRequests[1].body.type, 'decision');
+    assert.deepEqual(thor_semanticRequests[1].body.tags, ['invariant']);
   } finally {
     await closeServers(server, fakeApi);
   }

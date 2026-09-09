@@ -1,0 +1,40 @@
+#!/usr/bin/env node
+'use strict';
+const { contributionReport } = require('../mcp-server/lib/contribution-report.cjs');
+const { execFile } = require('node:child_process');
+const { promisify } = require('node:util');
+const path = require('node:path');
+
+async function main() {
+  if (process.argv.includes('--help')) {
+    process.stdout.write('Usage: gm-contribution-report [trajectory-id ...]\n'
+      + 'Or pipe JSON {trajectoryIds:[], observations:[]} on stdin.\n'
+      + 'Observations require observationId, memoryId, purpose (inspection, write_verification, reuse), and optional taskRef.\n'
+      + 'Reads authorized durable outcome chains; does not write telemetry or infer savings.\n');
+    return;
+  }
+  let thor_args = { trajectoryIds: process.argv.slice(2) };
+  if (!thor_args.trajectoryIds.length && !process.stdin.isTTY) {
+    let thor_input = '';
+    for await (const thor_chunk of process.stdin) {
+      thor_input += thor_chunk;
+      if (Buffer.byteLength(thor_input) > 1024 * 1024) throw new Error('Contribution input exceeds 1 MiB');
+    }
+    if (thor_input.trim()) thor_args = JSON.parse(thor_input);
+  }
+  const thor_exec = promisify(execFile);
+  const thor_command = process.env.GRAYMATTER_API_COMMAND || path.join(__dirname, 'graymatter_api.sh');
+  const thor_report = await contributionReport(async thor_endpoint => {
+    const thor_result = await thor_exec(thor_command, ['GET', `/${thor_endpoint}`], {
+      encoding: 'utf8', timeout: 65000, maxBuffer: 8 * 1024 * 1024,
+      env: { ...process.env, GRAYMATTER_SKIP_SELF_UPDATE: 'true', GRAYMATTER_SKIP_AUTO_REPLAY: 'true' }
+    });
+    return JSON.parse(thor_result.stdout);
+  }, thor_args);
+  process.stdout.write(`${JSON.stringify(thor_report, null, 2)}\n`);
+}
+
+main().catch(() => {
+  process.stderr.write('Contribution report failed. Check bounded input, authentication, and trajectory access; no partial success was reported.\n');
+  process.exitCode = 1;
+});

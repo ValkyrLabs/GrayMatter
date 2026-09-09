@@ -161,6 +161,8 @@ TAGGED_OUTPUT="$($TMP_DIR/gm-write decision "tag shape payload" signal-harvester
 grep -q "memory-entry-1" <<<"$TAGGED_OUTPUT"
 jq -e '.tags == ["github","signal"]' "$TMP_DIR/gm-write-payload.json" >/dev/null
 jq -e '.tags[] | strings' "$TMP_DIR/gm-write-payload.json" >/dev/null
+"$TMP_DIR/gm-write" decision 'Evidence-backed decision' --chat-key task-123 --source-url https://example.com/commit/123 >/dev/null
+jq -e '.sourceMessageId == "task-123" and .sourceUrl == "https://example.com/commit/123" and .text == "Evidence-backed decision"' "$TMP_DIR/gm-write-payload.json" >/dev/null
 
 cat > "$TMP_DIR/graymatter_api.sh" <<'EOF'
 #!/usr/bin/env bash

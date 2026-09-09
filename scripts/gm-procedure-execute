@@ -1,0 +1,100 @@
+#!/usr/bin/env node
+'use strict';
+const { execFile } = require('node:child_process');
+const { promisify } = require('node:util');
+const path = require('node:path');
+const fs = require('node:fs');
+const os = require('node:os');
+const { executeProcedure, readProcedureExecution, clientError, MAX_REQUEST_BYTES } = require('../mcp-server/lib/procedure-execution.cjs');
+const { searchProcedures, discoveryError } = require('../mcp-server/lib/procedure-discovery.cjs');
+const { inspectProcedure, inspectionError } = require('../mcp-server/lib/procedure-inspection.cjs');
+
+async function main() {
+  const args = process.argv.slice(2);
+  if (args.length === 1 && args[0] === '--help') {
+    process.stdout.write('Usage: gm-procedure-execute execute < task.json\n'
+      + '       gm-procedure-execute status <workflow-execution-uuid>\n'
+      + '       gm-procedure-execute search < search.json\n'
+      + '       gm-procedure-execute inspect <procedure-uuid>\n'
+      + 'Search JSON requires query; optional limit, offset, enabledOnly, minimumConfidence.\n'
+      + 'Task JSON requires taskType, stable traceId, and inputs (plain object).\n'
+      + 'Optional: applicationId, projectId, contextPageId, procedureHints.\n'
+      + 'Uses existing authenticated server routing and generated ACLs.\n'
+      + 'Started is not success. Status is one exact read. Fallback never launches an agent.\n'
+      + 'After uncertainty, inspect the execution or retry the same traceId and unchanged inputs.\n');
+    return;
+  }
+  const run = promisify(execFile);
+  const command = process.env.GRAYMATTER_API_COMMAND || path.join(__dirname, 'graymatter_api.sh');
+  const request = async (method, endpoint, payload, options = {}) => {
+    const directory = options.readStatus ? fs.mkdtempSync(path.join(os.tmpdir(), 'gm-procedure-status-')) : null;
+    const statusFile = directory ? path.join(directory, 'status.txt') : null;
+    try {
+      const result = await run(command, [method, endpoint, ...(payload === undefined ? [] : [JSON.stringify(payload)])], {
+        encoding: 'utf8', timeout: Math.min(65000, options.timeoutMs ?? 65000), maxBuffer: 8 * 1024 * 1024,
+        env: { ...process.env, GRAYMATTER_SKIP_SELF_UPDATE: 'true', GRAYMATTER_SKIP_AUTO_REPLAY: 'true', GRAYMATTER_SKIP_DEFERRED: 'true',
+          ...(statusFile ? { GRAYMATTER_API_RESPONSE_STATUS: statusFile } : {}) }
+      });
+      if (statusFile && fs.existsSync(statusFile)) {
+        const status = Number(fs.readFileSync(statusFile, 'utf8').trim());
+        if ([401, 403].includes(status)) throw Object.assign(new Error('Procedure access denied'), { status });
+      }
+      if (options.expectedStatus !== undefined && (!statusFile || !fs.existsSync(statusFile)
+          || Number(fs.readFileSync(statusFile, 'utf8').trim()) !== options.expectedStatus)) {
+        throw new Error('Expected HTTP status could not be verified');
+      }
+      return JSON.parse(result.stdout);
+    } catch (error) {
+      if (statusFile && fs.existsSync(statusFile)) {
+        const status = Number(fs.readFileSync(statusFile, 'utf8').trim());
+        if (Number.isInteger(status)) error.status = status;
+      }
+      throw error;
+    } finally { if (directory) fs.rmSync(directory, { recursive: true, force: true }); }
+  };
+  let result;
+  if (args.length === 1 && ['execute', 'search'].includes(args[0])) {
+    const invalidInput = () => args[0] === 'search' ? discoveryError('INVALID_SEARCH_INPUT') : clientError('INVALID_INPUT');
+    if (process.stdin.isTTY) throw invalidInput();
+    const chunks = [];
+    let bytes = 0;
+    for await (const chunk of process.stdin) {
+      bytes += chunk.length;
+      if (bytes > MAX_REQUEST_BYTES) throw invalidInput();
+      chunks.push(chunk);
+    }
+    let input;
+    try { input = JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch { throw invalidInput(); }
+    result = args[0] === 'execute' ? await executeProcedure(request, input)
+      : await searchProcedures(request, input, {
+        maxPages: Number(process.env.GRAYMATTER_PROCEDURE_SCAN_MAX_PAGES || 10),
+        maxMs: Number(process.env.GRAYMATTER_PROCEDURE_SCAN_MAX_MS || 15000)
+      });
+  } else if (args.length === 2 && args[0] === 'status') {
+    result = await readProcedureExecution(request, args[1]);
+  } else if (args.length === 2 && args[0] === 'inspect') {
+    result = await inspectProcedure(request, args[1]);
+  } else {
+    throw clientError('INVALID_INPUT');
+  }
+  process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+}
+
+main().catch(error => {
+  if (['INVALID_INSPECTION_INPUT', 'PROCEDURE_INSPECTION_UNAVAILABLE'].includes(error?.code)) {
+    const safe = inspectionError(error.code);
+    process.stderr.write(`${JSON.stringify({ error: { code: safe.code, message: safe.message } })}\n`);
+    process.exitCode = 1;
+    return;
+  }
+  if (['INVALID_SEARCH_INPUT', 'PROCEDURE_SEARCH_UNAVAILABLE'].includes(error?.code)) {
+    const safe = discoveryError(error.code);
+    process.stderr.write(`${JSON.stringify({ error: { code: safe.code, message: safe.message } })}\n`);
+    process.exitCode = 1;
+    return;
+  }
+  const safe = ['INVALID_INPUT', 'DISPATCH_OUTCOME_UNKNOWN', 'EXECUTION_STATUS_UNAVAILABLE'].includes(error?.code)
+    ? clientError(error.code) : clientError('INVALID_INPUT');
+  process.stderr.write(`${JSON.stringify({ error: { code: safe.code, message: safe.message } })}\n`);
+  process.exitCode = 1;
+});

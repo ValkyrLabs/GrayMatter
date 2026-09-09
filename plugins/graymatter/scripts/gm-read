@@ -4,12 +4,20 @@ set -euo pipefail
 usage() {
   cat <<'EOF'
 Usage:
-  gm-read <memory-entry-id> [--format json|brief|english] [--text-max n]
+  gm-read <memory-entry-id> [--format json|brief|english] [--text-max n] [--purpose inspection|write_verification|reuse] [--task-ref ref]
 
 Read one GrayMatter MemoryEntry by ID through the shared authenticated
 graymatter_api.sh transport.
 
 Options:
+  --purpose <inspection|write_verification|reuse>
+      Emit an explicit read observation. Choose reuse only when actually using
+      the memory. A post-write readback is write_verification, never reuse.
+      Observations are returned to the caller, not independently persisted.
+
+  --task-ref <ref>
+      External task reference for the read observation, not an authority field.
+
   --format <json|brief|english>
       Output format. Defaults to json.
 
@@ -53,6 +61,8 @@ shift
 
 OUTPUT_FORMAT="${GRAYMATTER_READ_FORMAT:-json}"
 TEXT_MAX="${GRAYMATTER_READ_TEXT_MAX:-500}"
+THOR_PURPOSE=""
+THOR_TASK_REF=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -72,6 +82,17 @@ while [[ $# -gt 0 ]]; do
     --text-max)
       require_value "$1" "${2:-}"
       TEXT_MAX="${2:-}"
+      shift 2
+      ;;
+    --purpose)
+      require_value "$1" "${2:-}"
+      THOR_PURPOSE="$2"
+      case "$THOR_PURPOSE" in inspection|write_verification|reuse) ;; *) echo 'Invalid read purpose' >&2; exit 64 ;; esac
+      shift 2
+      ;;
+    --task-ref)
+      require_value "$1" "${2:-}"
+      THOR_TASK_REF="$2"
       shift 2
       ;;
     *)
@@ -103,6 +124,12 @@ trap 'rm -f "$RESPONSE_FILE"' EXIT
 "$GRAYMATTER_API_COMMAND" GET "/MemoryEntry/${ID}" >"$RESPONSE_FILE"
 
 if [[ "$OUTPUT_FORMAT" == "json" ]]; then
+  if [[ -n "$THOR_PURPOSE" ]]; then
+    THOR_OBSERVATION_ID="$(node -e 'process.stdout.write(require("node:crypto").randomUUID())')"
+    jq --arg id "$THOR_OBSERVATION_ID" --arg memoryId "$ID" --arg purpose "$THOR_PURPOSE" --arg taskRef "$THOR_TASK_REF" \
+      '. + {graymatterReadObservation: ({observationId:$id,memoryId:$memoryId,purpose:$purpose} + (if $taskRef == "" then {} else {taskRef:$taskRef} end))}' "$RESPONSE_FILE"
+    exit 0
+  fi
   cat "$RESPONSE_FILE"
   exit 0
 fi
@@ -111,6 +138,9 @@ command -v jq >/dev/null 2>&1 || {
   echo "gm-read: --brief/--english requires jq" >&2
   exit 1
 }
+if [[ -n "$THOR_PURPOSE" ]]; then
+  printf 'readPurpose=%s taskRef=%s (declared purpose; not a savings measurement)\n' "$THOR_PURPOSE" "$THOR_TASK_REF"
+fi
 
 jq -r --argjson textMax "$TEXT_MAX" '
   def compact_text:

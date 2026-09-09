@@ -234,8 +234,15 @@ while [[ "$(fallback_count)" -gt 0 ]]; do
   body="$(jq -nc \
     --arg type "$type" \
     --arg text "$text" \
+    --argjson item "$item" \
     --arg sourceChannel "$owner" \
-    '{type:$type,text:$text,source:$sourceChannel,sourceChannel:$sourceChannel}')"
+    '{
+      type:(if $type == "hookEvent" then "context" else $type end),
+      text:(if $type == "hookEvent" or ($item.event? | type == "string" and length > 0)
+        then "Hook event: " + ($item.event // "unknown") + "\nSession: " + ($item.session // "unknown") + "\n" + $text
+        else $text end),
+      source:$sourceChannel,sourceChannel:$sourceChannel
+    }')"
 
   emit_replay_event "replay_started" "$id" "memory_write" "/MemoryEntry/write"
   response=""

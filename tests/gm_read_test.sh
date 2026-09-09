@@ -58,4 +58,11 @@ set -e
 [[ "$status" -eq 1 ]]
 grep -q "gm-read: --format must be json, brief, or english" "$TMP_DIR/gm-read-invalid.err"
 
+TEST_GM_READ_CALL_LOG="$call_log" GRAYMATTER_API_COMMAND="$fake_api" \
+  "$ROOT_DIR/scripts/gm-read" f7c29154-216f-4934-ac02-2d5e8b242180 --purpose write_verification --task-ref task-one >"$out"
+jq -e '.graymatterReadObservation.purpose == "write_verification" and .graymatterReadObservation.taskRef == "task-one" and (.graymatterReadObservation.observationId | length > 0)' "$out" >/dev/null
+jq '{observations:[.graymatterReadObservation,.graymatterReadObservation]}' "$out" \
+  | "$ROOT_DIR/scripts/gm-contribution-report" >"$TMP_DIR/report.json"
+jq -e '.observedReadCounts.write_verification == 1 and .observedReadCounts.reuse == 0 and .duplicateObservationsRemoved == 1 and .measuredImpact.timeSaved == null' "$TMP_DIR/report.json" >/dev/null
+
 echo "gm_read_test: ok"

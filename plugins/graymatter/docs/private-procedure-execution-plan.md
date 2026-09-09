@@ -1,0 +1,47 @@
+# Private deterministic procedure execution
+
+Implement the first external execution adapter for the existing SkillOptics runtime. An agent submits a stable logical task identity and bounded business inputs; the server selects an authorized, active, immutable procedure or returns an explicit blocked/fallback result. A separate exact execution read reports progress and terminal outcome.
+
+The live 0.9.27 schema, refreshed on 2026-09-07, exposes POST `/skillopt_ops/execute` and generated GET `/WorkflowExecution/{id}`. Existing generated services retain tenant, principal, ACL, approval, immutable-version and idempotency authority. This client does not compile traces, promote procedures, supply identity/policy overrides, or dispatch an agent fallback.
+
+1. Add failing focused contracts for typed dispatch, exact status readback, stable identity, malformed/oversized inputs, reserved runtime fields, unknown replies, uncertain transport outcomes and content-free projections.
+2. Implement a dependency-free private helper and CLI using the existing authenticated `graymatter_api.sh`. Disable deferred writes and automatic replay for this action boundary. Never create a fresh task identity on retry; never equate request acceptance with success.
+3. Exercise the actual CLI against a local fake transport, including no-call validation failures, exact POST/GET paths, replay flags and sanitized errors. Run the existing MCP tests and verify root/plugin mirror byte parity.
+4. Record source acceptance and durable GrayMatter readback. Keep installation, authenticated live execution, MCP registration and distribution as separate pending work.
+
+Only new helper, CLI, test and private documentation files are in scope during marketplace review. Existing MCP indexes, public catalog, OAuth scopes, manifests, package archives and submission files remain under the submission lane's freeze. No backend/frontend source changes or Maven processes are owned by this lane.
+
+GrayMatter preflight: 36 pages, 3,415 rows, complete best-effort pagination, zero omitted invariants. Binding direction: `237723b8-1a4d-4d22-a9a2-129461be80ff`; generated ACL/routing constraints and mirrored plugin contracts were reviewed before implementation.
+
+## Complete private discovery before execution
+
+Current public `procedure_search` fetches only page zero, then filters and applies a result offset locally. This can miss matching Procedures on later generated API pages and infer a next result page merely from a full response. Preserve that reviewer-frozen handler and add reusable discovery to the existing private execution CLI as `search < search.json`; wire the same helper into the public handler only after its review freeze ends.
+
+Use the existing bounded pagination scanner against fixed generated `/Procedure` GETs with stable ID ordering. Filter only already-authorized rows. Search bounded name, description, reference and task-type text; return small candidate summaries with version/binding references, explicit scan coverage and observed match counts. Search never grants execution authority or establishes a complete input contract. Default enabled filtering must require explicit `true`; do not infer an active executable binding from that flag or a confidence score.
+
+Add failing tests for matches beyond page zero, short pages, offset after matching, exact next-page knowledge, page/time budgets, repeated IDs, malformed rows, later 401/403, sanitized errors and no-call invalid input. Extend the actual private CLI to share its existing auth transport, forward bounded per-request timeouts and inspect the transport's status receipt for later authorization failure. Partial coverage must remain explicit; authorization failure must return no partial result. Do not retain raw Procedure metadata, contraindication blobs, ownership fields or evidence bodies in search output.
+
+Run focused and full existing MCP checks, root/private-plugin mirror parity, a fixed read-only live canary and frozen-surface hashes. The new canary can prove authorized discovery, including an empty result, without claiming an eligible promoted procedure, arbitrary trace compilation, execution or savings. Refreshed preflight returned 282 applicable invariants with zero omissions across 37 pages and 3,546 observed rows.
+
+Accepted privately: eleven discovery checks plus twelve existing execution checks pass, and the full MCP suite passes 129 tests with zero failures. Two stricter tests first reproduced null filters silently using defaults and UUID casing escaping deduplication; both are corrected with the original failures preserved. Real CLI tests exercise a late 403 even when the transport exits zero, enforce the remaining timeout, and expose no partial output after denial.
+
+The live read-only canary made eight GETs, all HTTP 200. Both searches reached an explicit empty second page after five visible Procedure rows. Including disabled records found the exact historical shadow Procedure and immutable version; enabled-only search excluded it. The principal and tenant were observed before and after with the same values; this is a before/after observation, not an atomic-snapshot or arbitrary profile-change guarantee. No Procedure dispatch, promotion or Workflow write occurred. Seven private root/plugin source files match, and all ten frozen public/catalog/manifest/archive surfaces remain unchanged through verification.
+
+Evidence: `ValkyrAI/work/deployment/20260907-graymatter-procedure-discovery`, including `failing-checks.log`, `full-mcp-tests.log`, `live-requests.jsonl`, `live-canary.json` and `source-checks.json`. Public handler integration, public response-contract review, installed delivery and independent execution remain pending.
+
+## Inspect the selected procedure contract
+
+Add one private exact-read operation to the existing CLI: `inspect <procedure-uuid>`. A fresh agent can use search, inspect, execute and status without reconstructing inputs from the original chat. Read only the live-schema-generated `GET /Procedure/{id}`, validate the returned identity, and project the existing version-1 `metadataJson.procedureContract` input declarations with the Procedure's version, hashes and mechanization receipt reference. Reuse the discovery summary projector. Legacy, unsupported, malformed or over-budget declarations must be explicit unavailable states, never invented empty input schemas.
+
+Use conservative client projection limits aligned with the existing ValorIDE surface (64 KiB metadata, 50 required inputs/map keys, 20 aliases per key), detached plain JSON, and reference-shaped declarations. Preserve canonical optional-map defaults, and report the projection as advisory: it does not grant authority, establish nested input applicability, validate the referenced WorkflowVersion or infer side-effect policy. The current live 0.9.27 schema does not expose a WorkflowVersion read path; return an explicit not-retrieved launch-schema boundary instead of inventing one.
+
+Before implementation, add failing helper and actual-CLI tests for exact GET/ID matching, supported contract projection, absent/unsupported/malformed/oversized metadata, accessor/prototype attacks, irrelevant metadata minimization, no-call invalid identity, non-200/denial/timeout sanitization and unchanged dispatch behavior. Enforce the exact read's HTTP 200 receipt and bounded 15-second transport timeout. Run focused and complete MCP tests, mirror parity and frozen-surface checks. A read-only live inspection of the known disabled shadow Procedure may prove source-contract readback only; no dispatch, promotion, new endpoint, public registration, install, backend edits or savings claim.
+
+Private inspection acceptance: eight new checks and all 137 MCP tests pass with zero failures or skips. The actual CLI requires the expected HTTP status receipt, rejects a matching-looking body returned with 401/403/404/500/202 or missing status, validates exact identity, and emits no partial result on failure. One live GET returned HTTP 200 and the known disabled shadow Procedure, its expected immutable-version reference and declared `task:object` input. Nine private source/mirror files match; ten frozen public surfaces remain unchanged. Evidence is in `ValkyrAI/work/deployment/20260907-graymatter-procedure-inspection/acceptance.json`. This closes the bounded private contract-inspection step; nested launch-schema discovery, server-side nested validation, promotion and independent successful reuse remain unproved.
+
+
+## Immutable execution version continuity — 8 September 2026
+
+Procedure dispatch rejects a supplied execution version that is malformed or differs from the top-level immutable WorkflowVersion. UUID comparison ignores casing. The result remains an unknown dispatch outcome; the client neither retries nor launches an agent fallback. Exact status reads preserve a valid observed version and reject malformed supplied version evidence. An omitted or null legacy version stays absent, rather than being inferred from another record. This is client contract validation, separate from server authorization and business-output correctness.
+
+Focused regressions were red first. Shared source acceptance is recorded in ValkyrAI/work/deployment/20260908-procedure-version-continuity. GrayMatter private adapter/mirror and ValorIDE source changes do not establish installed-plugin, extension activation, backend deployment or new live Procedure execution.

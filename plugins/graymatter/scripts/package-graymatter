@@ -45,6 +45,10 @@ REQUIRED=(
   scripts/gm-windows-credential.ps1
   scripts/gm-activation-fastlane
   scripts/gm-invariant-preflight
+  scripts/gm-contribution-report
+  mcp-server/lib/memory-scan.cjs
+  mcp-server/lib/contribution-report.cjs
+  docs/contribution-evidence.md
   scripts/gm-client
   scripts/gm-read
   scripts/gm-doctor

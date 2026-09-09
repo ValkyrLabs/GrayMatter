@@ -4,6 +4,12 @@ An MCP (Model Context Protocol) server that wraps the ValkyrAI `api-0` REST API,
 
 When this MCP server is installed and authenticated, GrayMatter is the exclusive primary durable memory system for the agent. Hosts should query it before planning or editing, write new durable user context back during the session, and treat local memory only as temporary replay state.
 
+Discovery now reports paginated coverage. `memory_read` can label inspection,
+write verification, or actual reuse, while `memory_contribution_report` joins
+authorized retrieval trajectories to stored decision/artifact/test references.
+See [contribution evidence](../docs/contribution-evidence.md) for the exact
+measurement limits and task/artifact provenance fields.
+
 ## Quick Start
 
 ```bash
@@ -170,6 +176,8 @@ Agents should inspect `answerPolicy` before generation:
 The MCP server also adds a normalized `graymatterPolicy` object to receipt-backed responses when policy signals are present. It preserves raw api-0 receipt fields and adds `answerAllowed`, `caveatRequired`, `disposition`, and `requiredActions` so Codex, OpenClaw, Claude, and ValorIDE clients can fail closed without reimplementing enum mapping.
 
 Use `retrieval_receipt_get` and `retrieval_receipt_query` for audit trails, debugging, retry chains, and low-confidence retrieval inspection.
+
+For the hosted api-0 deployment, receipt responses also include `graymatterInspection.url`: an authenticated link to the exact receipt in the shared ValkyrAI dashboard. This carries only bounded receipt and trace references. The destination rechecks access, and the link never relaxes `graymatterPolicy` or authorizes an action. Local and customer-hosted API deployments receive no public-site link.
 
 ## Local Fallback And Replay
 

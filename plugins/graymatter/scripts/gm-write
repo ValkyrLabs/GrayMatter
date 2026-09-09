@@ -47,6 +47,8 @@ SESSION_KEY=""
 AUTOMATION_ID=""
 ARTIFACT_PATH=""
 SCOPE_PATH=""
+THOR_SOURCE_MESSAGE_ID=""
+THOR_SOURCE_URL=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -88,6 +90,16 @@ while [[ $# -gt 0 ]]; do
     --source-channel)
       SOURCE_CHANNEL="${2:-}"
       SOURCE_CHANNEL_EXPLICIT=1
+      shift 2
+      ;;
+    --source-message-id)
+      [[ $# -ge 2 && -n "$2" ]] || { echo '--source-message-id requires a value' >&2; exit 64; }
+      THOR_SOURCE_MESSAGE_ID="$2"
+      shift 2
+      ;;
+    --source-url)
+      [[ $# -ge 2 && -n "$2" ]] || { echo '--source-url requires a value' >&2; exit 64; }
+      THOR_SOURCE_URL="$2"
       shift 2
       ;;
     --tags)
@@ -281,6 +293,8 @@ else
 fi
 
 PAYLOAD="$(jq 'del(.id,.ownerId,.ownerID,.createdDate,.keyHash,.lastAccessedById,.lastAccessedDate,.lastModifiedById,.lastModifiedDate)' <<<"$PAYLOAD")"
+PAYLOAD="$(jq --arg sourceMessageId "${THOR_SOURCE_MESSAGE_ID:-${CHAT_KEY:-$SESSION_KEY}}" --arg sourceUrl "$THOR_SOURCE_URL" \
+  '. + ({sourceMessageId:$sourceMessageId,sourceUrl:$sourceUrl} | with_entries(select(.value != "")))' <<<"$PAYLOAD")"
 
 preflight_write_state
 

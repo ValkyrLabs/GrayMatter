@@ -126,4 +126,32 @@ set -e
 jq -e '.status == "pending_replay" and (.items | length) == 1' "$fallback_spool" >/dev/null \
   || fail "failed legacy fallback records must remain queued"
 
+# Hook spools must migrate to the server's context type without losing event identity.
+cat >"$fallback_spool" <<'JSON'
+{"status":"pending_replay","items":[
+  {"type":"hookEvent","text":"legacy hook","owner":"codex:workspace:test","event":"post_tool","session":"session-old"},
+  {"type":"context","text":"current hook","owner":"codex:workspace:test","event":"pre_tool","session":"session-new"}
+]}
+JSON
+cat >"$api_stub" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+[[ "$1" == "POST" && "$2" == "/MemoryEntry/write" ]]
+jq -e '.type == "context" and (.text | contains("Hook event:")) and (.text | contains("Session:"))' <<<"$3" >/dev/null
+printf '%s\n' "$3" >>"${TEST_REPLAY_LOG}"
+printf '{"id":"hook-memory-id"}\n'
+EOF
+rm -f "${tmp}/replay.log"
+GRAYMATTER_DEFERRED_DIR="$deferred_dir" \
+  GRAYMATTER_FALLBACK_SPOOL="$fallback_spool" \
+  GRAYMATTER_REPLAY_LOCK_DIR="${tmp}/replay.lock" \
+  GRAYMATTER_CREDIT_EVENTS_PATH="${tmp}/credit-events-hooks.jsonl" \
+  GRAYMATTER_API_SCRIPT="$api_stub" \
+  GRAYMATTER_SKIP_REPLAY_PREFLIGHT=true \
+  "$SCRIPT" >"${tmp}/hook-replay.out"
+jq -s -e 'length == 2 and (.[0].text | contains("post_tool") and contains("session-old") and contains("legacy hook")) and (.[1].text | contains("pre_tool") and contains("session-new") and contains("current hook"))' "${tmp}/replay.log" >/dev/null \
+  || fail "hook replay must retain each event, session and text in durable context"
+jq -e '.status == "synced" and (.items | length) == 0' "$fallback_spool" >/dev/null \
+  || fail "successfully migrated hook records must be removed using their original queue identity"
+
 echo "gm_replay_deferred_test.sh: PASS"

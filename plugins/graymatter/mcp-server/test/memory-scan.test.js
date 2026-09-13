@@ -3,6 +3,35 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { scanMemoryEntries, entriesOf, isActiveMemory } = require('../lib/memory-scan.cjs');
 
+test('decision preflight filters at the API before pagination without changing its eligible set', async () => {
+  const thor_rows = Array.from({ length: 4188 }, (_, thor_i) => ({
+    id: `memory-${thor_i}`, type: thor_i % 5 === 0 ? 'decision' : 'context'
+  }));
+  const thor_fetch = async thor_endpoint => {
+    const thor_params = new URL(thor_endpoint, 'https://test/').searchParams;
+    const thor_type = JSON.parse(thor_params.get('example') || '{}').type;
+    const thor_eligible = thor_type ? thor_rows.filter(row => row.type === thor_type) : thor_rows;
+    const thor_page = Number(thor_params.get('page'));
+    return thor_eligible.slice(thor_page * 100, (thor_page + 1) * 100);
+  };
+  const thor_full = await scanMemoryEntries(thor_fetch);
+  const thor_filtered = await scanMemoryEntries(thor_fetch, { type: 'decision' });
+  assert.deepEqual(thor_filtered.entries, thor_full.entries.filter(row => row.type === 'decision'));
+  assert.equal(thor_filtered.coverage.complete, true);
+  assert.equal(thor_filtered.coverage.serverFilterHonored, true);
+  assert.equal(thor_filtered.coverage.requestedType, 'decision');
+  assert.ok(thor_filtered.coverage.pages < thor_full.coverage.pages / 3);
+});
+
+test('legacy servers ignoring example still receive a complete scan with visible overfetch', async () => {
+  const thor_rows = [{ id: 'rule', type: 'decision' }, { id: 'context', type: 'context' }];
+  const thor_scan = await scanMemoryEntries(async endpoint =>
+    new URL(endpoint, 'https://test/').searchParams.get('page') === '0' ? thor_rows : [], { type: 'decision' });
+  assert.deepEqual(thor_scan.entries, thor_rows);
+  assert.equal(thor_scan.coverage.complete, true);
+  assert.equal(thor_scan.coverage.serverFilterHonored, false);
+});
+
 test('scans beyond the first 20 even when the server caps pages below requested size', async () => {
   const thor_rows = Array.from({ length: 1238 }, (_, thor_i) => ({ id: `memory-${thor_i}` }));
   const thor_calls = [];

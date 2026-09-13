@@ -3793,7 +3793,7 @@ async function buildInvariantPreflight(context, args) {
   const limit = clampInteger(args.limit, 20, 1, 1000);
 
   const statusResult = await settle(() => apiRequest(context, 'GET', 'memory/status'));
-  const scan = await scanMemoryEntries(endpoint => apiRequest(context, 'GET', endpoint));
+  const scan = await scanMemoryEntries(endpoint => apiRequest(context, 'GET', endpoint), { type: 'decision' });
   const allMatches = filterInvariantEntries(scan.entries, {
     sourceChannel,
     workspace,

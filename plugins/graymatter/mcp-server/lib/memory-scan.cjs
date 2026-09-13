@@ -15,6 +15,11 @@ async function scanMemoryEntries(thor_fetch, thor_options = {}) {
   const thor_maxPages = thor_options.maxPages ?? 100;
   const thor_maxMs = thor_options.maxMs ?? 60000;
   const thor_concurrency = thor_options.concurrency ?? 4;
+  const thor_type = thor_options.type;
+  if (thor_type !== undefined && !['configuration', 'preference', 'decision', 'todo', 'context', 'artifact'].includes(thor_type)) {
+    throw new Error('Invalid MemoryEntry type filter');
+  }
+  const thor_filter = thor_type ? `&example=${encodeURIComponent(JSON.stringify({ type: thor_type }))}` : '';
   if (!Number.isInteger(thor_maxPages) || thor_maxPages < 1 || thor_maxPages > 1000
       || !Number.isFinite(thor_maxMs) || thor_maxMs < 1 || thor_maxMs > 300000
       || !Number.isInteger(thor_concurrency) || thor_concurrency < 1 || thor_concurrency > 4) {
@@ -25,7 +30,8 @@ async function scanMemoryEntries(thor_fetch, thor_options = {}) {
   const thor_coverage = {
     complete: false, pages: 0, scanned: 0, duplicates: 0, pageSize: thor_pageSize,
     maxPages: thor_maxPages, requestedPages: 0, concurrency: thor_concurrency,
-    reason: 'page_budget', consistency: 'best_effort_paginated_read'
+    reason: 'page_budget', consistency: 'best_effort_paginated_read',
+    ...(thor_type ? { requestedType: thor_type, serverFilterHonored: true } : {})
   };
   let thor_window = [];
   for (let thor_page = 0; thor_page < thor_maxPages; thor_page += 1) {
@@ -40,7 +46,7 @@ async function scanMemoryEntries(thor_fetch, thor_options = {}) {
       // order. Do not return rows speculatively fetched beyond the first end.
       thor_window = await Promise.allSettled(Array.from({ length: thor_windowSize }, (_, thor_index) =>
         Promise.resolve().then(() => thor_fetch(
-          `MemoryEntry?page=${thor_page + thor_index}&size=${thor_pageSize}&sort=id,asc`))));
+          `MemoryEntry?page=${thor_page + thor_index}&size=${thor_pageSize}&sort=id,asc${thor_filter}`))));
       const thor_denial = thor_window.find(thor_result => thor_result.status === 'rejected'
         && [401, 403].includes(thor_result.reason?.status));
       if (thor_denial) throw thor_denial.reason;
@@ -66,6 +72,9 @@ async function scanMemoryEntries(thor_fetch, thor_options = {}) {
     }
     let thor_added = 0;
     for (const thor_entry of thor_batch) {
+      // Older servers ignore example. Preserve their full scan and expose the
+      // overfetch; callers still apply their existing invariant predicate.
+      if (thor_type && thor_entry?.type !== thor_type) thor_coverage.serverFilterHonored = false;
       if (!thor_entry || typeof thor_entry.id !== 'string' || !thor_entry.id) {
         thor_coverage.reason = 'invalid_entry';
         return { entries: [...thor_entries.values()], coverage: { ...thor_coverage, scanned: thor_entries.size, durationMs: Date.now() - thor_started } };
@@ -115,7 +124,8 @@ if (require.main === module) {
   }, {
     maxPages: Number(process.env.GRAYMATTER_SCAN_MAX_PAGES || 100),
     maxMs: Number(process.env.GRAYMATTER_SCAN_MAX_MS || 60000),
-    concurrency: Number(process.env.GRAYMATTER_SCAN_CONCURRENCY || 4)
+    concurrency: Number(process.env.GRAYMATTER_SCAN_CONCURRENCY || 4),
+    type: process.env.GRAYMATTER_SCAN_TYPE || undefined
   }).then(thor_result => process.stdout.write(`${JSON.stringify(thor_result)}\n`))
     .catch(() => { process.stderr.write('GrayMatter list scan failed; check authentication and API availability.\n'); process.exitCode = 1; });
 }

@@ -92,7 +92,10 @@ if ! "$GRAYMATTER_API_COMMAND" GET /memory/status >"$STATUS_FILE" 2>/dev/null; t
   printf '{"status":"unavailable"}\n' >"$STATUS_FILE"
 fi
 
-GRAYMATTER_API_COMMAND="$GRAYMATTER_API_COMMAND" node "$SCRIPT_DIR/../mcp-server/lib/memory-scan.cjs" >"$RESPONSE_FILE"
+# The binding predicate below accepts decision records only. Ask the canonical
+# list API for that same class before pagination; coverage/security checks stay intact.
+GRAYMATTER_API_COMMAND="$GRAYMATTER_API_COMMAND" GRAYMATTER_SCAN_TYPE=decision \
+  node "$SCRIPT_DIR/../mcp-server/lib/memory-scan.cjs" >"$RESPONSE_FILE"
 COVERAGE="$(jq -c .coverage "$RESPONSE_FILE")"
 
 TERMS_JSON="$(

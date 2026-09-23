@@ -104,9 +104,64 @@ run_missing_schema_cache_contract() {
   echo "$out" | grep -q '^kpi_layer=unknown$'
 }
 
+run_auth_header_contract() {
+  local script="$1"
+  local label="$2"
+  local work_dir="$TMP_DIR/${label}-auth-headers"
+  local fake_bin="$work_dir/bin"
+  local curl_log="$work_dir/curl.log"
+  mkdir -p "$work_dir/memory" "$work_dir/tmp" "$fake_bin"
+  printf '[]\n' > "$work_dir/memory/graymatter-fallback.json"
+  cp "$script" "$work_dir/gm-status"
+  cp "$(dirname "$script")/gm-schema-cache-lib" "$work_dir/gm-schema-cache-lib"
+  chmod +x "$work_dir/gm-status"
+
+  cat > "$fake_bin/curl" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "$*" >> "$CURL_LOG"
+out_file=""
+url=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -o)
+      out_file="$2"
+      shift 2
+      ;;
+    -H|-w|--connect-timeout|--max-time)
+      shift 2
+      ;;
+    *)
+      url="$1"
+      shift
+      ;;
+  esac
+done
+if [[ "$out_file" != "/dev/null" && -n "$out_file" ]]; then
+  if [[ "$url" == *"tenant-schemas/preflight/graymatter_status"* ]]; then
+    printf '{"ready":true,"tenantSchemaContext":"ready","schemaName":"org_test"}\n' > "$out_file"
+  else
+    : > "$out_file"
+  fi
+fi
+printf '200'
+EOF
+  chmod +x "$fake_bin/curl"
+
+  local out
+  out="$(PATH="$fake_bin:$PATH" CURL_LOG="$curl_log" ROOT_DIR="$work_dir" VALKYR_API_BASE="https://example.test/v1" VALKYR_AUTH_TOKEN=test-token "$work_dir/gm-status")"
+  echo "$out" | grep -q '^service_status=online$'
+  echo "$out" | grep -q '^tenant_schema_context=ready$'
+  [[ "$(grep -Fc -- '-H Authorization: Bearer test-token' "$curl_log")" -eq 2 ]]
+  [[ "$(grep -Fc -- '-H VALKYR_AUTH: test-token' "$curl_log")" -eq 2 ]]
+  [[ "$(grep -Fc -- '-H Cookie: VALKYR_AUTH=test-token' "$curl_log")" -eq 2 ]]
+}
+
 run_status_contract "$ROOT_DIR/scripts/gm-status" "root"
 run_status_contract "$ROOT_DIR/plugins/graymatter/scripts/gm-status" "plugin"
 run_missing_schema_cache_contract "$ROOT_DIR/scripts/gm-status" "root"
 run_missing_schema_cache_contract "$ROOT_DIR/plugins/graymatter/scripts/gm-status" "plugin"
+run_auth_header_contract "$ROOT_DIR/scripts/gm-status" "root"
+run_auth_header_contract "$ROOT_DIR/plugins/graymatter/scripts/gm-status" "plugin"
 
 echo "gm_status_test: ok"

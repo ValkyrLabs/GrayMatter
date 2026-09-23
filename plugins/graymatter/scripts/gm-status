@@ -195,6 +195,8 @@ token_live_state() {
   }
   code="$(curl -sS -o /dev/null -w '%{http_code}' --connect-timeout 5 --max-time 10 \
     -H "Authorization: Bearer $token" \
+    -H "VALKYR_AUTH: $token" \
+    -H "Cookie: VALKYR_AUTH=$token" \
     -H 'accept: application/json' \
     "$API_BASE/auth/me" 2>/dev/null || true)"
   case "$code" in
@@ -215,6 +217,8 @@ tenant_schema_context_json() {
   body_file="$(mktemp "${TMPDIR:-/tmp}/graymatter-status.XXXXXX")"
   code="$(curl -sS -o "$body_file" -w '%{http_code}' --connect-timeout 5 --max-time 10 \
     -H "Authorization: Bearer $token" \
+    -H "VALKYR_AUTH: $token" \
+    -H "Cookie: VALKYR_AUTH=$token" \
     -H 'accept: application/json' \
     "$API_BASE/tenant-schemas/preflight/graymatter_status?operation=memory.query" 2>/dev/null || true)"
   if [[ "$code" =~ ^2 && -s "$body_file" ]]; then

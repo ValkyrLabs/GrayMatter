@@ -1,0 +1,225 @@
+# OmegaRAG release evidence bundle
+
+`scripts/gm-release-evidence` produces `graymatter-omegarag-release-evidence/v1`, a content-free source-to-installed release artifact for GrayMatter Light, Cloud discovery, the Codex/OpenClaw plugin, and portable MCP contracts.
+
+The generator derives its result from the current package rather than accepting caller-supplied statuses. It binds:
+
+- the Git source revision or installed `.graymatter-source-rev`;
+- root, marketplace, ClawHub, and MCP package versions;
+- the deterministic `graymatter.skill` SHA-256 when that archive applies;
+- the submission-manifest target and root/marketplace checklist parity;
+- hashes for the portable MCP, tool, memory, and OmegaRAG agent ABI contracts;
+- the self-hash-valid, policy-pinned inventory derived from the canonical OmegaRAG PRD;
+- root/marketplace release-script and policy parity;
+- the local, non-mutating agent smoke matrix;
+- an unexpired, authenticated production `omegarag-capability-manifest/v1`, projected without tenant names, content, balances, credentials, or provider responses;
+- a policy-bound `omegarag-signature-history/v1` proving seven consecutive UTC days of the four Phase 0 signatures in staging and production;
+- a production `omegabench-evidence-set/v1` containing public-release-eligible, content-free `omegabench-reproducibility/v1` manifests;
+- a scope-bound `omegarag-objective-evidence/v1` proving the security, receipt-lineage, availability, latency, recovery, and deletion gates from authenticated api-0 responses;
+- one aggregate `omegarag-prd-resolution-attestation/v1` binding product and security signoff to every P0/P1 requirement in the exact inventory and source revision;
+- explicit Light, Cloud, and plugin limitations from the versioned release policy.
+
+Without a current production capability manifest, complete signature history, a complete OmegaBench baseline matrix, a complete objective-evidence bundle, and a current aggregate P0/P1 resolution attestation, the decision is `HOLD`. A valid capability manifest with any `DEGRADED` or `UNAVAILABLE` capability also remains `HOLD`. The strongest result is `ELIGIBLE_FOR_HUMAN_REVIEW`; `releaseAuthorized`, `claimPromotionAuthorized`, `mergeAuthorized`, and `productionDeploymentAuthorized` always remain false.
+
+## Run from source or an installed cache
+
+```bash
+scripts/gm-release-evidence \
+  --capability-manifest artifacts/omegarag-capabilities.json \
+  --signature-history artifacts/omegarag-signature-history.json \
+  --benchmark-evidence artifacts/omegabench-evidence.json \
+  --objective-evidence artifacts/omegarag-objective-evidence.json \
+  --prd-resolution-attestation artifacts/omegarag-prd-resolution-attestation.json \
+  --out artifacts/graymatter-omegarag-release-evidence.json
+```
+
+## Bind the GA P0/P1 requirement gate
+
+`references/contracts/release/graymatter_omegarag_prd_inventory_v1.json` is a
+content-free generated contract. Its self-hash and the release policy bind the
+canonical PRD source hash, requirement-set hash, all 128 requirement IDs and
+priorities, and the 114-item P0/P1 population. Source tests regenerate it from
+`docs/prd-graymatter-omegarag.md`; installed packages validate the same pinned
+contract without needing to ship the product document.
+
+The resolution input is one aggregate reviewed artifact, not a per-ticket
+status board:
+
+```json
+{
+  "schemaVersion": "omegarag-prd-resolution-attestation/v1",
+  "attestedAt": "2026-07-17T12:00:00Z",
+  "sourceRevision": "40-to-64-lowercase-hex-characters",
+  "inventoryHash": "b870fbed097388a322e0f7d9fc235a7cd46b254110d8a1d01d3331d7d07f3f8b",
+  "requirementSetHash": "a6ff1cc837e07a6be22669bc93fbdca2de1d010a22c98ce68d97c10a839b6e2b",
+  "p0P1RequirementCount": 114,
+  "allP0P1Resolved": true,
+  "productSignoff": {
+    "evidenceRef": "approvals/product/omegarag-2026.07",
+    "evidenceHash": "64-lowercase-hex-characters",
+    "approvedAt": "2026-07-17T11:55:00Z"
+  },
+  "securitySignoff": {
+    "evidenceRef": "approvals/security/omegarag-2026.07",
+    "evidenceHash": "64-lowercase-hex-characters",
+    "approvedAt": "2026-07-17T11:56:00Z"
+  }
+}
+```
+
+The attestation is accepted only when it is fresh, uses distinct safe product
+and security evidence references, matches the policy-pinned inventory, and
+names the exact Git or installed source revision. It records no individual
+requirement status and grants no claim, merge, release, or deployment
+authority. A PRD or source revision change therefore returns the aggregate gate
+to `HOLD` until humans review a new attestation.
+
+The capability input must be exactly one JSON object, use the canonical manifest version, identify the production environment, include both Light and Cloud distribution profiles, and remain unexpired. Only bounded capability IDs, evidence states, evidence tiers, claim status, degraded reasons, safe next actions, scope hashes, versions, timestamps, counts, and distribution differences enter the output.
+
+The signature-history input is also exactly one JSON object. Each observation uses this content-free shape:
+
+```json
+{
+  "environment": "staging",
+  "observedAt": "2026-07-17T12:00:00Z",
+  "capabilityId": "graymatter.receipt.create",
+  "passed": true,
+  "httpStatus": 204,
+  "contractVersion": "omegarag-signature-canary/v1",
+  "evidenceRef": "signature-canary/staging/2026-07-17/graymatter.receipt.create",
+  "evidenceHash": "64-lowercase-hex-characters",
+  "scopeHash": "64-lowercase-hex-characters",
+  "authorityHash": "64-lowercase-hex-characters"
+}
+```
+
+The versioned policy, not caller flags, fixes the required environments, capability IDs, seven-day window, freshness bound, and maximum observation count. Every environment and capability must have at least one passing 2xx observation on each UTC day; any failed observation fails that cell. Scope and authority hashes must remain stable within each environment, and production hashes must match the current production capability manifest. Evidence references and individual observations do not enter the release artifact; it contains only bounded dates, counts, hashes, and coverage status.
+
+Collect one freshly published and manifest-verified report without copying
+query or response content into history:
+
+```bash
+scripts/graymatter-prod-acceptance.sh \
+  --environment staging \
+  --publish-capability-evidence \
+  --artifact artifacts/staging-canary.json
+
+scripts/gm-signature-history \
+  --report artifacts/staging-canary.json \
+  --history artifacts/omegarag-signature-history.json \
+  --out artifacts/omegarag-signature-history.next.json
+```
+
+Omit `--history` for the first collected report.
+
+The collector accepts at most 64 reports per invocation, rejects stale,
+unpublished, unverified, relabeled, or extra-field reports, deduplicates exact
+report observations, and caps retained observations using the release policy.
+Promote the `.next.json` artifact through the normal reviewed artifact flow.
+
+## Admit a public OmegaBench corpus package
+
+Before running a publishable benchmark, retain the exact public source and license artifacts and
+create the content-free `omegabench-corpus-package/v1` object supplied as
+`specification.corpusPackage`:
+
+```bash
+scripts/gm-omegabench-corpus \
+  --corpus-id omega-public-memory \
+  --corpus-version 2026.07 \
+  --corpus-license Apache-2.0 \
+  --source corpora/omega-public-memory-2026.07.jsonl \
+  --source-uri https://benchmarks.example/omega-public-memory/2026.07/source.jsonl \
+  --source-revision refs/tags/2026.07 \
+  --license corpora/LICENSE-APACHE-2.0 \
+  --license-uri https://www.apache.org/licenses/LICENSE-2.0.txt \
+  --case-count 120 \
+  --case-set-checksum 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef \
+  --confirm-public-only \
+  --confirm-no-tenant-data \
+  --out artifacts/omega-public-memory-2026.07.package.json
+
+scripts/gm-omegabench-corpus \
+  --validate artifacts/omega-public-memory-2026.07.package.json \
+  --source corpora/omega-public-memory-2026.07.jsonl \
+  --license corpora/LICENSE-APACHE-2.0
+```
+
+The confirmations are explicit operator assertions; they do not infer privacy from filenames or
+content. The tool rejects moving revisions such as `main` or `latest`, non-HTTPS provenance,
+unsupported licenses, mismatched retained artifacts, extra/private fields, concatenated JSON, and
+output collisions. It hashes source and license bytes without copying them into the package.
+api-0 independently recomputes the package hash and binds it to the exact pre-default case checksum
+and case count; both the portable tool and runtime cap a corpus slice at 2,048 cases. Only a server
+result containing an `ADMITTED`, failure-free
+`omegabench-corpus-admission/v1` receipt can enter release evidence.
+
+## Collect OmegaBench reproducibility evidence
+
+Run the authenticated ValkyrAI benchmark endpoint and retain its complete
+response with the matching licensed corpus package. The GrayMatter collector
+accepts either that full report or an extracted `.reproducibilityManifest`; it
+copies only the content-free manifest and records a hash of the source artifact.
+
+```bash
+scripts/gm-omegabench-evidence \
+  --manifest artifacts/omegabench-memory-fixed-hybrid.json \
+  --evidence artifacts/omegabench-evidence.json \
+  --runtime-revision 0123456789abcdef0123456789abcdef01234567 \
+  --out artifacts/omegabench-evidence.next.json \
+  --format projection
+```
+
+Omit `--evidence` for the first manifest. The release policy requires one
+coherent production result for every combination of the `MEMORY`,
+`BUSINESS_GRAPH`, `ISOLATION`, `CONTEXT`, and `ECONOMICS` tracks with the six
+mandatory reproducible baselines: lexical, vector, fixed hybrid, fixed
+one-hop graph, fixed three-hop graph, and the current planner. Within each
+track, corpus identity, version, checksum, seed, and server admission hash must remain identical so
+the baseline comparison is meaningful.
+
+Every accepted manifest must be `REPRODUCIBLE`, licensed for public use,
+non-holdout, checksum-verified, SLO-measured and passing,
+confidence-measured, free of missing evidence and release failures, and marked
+`publicReleaseEligible`. Its corpus admission must be `PUBLIC`, explicitly exclude tenant data,
+match the manifest identity/count/checksum, and contain only HTTPS, pinned, SHA-256-bound
+provenance. The matrix must use one production scope and stable
+runtime, schema, policy, index-manifest, planner, and graph-policy versions.
+Freshness is calculated from api-0's hash-bound `runtimeEvidence.observedAt`,
+never the collector clock or a caller-supplied timestamp.
+The release generator additionally binds its scope hash to the current
+production capability manifest. Missing cells or version/scope drift remain
+`HOLD`; callers cannot weaken the matrix through flags.
+
+## Collect security, correctness, and SLO objectives
+
+Fetch the five authenticated, read-only api-0 objective responses for the same
+principal and capability manifest. Each response carries the server-derived
+`scopeHash`; the collector rejects mixed scopes, stale or non-current-month
+evidence, missing security probe classes, non-production latency/recovery
+evidence, failed objectives, extra fields, and concatenated JSON.
+
+```bash
+scripts/gm-objective-evidence \
+  --security artifacts/security-objectives.json \
+  --availability artifacts/availability-objectives.json \
+  --latency artifacts/latency-objectives.json \
+  --recovery artifacts/recovery-objectives.json \
+  --deletion artifacts/deletion-slo.json \
+  --out artifacts/omegarag-objective-evidence.json \
+  --format projection
+```
+
+The bundle omits tenant identity, operation IDs, raw probes, queries, content,
+and provider details. It retains bounded aggregate counts, objective targets and
+observations, categorical coverage, timestamps, scope, and hashes. In
+particular, `receipt_trajectory_coverage` must pass in test, staging, and
+production; a production capability-scope mismatch remains `HOLD`.
+
+Run the deterministic contract with:
+
+```bash
+bash tests/gm_release_evidence_test.sh
+```
+
+After a human-approved package release, rerun the generator from the installed cache. Source evidence does not prove the marketplace cache was updated.

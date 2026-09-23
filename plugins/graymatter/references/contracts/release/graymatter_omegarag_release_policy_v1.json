@@ -1,0 +1,208 @@
+{
+  "schemaVersion": "graymatter-omegarag-release-policy/v1",
+  "requiredSmokeStages": [
+    "install_readiness",
+    "read_search_readiness",
+    "agent_memory_scope_readiness",
+    "mcp_readiness",
+    "schema_sync_readiness",
+    "tool_routing_readiness"
+  ],
+  "manualSmokeStages": [
+    "write_readiness",
+    "safe_response_readiness"
+  ],
+  "prdResolution": {
+    "inventorySchemaVersion": "omegarag-prd-inventory/v1",
+    "attestationSchemaVersion": "omegarag-prd-resolution-attestation/v1",
+    "sourceRef": "docs/prd-graymatter-omegarag.md",
+    "sourceSha256": "7fecddd1b4da6b7c492b7ab6101cf97811ff0fd46be18435816edfb0b53e2848",
+    "requirementSetHash": "a6ff1cc837e07a6be22669bc93fbdca2de1d010a22c98ce68d97c10a839b6e2b",
+    "inventoryHash": "b870fbed097388a322e0f7d9fc235a7cd46b254110d8a1d01d3331d7d07f3f8b",
+    "requirementCount": 128,
+    "p0P1RequirementCount": 114,
+    "priorityCounts": {
+      "P0": 57,
+      "P1": 57,
+      "P2": 14
+    },
+    "maxAttestationAgeHours": 168
+  },
+  "sustainedSignatureCanary": {
+    "historySchemaVersion": "omegarag-signature-history/v1",
+    "contractVersion": "omegarag-signature-canary/v1",
+    "releaseCapabilityEnvironment": "production",
+    "requiredEnvironments": [
+      "staging",
+      "production"
+    ],
+    "requiredCapabilityIds": [
+      "graymatter.receipt.create",
+      "graymatter.context.create",
+      "graymatter.graph.shape",
+      "graymatter.semantic.manifest"
+    ],
+    "requiredConsecutiveUtcDays": 7,
+    "maxLatestObservationAgeHours": 36,
+    "maxObservations": 1024
+  },
+  "omegaBench": {
+    "evidenceSetSchemaVersion": "omegabench-evidence-set/v1",
+    "manifestVersion": "omegabench-reproducibility/v1",
+    "metadataAuthority": "corpus_package_server_validated_runtime_evidence_server_observed",
+    "corpusPackageSchemaVersion": "omegabench-corpus-package/v1",
+    "corpusAdmissionSchemaVersion": "omegabench-corpus-admission/v1",
+    "requiredCorpusAdmissionState": "ADMITTED",
+    "requiredPrivacyClassification": "PUBLIC",
+    "requiredEnvironment": "production",
+    "requiredTracks": [
+      "MEMORY",
+      "BUSINESS_GRAPH",
+      "ISOLATION",
+      "CONTEXT",
+      "ECONOMICS"
+    ],
+    "requiredBaselines": [
+      "LEXICAL_ONLY",
+      "VECTOR_ONLY",
+      "FIXED_HYBRID",
+      "FIXED_ONE_HOP_GRAPH",
+      "FIXED_THREE_HOP_GRAPH",
+      "CURRENT_PLANNER"
+    ],
+    "allTracks": [
+      "MEMORY",
+      "BUSINESS_GRAPH",
+      "TEMPORAL",
+      "ISOLATION",
+      "AGENTIC",
+      "FEDERATION",
+      "CONTEXT",
+      "SWARM",
+      "WORKFLOW",
+      "SCHEMA_CHANGE",
+      "ECONOMICS"
+    ],
+    "allBaselines": [
+      "LEXICAL_ONLY",
+      "VECTOR_ONLY",
+      "FIXED_HYBRID",
+      "FIXED_ONE_HOP_GRAPH",
+      "FIXED_THREE_HOP_GRAPH",
+      "CURRENT_PLANNER",
+      "REFERENCE_IMPLEMENTATION"
+    ],
+    "requireCompleteCrossProduct": true,
+    "maxEvidenceAgeHours": 168,
+    "maxManifests": 128,
+    "maxCasesPerManifest": 2048,
+    "maxProvidersPerManifest": 32
+  },
+  "objectiveEvidence": {
+    "schemaVersion": "omegarag-objective-evidence/v1",
+    "maxEvidenceAgeHours": 24,
+    "securityContractVersion": "omegarag-security-objectives/v1",
+    "requiredSecurityEnvironments": ["test", "staging", "production"],
+    "requiredSecurityProbeClasses": [
+      "cross_tenant",
+      "cross_principal",
+      "object_acl",
+      "field_acl",
+      "secure_field",
+      "cache_isolation",
+      "timing_side_channel",
+      "provider_boundary",
+      "server_derived_identity",
+      "receipt_trajectory_coverage",
+      "unsupported_high_stakes_answer",
+      "prompt_injection"
+    ],
+    "availabilityContractVersion": "omegarag-availability-objectives/v1",
+    "requiredAvailabilityObjectives": ["synchronous_api", "receipt_retrieval"],
+    "latencyContractVersion": "omegarag-latency-objectives/v1",
+    "requiredLatencyObjectives": [
+      "cached_memory_exact_lookup",
+      "fast_hybrid_retrieval",
+      "balanced_context_page",
+      "deep_adaptive_trajectory",
+      "receipt_trajectory_read"
+    ],
+    "recoveryContractVersion": "omegarag-recovery-objectives/v1",
+    "targetRpoSeconds": 300,
+    "targetRtoSeconds": 1800,
+    "deletionContractVersion": "omegarag-deletion-slo/v1",
+    "minimumDeletionSuccessRate": 0.999
+  },
+  "requiredContracts": [
+    {
+      "id": "portable-mcp",
+      "path": "references/contracts/mcp/graymatter_mcp_contract_v1.json"
+    },
+    {
+      "id": "portable-tools",
+      "path": "references/contracts/mcp/graymatter_mcp_tools_v1.json"
+    },
+    {
+      "id": "omegarag-agent-abi",
+      "path": "references/contracts/mcp/graymatter_omegarag_agent_abi_v1.json"
+    },
+    {
+      "id": "omegarag-prd-inventory",
+      "path": "references/contracts/release/graymatter_omegarag_prd_inventory_v1.json"
+    },
+    {
+      "id": "memory-tool",
+      "path": "references/mcp/memory-tool-contract.v1.json"
+    }
+  ],
+  "knownLimitations": [
+    {
+      "id": "light.tenant-isolation",
+      "distribution": "light",
+      "reason": "A local process boundary does not prove GrayMatter Cloud tenant, cache, index, object-store, or provider namespace isolation.",
+      "safeNextAction": "Use an authenticated Cloud isolation matrix before making tenant-isolation claims."
+    },
+    {
+      "id": "light.kms",
+      "distribution": "light",
+      "reason": "Local key handling does not prove managed KMS, customer-managed-key, rotation, or crypto-shredding behavior.",
+      "safeNextAction": "Keep managed-key claims Cloud-only until the authenticated KMS lifecycle suite passes."
+    },
+    {
+      "id": "light.graph",
+      "distribution": "light",
+      "reason": "The portable generated-object and Java graph path does not prove parity with an optional managed graph provider.",
+      "safeNextAction": "Describe the portable correctness path and list graph accelerators only from live capability evidence."
+    },
+    {
+      "id": "light.external-providers",
+      "distribution": "light",
+      "reason": "External embeddings, rerankers, connectors, and federated providers are unavailable unless explicitly configured and policy-approved.",
+      "safeNextAction": "Keep local execution content-private by default and verify every approved provider through its disclosure receipt."
+    },
+    {
+      "id": "light.credits",
+      "distribution": "light",
+      "reason": "A local installation may not expose the GrayMatter Cloud credit ledger, reservations, or receipt-backed billing behavior.",
+      "safeNextAction": "Do not claim Cloud credit accounting from a Light-only smoke result."
+    },
+    {
+      "id": "cloud.live-evidence",
+      "distribution": "cloud",
+      "reason": "Source code, registration, packaging, and route declarations do not establish current Cloud availability.",
+      "safeNextAction": "Attach an unexpired authenticated OmegaRAG capability manifest for the release scope."
+    },
+    {
+      "id": "plugin.durable-authority",
+      "distribution": "plugin",
+      "reason": "Plugin-local fallback and replay files are recovery queues, not a second durable memory source.",
+      "safeNextAction": "Replay through authenticated GrayMatter and verify the returned durable memory entry or receipt."
+    },
+    {
+      "id": "plugin.surface-conformance",
+      "distribution": "plugin",
+      "reason": "File parity and local MCP smoke do not prove live behavior in Codex, OpenClaw, ValorIDE, SageChat, Workflow Studio, or generated applications.",
+      "safeNextAction": "Run the shared authenticated conformance suite on every required consumer surface."
+    }
+  ]
+}

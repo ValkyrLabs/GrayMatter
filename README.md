@@ -290,7 +290,7 @@ export VALKYR_API_BASE=https://api-0.valkyrlabs.com/v1
 node mcp-server/index.js
 ```
 
-Do not configure `VALKYR_AUTH_TOKEN`, `VALKYR_JWT_SESSION`, `GRAYMATTER_TENANT_ID`, or `X-Valkyr-Token` on the public multi-tenant service. Each request must carry the current user's OAuth bearer token. Public mode validates issuer, audience, lifetime, RS256 signature, required identity claims, and tool scopes; it then forwards only the bearer token to api-0 and never forwards caller tenant or owner identifiers.
+Do not configure `VALKYR_AUTH_TOKEN`, `VALKYR_JWT_SESSION`, `GRAYMATTER_TENANT_ID`, or `X-Valkyr-Token` on the public multi-tenant service. Each request must carry the current user's OAuth bearer token. Public mode validates issuer, audience, lifetime, RS256 signature, required identity claims, and tool scopes; it then forwards only the bearer token to api-0 and never forwards caller tenant or owner identifiers. OAuth metadata, JWKS fetches, and request-body reads inherit the request's shared execution deadline and stop when it expires. HTTP request bodies and local stdio messages fail before JSON parsing above `GRAYMATTER_MCP_MAX_REQUEST_BYTES` (default 1 MiB, capped at 16 MiB); health and bounded errors return content-free `executionLimits`.
 
 To connect a developer version in ChatGPT:
 
@@ -351,6 +351,8 @@ Username: your-username
 ```
 
 The happy path deliberately has only four visible stages: `downloading plugin`, `performing signup/login`, `authenticating`, and `GrayMatter plugin ready`. It does not require `jq` or manual JWT handling. Advanced OpenClaw operators can run `scripts/gm-activate` afterward for the complete smoke-test, agent-registration, and schema-sync bootstrap.
+
+`scripts/gm-activate` is the preferred first-run path. It checks for updates, signs in, stores the session in Keychain when available, validates the install, registers the agent, and writes a bounded startup-preflight artifact after invariant retrieval, authenticated capability discovery, and live OpenAPI freshness checks.
 
 Before task planning, code edits, production-affecting actions, or answers based on project history, agents must immediately run the invariant preflight for the current workspace/product:
 

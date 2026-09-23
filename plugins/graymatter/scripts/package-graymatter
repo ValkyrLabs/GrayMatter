@@ -23,6 +23,7 @@ REQUIRED=(
   docs/graymatter-lite.md
   docs/local-models.md
   docs/knowledge-packs.md
+  docs/omegarag-release-evidence.md
   docs/openai-app-directory-submission.md
   docs/privacy-policy.md
   docs/reviewer-test-credentials.md
@@ -49,12 +50,19 @@ REQUIRED=(
   mcp-server/lib/memory-scan.cjs
   mcp-server/lib/contribution-report.cjs
   docs/contribution-evidence.md
+  scripts/gm-startup-preflight
   scripts/gm-client
   scripts/gm-read
   scripts/gm-doctor
   scripts/gm-install-check
   scripts/gm-mcp-contract
   scripts/gm-agent-smoke-matrix
+  scripts/gm-release-evidence
+  scripts/gm-signature-history
+  scripts/gm-omegabench-corpus
+  scripts/gm-omegabench-evidence
+  scripts/gm-objective-evidence
+  scripts/graymatter-prod-acceptance.sh
   scripts/gm-status
   scripts/gm-schema-cache-lib
   scripts/gm-mcp-launcher
@@ -74,6 +82,9 @@ REQUIRED=(
   templates/graymatter-light-bootstrap/local-server/manifest.json
   references/contracts/mcp/graymatter_mcp_contract_v1.json
   references/contracts/mcp/graymatter_mcp_tools_v1.json
+  references/contracts/mcp/graymatter_omegarag_agent_abi_v1.json
+  references/contracts/release/graymatter_omegarag_release_policy_v1.json
+  references/contracts/release/graymatter_omegarag_prd_inventory_v1.json
   references/mcp/memory-tool-contract.v1.json
 )
 

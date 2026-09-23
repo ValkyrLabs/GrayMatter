@@ -1,6 +1,6 @@
 {
   "name": "@valkyrlabs/graymatter-mcp-server",
-  "version": "0.3.1",
+  "version": "0.3.3",
   "description": "Private and OAuth-hardened public MCP server for GrayMatter durable memory and bounded context.",
   "main": "index.js",
   "scripts": {

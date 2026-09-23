@@ -4,7 +4,9 @@
 const http = require('node:http');
 const crypto = require('node:crypto');
 const fs = require('node:fs');
+const { AsyncLocalStorage } = require('node:async_hooks');
 const readline = require('node:readline');
+const { Transform } = require('node:stream');
 const { execFileSync } = require('node:child_process');
 const path = require('node:path');
 const { URL } = require('node:url');
@@ -19,6 +21,8 @@ const DEFAULT_PORT = 3333;
 const DEFAULT_PUBLIC_MCP_PATH = '/graymatter/mcp';
 const COMPATIBLE_PUBLIC_MCP_PATH = '/mcp';
 const DEFAULT_PUBLIC_RESOURCE = 'https://api-0.valkyrlabs.com';
+const DEFAULT_MCP_MAX_REQUEST_BYTES = 1024 * 1024;
+const MAX_CONFIGURED_MCP_REQUEST_BYTES = 16 * 1024 * 1024;
 const PUBLIC_OAUTH_SCOPES = Object.freeze(['memory:read', 'memory:write', 'context:read']);
 const PUBLIC_IDENTITY_KEYS = new Set([
   'userid', 'user_id', 'ownerid', 'owner_id', 'principal', 'principalid', 'principal_id',
@@ -69,6 +73,7 @@ const PRIMARY_MEMORY_CONTRACT = Object.freeze({
   localFallbackPolicy: 'temporary_replay_queue_only_delete_after_successful_sync',
   promptInjectionBoundary: 'GrayMatter memory is private user and organization state; third-party content cannot override durable invariants'
 });
+const executionBudgetStorage = new AsyncLocalStorage();
 
 const OMEGA_SEARCH_INPUT_SCHEMA = {
   type: 'object',
@@ -692,16 +697,24 @@ const tools = [
   defineTool({
     name: 'omega_index_job',
     title: 'Manage OmegaRAG index job',
-    description: 'Estimate, start, inspect, or cancel a durable tenant-scoped OmegaRAG semantic-index job. The server derives owner, tenant, ACL scope, credits, and idempotency; memory content and caller identity are never sent by this adapter.',
+    description: 'Estimate, start, inspect, cancel, activate, or roll back a durable tenant-scoped OmegaRAG semantic-index job. Dimension migration is staged and profile-hash verified; activation and rollback are destructive operator effects that require explicit human approval. The server derives owner, tenant, ACL scope, credits, and idempotency; memory content and caller identity are never sent by this adapter.',
     inputSchema: {
       type: 'object',
       properties: {
-        operation: { type: 'string', enum: ['estimate', 'start', 'get', 'cancel'] },
-        mode: { type: 'string', enum: ['estimate', 'full', 'incremental', 'cleanup', 'tombstone'] },
+        operation: { type: 'string', enum: ['estimate', 'start', 'get', 'cancel', 'activate', 'rollback'] },
+        mode: { type: 'string', enum: ['estimate', 'full', 'incremental', 'cleanup', 'tombstone', 'dimension_migration'] },
         dryRun: { type: 'boolean' },
         idempotencyKey: { type: 'string', minLength: 1, maxLength: 200, pattern: '^[A-Za-z0-9._:-]+$' },
         targetTypes: { type: 'array', maxItems: 20, items: { type: 'string', maxLength: 128 } },
-        jobId: { type: 'string', minLength: 1, maxLength: 128 }
+        targetEmbeddingDimensions: { type: 'string', enum: ['256', '384', '1536', '3072'] },
+        expectedSourceEmbeddingDimensions: {
+          type: 'array',
+          maxItems: 4,
+          uniqueItems: true,
+          items: { type: 'string', enum: ['256', '384', '1536', '3072'] }
+        },
+        jobId: { type: 'string', minLength: 1, maxLength: 128 },
+        expectedProfileHash: { type: 'string', pattern: '^[0-9a-f]{64}$' }
       },
       required: ['operation'],
       additionalProperties: false
@@ -1496,6 +1509,7 @@ function createGrayMatterMcpServer(options = {}) {
   const oauthJwksUri = options.oauthJwksUri || process.env.GRAYMATTER_OAUTH_JWKS_URI || '';
   const tokenVerifier = options.tokenVerifier || verifyPublicAccessToken;
   const jwksCache = { expiresAt: 0, keys: [] };
+  const maxRequestBodyBytes = configuredMcpMaxRequestBytes();
   const processToken = options.token || process.env.VALKYR_AUTH_TOKEN || process.env.VALKYR_JWT_SESSION || '';
   const processTenantId = options.tenantId || process.env.GRAYMATTER_TENANT_ID || process.env.VALKYR_TENANT_ID || '';
   const lightUsername = options.lightUsername || process.env.GRAYMATTER_LIGHT_USERNAME || 'admin';
@@ -1533,7 +1547,8 @@ function createGrayMatterMcpServer(options = {}) {
           ok: true,
           apiBase,
           mcpPath: publicApp ? publicMcpPath : COMPATIBLE_PUBLIC_MCP_PATH,
-          tools: selectedTools.map((tool) => tool.name)
+          tools: selectedTools.map((tool) => tool.name),
+          executionLimits: mcpExecutionLimits(maxRequestBodyBytes)
         }, security);
         return;
       }
@@ -1551,14 +1566,20 @@ function createGrayMatterMcpServer(options = {}) {
       const mcpPath = isMcpRequestPath(requestUrl.pathname, publicMcpPath, publicApp);
       if (req.method === 'GET' && mcpPath) {
         if (publicApp) {
-          await requirePublicPrincipal(req, {
-            oauthIssuer,
-            oauthJwksUri,
-            publicResource,
-            fetchImpl,
-            tokenVerifier,
-            jwksCache
-          });
+          await runWithMcpExecutionBudget(() => runWithinExecutionBudget(
+            'GET',
+            requestUrl.pathname,
+            'oauth_principal_verification',
+            (signal) => requirePublicPrincipal(req, {
+              oauthIssuer,
+              oauthJwksUri,
+              publicResource,
+              fetchImpl,
+              tokenVerifier,
+              jwksCache,
+              signal
+            })
+          ));
         }
         sendJson(req, res, 405, publicApp
           ? publicErrorEnvelope('METHOD_NOT_ALLOWED', 'Use HTTP POST for this MCP endpoint.', false)
@@ -1567,46 +1588,60 @@ function createGrayMatterMcpServer(options = {}) {
       }
 
       if (req.method === 'POST' && mcpPath) {
-        let principal = null;
-        let requestAuth = authContextFrom(req, processToken, security);
-        if (publicApp) {
-          assertNoIdentityOverrideHeaders(req);
-          principal = await requirePublicPrincipal(req, {
-            oauthIssuer,
-            oauthJwksUri,
-            publicResource,
+        req.__grayMatterRequestBodyPending = true;
+        const rpcResponse = await runWithMcpExecutionBudget(async () => {
+          let principal = null;
+          let requestAuth = authContextFrom(req, processToken, security);
+          if (publicApp) {
+            assertNoIdentityOverrideHeaders(req);
+            principal = await runWithinExecutionBudget(
+              'POST',
+              requestUrl.pathname,
+              'oauth_principal_verification',
+              (signal) => requirePublicPrincipal(req, {
+                oauthIssuer,
+                oauthJwksUri,
+                publicResource,
+                fetchImpl,
+                tokenVerifier,
+                jwksCache,
+                signal
+              })
+            );
+            requestAuth = { token: principal.accessToken, requestScopedToken: true };
+          }
+          const rpcRequest = await runWithinExecutionBudget(
+            'POST',
+            requestUrl.pathname,
+            'request_body',
+            (signal) => readJson(req, signal, maxRequestBodyBytes)
+          );
+          return handleRpc(rpcRequest, {
+            apiBase,
             fetchImpl,
-            tokenVerifier,
-            jwksCache
+            ...requestAuth,
+            tenantId: publicApp ? '' : tenantIdFrom(req, processTenantId, processToken),
+            lightUsername,
+            lightPassword,
+            profileMode: options.profileMode || process.env.GRAYMATTER_PROFILE_MODE || 'single',
+            loginCommand,
+            loginProvider,
+            apiCommand,
+            apiShellProvider,
+            replayCommand,
+            schemaRefreshCommand,
+            schemaRefreshProvider: options.schemaRefreshProvider,
+            schemaCachePath,
+            schemaCacheProvider: options.schemaCacheProvider,
+            schemaRevision: options.schemaRevision || process.env.GRAYMATTER_SCHEMA_REVISION || '',
+            keychainReader,
+            widgetDomain,
+            publicApp,
+            principal,
+            toolSet: selectedTools,
+            publicResource
           });
-          requestAuth = { token: principal.accessToken, requestScopedToken: true };
-        }
-        const rpcRequest = await readJson(req);
-        const rpcResponse = await handleRpc(rpcRequest, {
-          apiBase,
-          fetchImpl,
-          ...requestAuth,
-          tenantId: publicApp ? '' : tenantIdFrom(req, processTenantId, processToken),
-          lightUsername,
-          lightPassword,
-          profileMode: options.profileMode || process.env.GRAYMATTER_PROFILE_MODE || 'single',
-          loginCommand,
-          loginProvider,
-          apiCommand,
-          apiShellProvider,
-          replayCommand,
-          schemaRefreshCommand,
-          schemaRefreshProvider: options.schemaRefreshProvider,
-          schemaCachePath,
-          schemaCacheProvider: options.schemaCacheProvider,
-          schemaRevision: options.schemaRevision || process.env.GRAYMATTER_SCHEMA_REVISION || '',
-          keychainReader,
-          widgetDomain,
-          publicApp,
-          principal,
-          toolSet: selectedTools,
-          publicResource
-        });
+        }, configuredMcpEnvelopeTimeoutMs());
 
         if (rpcResponse === null) {
           sendNoContent(req, res, security);
@@ -1623,11 +1658,13 @@ function createGrayMatterMcpServer(options = {}) {
     } catch (error) {
       if (publicApp) {
         const mapped = publicHttpError(error, publicResource);
-        sendJson(req, res, mapped.status, mapped.body, security, mapped.headers);
+        sendJson(req, res, mapped.status, mapped.body, security,
+          closeAfterResponseHeaders(req, res, error, mapped.headers));
         return;
       }
       const status = error && error.statusCode ? error.statusCode : 500;
-      sendJson(req, res, status, { error: error.message }, security);
+      sendJson(req, res, status, { error: error.message }, security,
+        closeAfterResponseHeaders(req, res, error));
     }
   });
 }
@@ -1690,8 +1727,30 @@ function selectPrivateToolSet(options = {}) {
 
 function startStdioServer(options = {}) {
   const context = createRpcContext(options);
+  const output = options.output || process.stdout;
+  const maxRequestBytes = configuredMcpMaxRequestBytes();
+  const boundedInput = boundedLineInput(
+    options.input || process.stdin,
+    maxRequestBytes,
+    () => output.write(`${JSON.stringify(jsonRpcError(
+      null,
+      -32001,
+      'GrayMatter MCP stdio message exceeded the configured byte limit.',
+      {
+        code: 'GRAYMATTER_MCP_PAYLOAD_TOO_LARGE',
+        executionLimits: {
+          maxRequestBodyBytes: maxRequestBytes,
+          maxStdioMessageBytes: maxRequestBytes,
+          sharedAcrossRequests: true,
+          onExhaustion: 'FAIL_CLOSED',
+          phase: 'stdio_message',
+          requestBodyPolicy: 'REJECT_BEFORE_PARSE'
+        }
+      }
+    ))}\n`)
+  );
   const lines = readline.createInterface({
-    input: process.stdin,
+    input: boundedInput,
     crlfDelay: Infinity
   });
 
@@ -1705,12 +1764,75 @@ function startStdioServer(options = {}) {
       const message = JSON.parse(trimmed);
       const response = await handleRpc(message, context);
       if (response !== null) {
-        process.stdout.write(`${JSON.stringify(response)}\n`);
+        output.write(`${JSON.stringify(response)}\n`);
       }
     } catch (error) {
-      process.stdout.write(`${JSON.stringify(jsonRpcError(null, -32700, `Invalid JSON-RPC message: ${error.message}`))}\n`);
+      output.write(`${JSON.stringify(jsonRpcError(null, -32700, `Invalid JSON-RPC message: ${error.message}`))}\n`);
     }
   });
+}
+
+function boundedLineInput(input, maxBytes, onOversizedLine) {
+  let pending = [];
+  let pendingBytes = 0;
+  let discarding = false;
+
+  const reset = () => {
+    pending = [];
+    pendingBytes = 0;
+  };
+
+  const stream = new Transform({
+    transform(chunk, encoding, callback) {
+      try {
+        const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk, encoding);
+        let cursor = 0;
+        for (let index = 0; index < buffer.length; index += 1) {
+          if (buffer[index] !== 0x0a) continue;
+          const segment = buffer.subarray(cursor, index);
+          if (!discarding) {
+            if (pendingBytes + segment.length > maxBytes) {
+              reset();
+              discarding = true;
+              onOversizedLine();
+            } else {
+              pending.push(segment);
+              pendingBytes += segment.length;
+              this.push(Buffer.concat([...pending, Buffer.from('\n')], pendingBytes + 1));
+            }
+          }
+          reset();
+          discarding = false;
+          cursor = index + 1;
+        }
+
+        if (cursor < buffer.length && !discarding) {
+          const segment = buffer.subarray(cursor);
+          if (pendingBytes + segment.length > maxBytes) {
+            reset();
+            discarding = true;
+            onOversizedLine();
+          } else {
+            pending.push(segment);
+            pendingBytes += segment.length;
+          }
+        }
+        callback();
+      } catch (error) {
+        callback(error);
+      }
+    },
+    flush(callback) {
+      if (!discarding && pendingBytes > 0) {
+        this.push(Buffer.concat(pending, pendingBytes));
+      }
+      reset();
+      callback();
+    }
+  });
+
+  input.pipe(stream);
+  return stream;
 }
 
 async function handleRpc(message, context) {
@@ -1748,7 +1870,10 @@ async function handleRpc(message, context) {
       case 'resources/read':
         return jsonRpcResult(id, readResource(message.params || {}, context));
       case 'tools/call':
-        return jsonRpcResult(id, await callTool(message.params || {}, context));
+        return jsonRpcResult(id, await runWithMcpExecutionBudget(
+          () => callTool(message.params || {}, context),
+          configuredMcpExecutionTimeoutMsForTool(message.params?.name)
+        ));
       default:
         return jsonRpcError(id, -32601, `Unknown method: ${message.method}`);
     }
@@ -2104,23 +2229,59 @@ async function callTool(params, context) {
       assertNoPrincipalOverrides(args);
       requireString(args.operation, 'operation');
       const operation = args.operation;
-      if (!['estimate', 'start', 'get', 'cancel'].includes(operation)) {
-        throw new Error('operation must be one of estimate, start, get, or cancel');
+      if (!['estimate', 'start', 'get', 'cancel', 'activate', 'rollback'].includes(operation)) {
+        throw new Error('operation must be one of estimate, start, get, cancel, activate, or rollback');
       }
-      if (operation === 'get' || operation === 'cancel') {
+      if (['get', 'cancel', 'activate', 'rollback'].includes(operation)) {
         requireString(args.jobId, 'jobId');
-        const suffix = operation === 'get' ? '' : '/cancel';
+        if (operation === 'activate' || operation === 'rollback') {
+          requireString(args.expectedProfileHash, 'expectedProfileHash');
+          if (!/^[0-9a-f]{64}$/.test(args.expectedProfileHash)) {
+            throw new Error('expectedProfileHash must be a lowercase 64-character SHA-256 hash');
+          }
+        }
+        const suffix = operation === 'get' ? '' : `/${operation}`;
         return execute('omega_index_job', () => apiRequest(
           context,
           operation === 'get' ? 'GET' : 'POST',
-          `graymatter/omega/index-jobs/${encodeURIComponent(args.jobId)}${suffix}`
+          `graymatter/omega/index-jobs/${encodeURIComponent(args.jobId)}${suffix}`,
+          operation === 'activate' || operation === 'rollback'
+            ? { expectedProfileHash: args.expectedProfileHash }
+            : undefined
         ));
       }
+      if (operation === 'start') {
+        requireString(args.mode, 'mode');
+      }
+      const mode = operation === 'estimate' ? (args.mode || 'estimate') : args.mode;
+      const allowedModes = ['estimate', 'full', 'incremental', 'cleanup', 'tombstone', 'dimension_migration'];
+      if (!allowedModes.includes(mode) || (operation === 'start' && mode === 'estimate')) {
+        throw new Error('mode must be one of full, incremental, cleanup, tombstone, or dimension_migration; estimate is read-only');
+      }
+      const allowedDimensions = ['256', '384', '1536', '3072'];
+      if (mode === 'dimension_migration') {
+        requireString(args.targetEmbeddingDimensions, 'targetEmbeddingDimensions');
+        if (!allowedDimensions.includes(args.targetEmbeddingDimensions)) {
+          throw new Error('targetEmbeddingDimensions must be one of 256, 384, 1536, or 3072');
+        }
+        if (args.expectedSourceEmbeddingDimensions !== undefined) {
+          if (!Array.isArray(args.expectedSourceEmbeddingDimensions)
+            || args.expectedSourceEmbeddingDimensions.length > allowedDimensions.length
+            || new Set(args.expectedSourceEmbeddingDimensions).size !== args.expectedSourceEmbeddingDimensions.length
+            || args.expectedSourceEmbeddingDimensions.some((dimension) => !allowedDimensions.includes(dimension))) {
+            throw new Error('expectedSourceEmbeddingDimensions must contain unique supported dimension strings');
+          }
+        }
+      } else if (args.targetEmbeddingDimensions !== undefined || args.expectedSourceEmbeddingDimensions !== undefined) {
+        throw new Error('embedding dimension fields are accepted only for dimension_migration mode');
+      }
       return execute('omega_index_job', () => apiRequest(context, 'POST', 'graymatter/omega/index-jobs', pickDefined({
-        mode: operation === 'estimate' ? 'estimate' : args.mode,
+        mode,
         dryRun: operation === 'estimate' ? true : args.dryRun,
         idempotencyKey: args.idempotencyKey,
-        targetTypes: args.targetTypes
+        targetTypes: args.targetTypes,
+        targetEmbeddingDimensions: args.targetEmbeddingDimensions,
+        expectedSourceEmbeddingDimensions: args.expectedSourceEmbeddingDimensions
       })));
     }
     case 'omega_retrieval_run': {
@@ -2779,7 +2940,12 @@ async function apiRequest(context, method, endpoint, body) {
     }
 
     if (shouldUseShellApiFallback(context, method, authError)) {
-      return context.apiShellProvider(context, method, endpoint, body);
+      return runWithinExecutionBudget(
+        method,
+        endpoint,
+        'stateful_shell_fallback',
+        () => context.apiShellProvider(context, method, endpoint, body)
+      );
     }
 
     throw authError;
@@ -2888,7 +3054,8 @@ async function apiRequestOnce(context, method, endpoint, body) {
     headers['X-Tenant-Id'] = tenantId;
   }
 
-  const timeoutMs = apiRequestTimeoutMs(endpoint);
+  const requestBudget = apiRequestBudget(endpoint);
+  const timeoutMs = requestBudget.timeoutMs;
   const controller = typeof AbortController === 'function' ? new AbortController() : null;
   const timeout = controller && timeoutMs > 0
     ? setTimeout(() => controller.abort(), timeoutMs)
@@ -2903,7 +3070,9 @@ async function apiRequestOnce(context, method, endpoint, body) {
     });
   } catch (error) {
     if (isAbortError(error)) {
-      throw apiTimeoutError(method, endpoint, timeoutMs);
+      throw requestBudget.boundedByExecutionDeadline
+        ? apiExecutionDeadlineError(method, endpoint, requestBudget)
+        : apiTimeoutError(method, endpoint, timeoutMs);
     }
     throw error;
   } finally {
@@ -2945,7 +3114,7 @@ async function apiRequestOnce(context, method, endpoint, body) {
   return payload;
 }
 
-function apiRequestTimeoutMs(endpoint) {
+function configuredApiRequestTimeoutMs(endpoint) {
   const specific = isContextCompileEndpoint(endpoint)
     ? parsePositiveInteger(process.env.GRAYMATTER_CONTEXT_COMPILE_TIMEOUT_MS) || 90000
     : isRetrievalReceiptEndpoint(endpoint)
@@ -2958,6 +3127,171 @@ function apiRequestTimeoutMs(endpoint) {
 
 function isContextCompileEndpoint(endpoint) {
   return String(endpoint || '').replace(/^\/+/, '') === 'graymatter_ops/context_page/compile';
+}
+
+function configuredMcpExecutionTimeoutMs() {
+  return parsePositiveInteger(process.env.GRAYMATTER_MCP_EXECUTION_TIMEOUT_MS)
+    || parsePositiveInteger(process.env.GRAYMATTER_MCP_REQUEST_TIMEOUT_MS)
+    || 30000;
+}
+
+function configuredMcpExecutionTimeoutMsForTool(toolName) {
+  const configuredTimeoutMs = configuredMcpExecutionTimeoutMs();
+  if (parsePositiveInteger(process.env.GRAYMATTER_MCP_EXECUTION_TIMEOUT_MS)) {
+    return configuredTimeoutMs;
+  }
+  if (toolName === 'context_compile') {
+    return Math.max(
+      configuredTimeoutMs,
+      parsePositiveInteger(process.env.GRAYMATTER_CONTEXT_COMPILE_TIMEOUT_MS) || 90000
+    );
+  }
+  return configuredTimeoutMs;
+}
+
+function configuredMcpEnvelopeTimeoutMs() {
+  return configuredMcpExecutionTimeoutMsForTool('context_compile');
+}
+
+function configuredMcpMaxRequestBytes() {
+  return Math.min(
+    parsePositiveInteger(process.env.GRAYMATTER_MCP_MAX_REQUEST_BYTES)
+      || DEFAULT_MCP_MAX_REQUEST_BYTES,
+    MAX_CONFIGURED_MCP_REQUEST_BYTES
+  );
+}
+
+function mcpExecutionLimits(maxRequestBodyBytes = configuredMcpMaxRequestBytes()) {
+  return {
+    configuredTimeoutMs: configuredMcpExecutionTimeoutMs(),
+    maxRequestBodyBytes,
+    maxStdioMessageBytes: maxRequestBodyBytes,
+    sharedAcrossRequests: true,
+    onExhaustion: 'FAIL_CLOSED',
+    requestBodyPolicy: 'REJECT_BEFORE_PARSE'
+  };
+}
+
+function runWithMcpExecutionBudget(requestFn, configuredTimeoutMs = configuredMcpExecutionTimeoutMs()) {
+  const nowMs = Date.now();
+  const parent = executionBudgetStorage.getStore();
+  const startedAtMs = parent && Number.isFinite(parent.startedAtMs) ? parent.startedAtMs : nowMs;
+  const configuredDeadlineMs = startedAtMs + configuredTimeoutMs;
+  const deadlineMs = parent && Number.isFinite(parent.deadlineMs)
+    ? Math.min(parent.deadlineMs, configuredDeadlineMs)
+    : configuredDeadlineMs;
+  return executionBudgetStorage.run({ configuredTimeoutMs, deadlineMs, startedAtMs }, requestFn);
+}
+
+function apiRequestBudget(endpoint) {
+  const configuredRequestTimeoutMs = configuredApiRequestTimeoutMs(endpoint);
+  const executionBudget = executionBudgetStorage.getStore();
+  if (!executionBudget) {
+    return {
+      timeoutMs: configuredRequestTimeoutMs,
+      configuredRequestTimeoutMs,
+      configuredExecutionTimeoutMs: null,
+      deadlineMs: null,
+      remainingMs: null,
+      boundedByExecutionDeadline: false
+    };
+  }
+
+  const remainingMs = executionBudget.deadlineMs - Date.now();
+  if (remainingMs <= 0) {
+    throw apiExecutionDeadlineError('REQUEST', endpoint, {
+      configuredRequestTimeoutMs,
+      configuredExecutionTimeoutMs: executionBudget.configuredTimeoutMs,
+      deadlineMs: executionBudget.deadlineMs,
+      remainingMs: 0,
+      boundedByExecutionDeadline: true
+    });
+  }
+
+  return {
+    timeoutMs: Math.max(1, Math.min(configuredRequestTimeoutMs, remainingMs)),
+    configuredRequestTimeoutMs,
+    configuredExecutionTimeoutMs: executionBudget.configuredTimeoutMs,
+    deadlineMs: executionBudget.deadlineMs,
+    remainingMs,
+    boundedByExecutionDeadline: remainingMs <= configuredRequestTimeoutMs
+  };
+}
+
+async function runWithinExecutionBudget(method, endpoint, phase, requestFn) {
+  const executionBudget = executionBudgetStorage.getStore();
+  if (!executionBudget) {
+    return requestFn();
+  }
+  const remainingMs = executionBudget.deadlineMs - Date.now();
+  const requestBudget = {
+    configuredRequestTimeoutMs: null,
+    configuredExecutionTimeoutMs: executionBudget.configuredTimeoutMs,
+    deadlineMs: executionBudget.deadlineMs,
+    remainingMs: Math.max(0, remainingMs),
+    boundedByExecutionDeadline: true,
+    phase
+  };
+  if (remainingMs <= 0) {
+    throw apiExecutionDeadlineError(method, endpoint, requestBudget);
+  }
+
+  let timeout;
+  const controller = typeof AbortController === 'function' ? new AbortController() : null;
+  try {
+    return await Promise.race([
+      Promise.resolve().then(() => requestFn(controller ? controller.signal : undefined)),
+      new Promise((_, reject) => {
+        timeout = setTimeout(
+          () => {
+            const error = apiExecutionDeadlineError(method, endpoint, requestBudget);
+            reject(error);
+            if (controller) controller.abort(error);
+          },
+          remainingMs
+        );
+      })
+    ]);
+  } finally {
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+  }
+}
+
+function executionCommandBudget(configuredTimeoutMs, method, endpoint, phase) {
+  const executionBudget = executionBudgetStorage.getStore();
+  if (!executionBudget) {
+    return { timeoutMs: configuredTimeoutMs, boundedByExecutionDeadline: false };
+  }
+  const remainingMs = executionBudget.deadlineMs - Date.now();
+  const requestBudget = {
+    configuredRequestTimeoutMs: configuredTimeoutMs,
+    configuredExecutionTimeoutMs: executionBudget.configuredTimeoutMs,
+    deadlineMs: executionBudget.deadlineMs,
+    remainingMs: Math.max(0, remainingMs),
+    boundedByExecutionDeadline: true,
+    phase
+  };
+  if (remainingMs <= 0) {
+    throw apiExecutionDeadlineError(method, endpoint, requestBudget);
+  }
+  return {
+    timeoutMs: Math.max(1, Math.min(configuredTimeoutMs, remainingMs)),
+    boundedByExecutionDeadline: remainingMs <= configuredTimeoutMs,
+    requestBudget
+  };
+}
+
+function rethrowCommandTimeout(error, method, endpoint, commandBudget) {
+  const timedOut = error && error.code === 'ETIMEDOUT';
+  if (!timedOut) {
+    throw error;
+  }
+  if (commandBudget.boundedByExecutionDeadline) {
+    throw apiExecutionDeadlineError(method, endpoint, commandBudget.requestBudget);
+  }
+  throw apiTimeoutError(method, endpoint, commandBudget.timeoutMs);
 }
 
 function isRetrievalReceiptEndpoint(endpoint) {
@@ -2988,6 +3322,31 @@ function apiTimeoutError(method, endpoint, timeoutMs) {
   return error;
 }
 
+function apiExecutionDeadlineError(method, endpoint, requestBudget) {
+  const configuredTimeoutMs = requestBudget.configuredExecutionTimeoutMs;
+  const error = new Error(`GrayMatter MCP execution deadline exhausted after ${configuredTimeoutMs}ms`);
+  error.name = 'ApiRequestError';
+  error.status = 504;
+  error.payload = {
+    code: 'GRAYMATTER_EXECUTION_DEADLINE_EXHAUSTED',
+    message: error.message,
+    endpoint,
+    executionLimits: {
+      configuredTimeoutMs,
+      maxRequestBodyBytes: configuredMcpMaxRequestBytes(),
+      maxStdioMessageBytes: configuredMcpMaxRequestBytes(),
+      deadlineEpochMs: requestBudget.deadlineMs,
+      remainingMs: 0,
+      sharedAcrossRequests: true,
+      onExhaustion: 'FAIL_CLOSED',
+      phase: requestBudget.phase || 'api_request'
+    }
+  };
+  error.method = method;
+  error.endpoint = endpoint;
+  return error;
+}
+
 function hydrateLocalAuth(context) {
   if (!context || context.requestScopedToken || context.token || typeof context.keychainReader !== 'function') {
     return false;
@@ -3000,7 +3359,10 @@ function hydrateLocalAuth(context) {
     }
     context.token = token.trim();
     return Boolean(context.token);
-  } catch {
+  } catch (error) {
+    if (isExecutionDeadlineError(error)) {
+      throw error;
+    }
     return false;
   }
 }
@@ -3011,15 +3373,30 @@ async function refreshAuth(context) {
   }
 
   try {
-    const token = await context.loginProvider(context);
+    const token = await runWithinExecutionBudget(
+      'POST',
+      process.env.GRAYMATTER_LOGIN_PATH || DEFAULT_LOGIN_PATH,
+      'auth_refresh',
+      () => context.loginProvider(context)
+    );
     if (!token || typeof token !== 'string') {
       return false;
     }
     context.token = token;
     return true;
-  } catch {
+  } catch (error) {
+    if (isExecutionDeadlineError(error)) {
+      throw error;
+    }
     return false;
   }
+}
+
+function isExecutionDeadlineError(error) {
+  return Boolean(error)
+    && error.name === 'ApiRequestError'
+    && error.payload
+    && error.payload.code === 'GRAYMATTER_EXECUTION_DEADLINE_EXHAUSTED';
 }
 
 function isRefreshableAuthError(error) {
@@ -3063,6 +3440,12 @@ function readTokenFromKeychain() {
 
   for (const account of accounts) {
     for (const candidateService of services) {
+      const commandBudget = executionCommandBudget(
+        1000,
+        'GET',
+        `keychain/${candidateService}`,
+        'keychain_lookup'
+      );
       try {
         const token = execFileSync('security', [
           'find-generic-password',
@@ -3074,12 +3457,15 @@ function readTokenFromKeychain() {
         ], {
           encoding: 'utf8',
           stdio: ['ignore', 'pipe', 'ignore'],
-          timeout: 1000
+          timeout: commandBudget.timeoutMs
         }).trim();
         if (token) {
           return token;
         }
-      } catch {
+      } catch (error) {
+        if (error && error.code === 'ETIMEDOUT' && commandBudget.boundedByExecutionDeadline) {
+          rethrowCommandTimeout(error, 'GET', `keychain/${candidateService}`, commandBudget);
+        }
         // Try the next account/service pair.
       }
     }
@@ -3091,17 +3477,28 @@ function readTokenFromKeychain() {
 function runLoginCommand(context) {
   const loginCommand = context.loginCommand || process.env.GRAYMATTER_LOGIN_COMMAND || path.join(__dirname, '..', 'scripts', 'gm-login');
   const thor_portableLogin = process.platform === 'win32' && !process.env.GRAYMATTER_LOGIN_COMMAND;
-  const output = execFileSync(thor_portableLogin ? process.execPath : loginCommand, thor_portableLogin
-    ? [path.join(__dirname, '..', 'scripts', 'gm-auth.mjs'), 'env']
-    : ['env'], {
-    encoding: 'utf8',
-    env: {
-      ...process.env,
-      VALKYR_API_BASE: context.apiBase
-    },
-    stdio: ['ignore', 'pipe', 'pipe'],
-    timeout: Number(process.env.GRAYMATTER_LOGIN_TIMEOUT_MS || 30000)
-  });
+  const commandBudget = executionCommandBudget(
+    parsePositiveInteger(process.env.GRAYMATTER_LOGIN_TIMEOUT_MS) || 30000,
+    'POST',
+    process.env.GRAYMATTER_LOGIN_PATH || DEFAULT_LOGIN_PATH,
+    'auth_refresh_command'
+  );
+  let output;
+  try {
+    output = execFileSync(thor_portableLogin ? process.execPath : loginCommand, thor_portableLogin
+      ? [path.join(__dirname, '..', 'scripts', 'gm-auth.mjs'), 'env']
+      : ['env'], {
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        VALKYR_API_BASE: context.apiBase
+      },
+      stdio: ['ignore', 'pipe', 'pipe'],
+      timeout: commandBudget.timeoutMs
+    });
+  } catch (error) {
+    rethrowCommandTimeout(error, 'POST', process.env.GRAYMATTER_LOGIN_PATH || DEFAULT_LOGIN_PATH, commandBudget);
+  }
   return parseExportedToken(output);
 }
 
@@ -3114,17 +3511,32 @@ function runShellApiCommand(context, method, endpoint, body) {
   if (body !== undefined) {
     args.push(JSON.stringify(body));
   }
-  const output = execFileSync(apiCommand, args, {
-    encoding: 'utf8',
-    env: {
-      ...process.env,
-      VALKYR_API_BASE: context.apiBase,
-      VALKYR_AUTH_TOKEN: context.token || process.env.VALKYR_AUTH_TOKEN || '',
-      GRAYMATTER_SKIP_SELF_UPDATE: 'true'
-    },
-    stdio: ['ignore', 'pipe', 'pipe'],
-    timeout: Number(process.env.GRAYMATTER_API_COMMAND_TIMEOUT_MS || 90000)
-  });
+  const executionBudget = executionBudgetStorage.getStore();
+  const commandBudget = executionCommandBudget(
+    parsePositiveInteger(process.env.GRAYMATTER_API_COMMAND_TIMEOUT_MS) || 90000,
+    method,
+    endpoint,
+    'stateful_shell_command'
+  );
+  let output;
+  try {
+    output = execFileSync(apiCommand, args, {
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        VALKYR_API_BASE: context.apiBase,
+        VALKYR_AUTH_TOKEN: context.token || process.env.VALKYR_AUTH_TOKEN || '',
+        GRAYMATTER_SKIP_SELF_UPDATE: 'true',
+        GRAYMATTER_EXECUTION_DEADLINE_EPOCH: executionBudget
+          ? String(Math.floor(executionBudget.deadlineMs / 1000))
+          : (process.env.GRAYMATTER_EXECUTION_DEADLINE_EPOCH || '')
+      },
+      stdio: ['ignore', 'pipe', 'pipe'],
+      timeout: commandBudget.timeoutMs
+    });
+  } catch (error) {
+    rethrowCommandTimeout(error, method, endpoint, commandBudget);
+  }
   return output ? parseJson(output) : null;
 }
 
@@ -3188,6 +3600,7 @@ function buildRecoveryResult(error, operation, context) {
   }
 
   const details = recoveryDetails(error.payload);
+  const executionLimits = recoveryExecutionLimits(error.payload);
   const attribution = recoveryAttribution(error, operation, context, details);
   const signupUrl = attributedRecoveryUrl(process.env.VALKYR_HUMAN_SIGNUP_URL || DEFAULT_SIGNUP_URL, {
     ...attribution,
@@ -3213,6 +3626,7 @@ function buildRecoveryResult(error, operation, context) {
     traceId: details.traceId,
     workspaceId: details.workspaceId,
     accountId: details.accountId,
+    executionLimits,
     retryGuidance: retryable ? 'Complete the recovery action, then call this tool again with the same arguments.' : 'Switch credentials or workspace access before retrying.',
     retryable
   };
@@ -3242,6 +3656,27 @@ function buildRecoveryResult(error, operation, context) {
         }
       }
     }
+  };
+}
+
+function recoveryExecutionLimits(payload) {
+  const source = payload && typeof payload === 'object' && !Array.isArray(payload) ? payload : {};
+  const limits = source.executionLimits;
+  if (!limits || typeof limits !== 'object' || Array.isArray(limits)) {
+    return undefined;
+  }
+  return {
+    configuredTimeoutMs: Number.isFinite(limits.configuredTimeoutMs) ? limits.configuredTimeoutMs : undefined,
+    maxRequestBodyBytes: Number.isFinite(limits.maxRequestBodyBytes) ? limits.maxRequestBodyBytes : undefined,
+    maxStdioMessageBytes: Number.isFinite(limits.maxStdioMessageBytes) ? limits.maxStdioMessageBytes : undefined,
+    deadlineEpochMs: Number.isFinite(limits.deadlineEpochMs) ? limits.deadlineEpochMs : undefined,
+    remainingMs: Number.isFinite(limits.remainingMs) ? Math.max(0, limits.remainingMs) : undefined,
+    sharedAcrossRequests: limits.sharedAcrossRequests === true,
+    onExhaustion: limits.onExhaustion === 'FAIL_CLOSED' ? 'FAIL_CLOSED' : undefined,
+    phase: typeof limits.phase === 'string' ? limits.phase.slice(0, 80) : undefined,
+    requestBodyPolicy: limits.requestBodyPolicy === 'REJECT_BEFORE_PARSE'
+      ? 'REJECT_BEFORE_PARSE'
+      : undefined
   };
 }
 
@@ -3828,15 +4263,31 @@ function replayDeferredMemory(context, args = {}) {
   if (args.limit !== undefined && args.limit !== null) {
     commandArgs.push('--limit', String(clampInteger(args.limit, 1000, 1, 1000)));
   }
-  const output = execFileSync(replayCommand, commandArgs, {
-    cwd: path.join(__dirname, '..'),
-    env: {
-      ...process.env,
-      GRAYMATTER_API_SCRIPT: context.apiCommand || process.env.GRAYMATTER_API_COMMAND || path.join(__dirname, '..', 'scripts', 'graymatter_api.sh')
-    },
-    encoding: 'utf8',
-    stdio: ['ignore', 'pipe', 'pipe']
-  });
+  const executionBudget = executionBudgetStorage.getStore();
+  const commandBudget = executionCommandBudget(
+    parsePositiveInteger(process.env.GRAYMATTER_REPLAY_TIMEOUT_MS) || 90000,
+    'POST',
+    'memory/replay-deferred',
+    'deferred_replay_command'
+  );
+  let output;
+  try {
+    output = execFileSync(replayCommand, commandArgs, {
+      cwd: path.join(__dirname, '..'),
+      env: {
+        ...process.env,
+        GRAYMATTER_API_SCRIPT: context.apiCommand || process.env.GRAYMATTER_API_COMMAND || path.join(__dirname, '..', 'scripts', 'graymatter_api.sh'),
+        GRAYMATTER_EXECUTION_DEADLINE_EPOCH: executionBudget
+          ? String(Math.floor(executionBudget.deadlineMs / 1000))
+          : (process.env.GRAYMATTER_EXECUTION_DEADLINE_EPOCH || '')
+      },
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+      timeout: commandBudget.timeoutMs
+    });
+  } catch (error) {
+    rethrowCommandTimeout(error, 'POST', 'memory/replay-deferred', commandBudget);
+  }
   const lines = output.split(/\r?\n/u).map((line) => line.trim()).filter(Boolean);
   const replayed = lines.filter((line) => line.startsWith('Replayed deferred operation ')).length;
   const noDeferred = lines.some((line) => line === 'No deferred operations found.');
@@ -4637,10 +5088,11 @@ async function requirePublicPrincipal(req, config) {
       jwksUri: config.oauthJwksUri,
       audience: config.publicResource,
       fetchImpl: config.fetchImpl,
-      jwksCache: config.jwksCache
+      jwksCache: config.jwksCache,
+      signal: config.signal
     });
   } catch (error) {
-    if (error && error.name === 'PublicAuthError') throw error;
+    if ((error && error.name === 'PublicAuthError') || isExecutionDeadlineError(error)) throw error;
     throw publicAuthError('invalid_token', 'The OAuth access token could not be validated.');
   }
   const claims = verified && verified.claims ? verified.claims : verified;
@@ -4705,7 +5157,8 @@ async function loadPublicJwks(config) {
   let jwksUri = config.jwksUri;
   if (!jwksUri) {
     const metadataResponse = await config.fetchImpl(`${withoutTrailingSlash(config.issuer)}/.well-known/oauth-authorization-server`, {
-      headers: { accept: 'application/json' }
+      headers: { accept: 'application/json' },
+      signal: config.signal
     });
     if (!metadataResponse.ok) throw publicAuthError('invalid_token', 'OAuth authorization metadata is unavailable.');
     const metadata = await metadataResponse.json();
@@ -4714,7 +5167,10 @@ async function loadPublicJwks(config) {
   if (!hasNonEmptyString(jwksUri) || !jwksUri.startsWith('https://')) {
     throw publicAuthError('invalid_token', 'OAuth JWKS metadata is unavailable.');
   }
-  const response = await config.fetchImpl(jwksUri, { headers: { accept: 'application/json' } });
+  const response = await config.fetchImpl(jwksUri, {
+    headers: { accept: 'application/json' },
+    signal: config.signal
+  });
   if (!response.ok) throw publicAuthError('invalid_token', 'OAuth signing keys are unavailable.');
   const payload = await response.json();
   const keys = payload && Array.isArray(payload.keys) ? payload.keys : [];
@@ -4809,6 +5265,24 @@ function publicHttpError(error, publicResource) {
   if (error && error.name === 'PublicArgumentError') {
     return { status: 400, body: publicErrorEnvelope('INVALID_ARGUMENT', error.message, false), headers: {} };
   }
+  if (isExecutionDeadlineError(error)) {
+    const body = publicErrorEnvelope(
+      'EXECUTION_DEADLINE_EXHAUSTED',
+      'GrayMatter did not finish the request within its shared execution deadline.',
+      true
+    );
+    body.executionLimits = recoveryExecutionLimits(error.payload);
+    return { status: 504, body, headers: {} };
+  }
+  if (error && error.name === 'McpRequestBodyError') {
+    const body = publicErrorEnvelope(
+      'PAYLOAD_TOO_LARGE',
+      'The GrayMatter MCP request exceeded the configured request-body limit.',
+      false
+    );
+    body.executionLimits = recoveryExecutionLimits(error.payload);
+    return { status: 413, body, headers: {} };
+  }
   return { status: 500, body: publicErrorEnvelope('INTERNAL_ERROR', 'GrayMatter could not process the request.', true), headers: {} };
 }
 
@@ -4829,7 +5303,11 @@ function publicToolErrorFromException(error, publicResource) {
   let message = 'GrayMatter could not complete the operation.';
   let retryable = false;
   const status = Number(error && (error.status || error.statusCode));
-  if (error && error.name === 'PublicArgumentError') {
+  if (isExecutionDeadlineError(error)) {
+    code = 'EXECUTION_DEADLINE_EXHAUSTED';
+    message = 'GrayMatter did not finish the operation within its shared execution deadline.';
+    retryable = true;
+  } else if (error && error.name === 'PublicArgumentError') {
     code = 'INVALID_ARGUMENT';
     message = error.message;
   } else if (error && error.name === 'PublicScopeError') {
@@ -4868,6 +5346,9 @@ function publicToolErrorFromException(error, publicResource) {
     retryable = true;
   }
   const result = publicToolError(code, message, retryable);
+  if (isExecutionDeadlineError(error)) {
+    result.structuredContent.executionLimits = recoveryExecutionLimits(error.payload);
+  }
   if (code === 'AUTH_REQUIRED') {
     result._meta = { 'mcp/www_authenticate': [publicAuthChallenge(publicResource, 'invalid_token', message)] };
   }
@@ -5027,24 +5508,104 @@ function openSseStream(req, res, security = defaultSecurityConfig()) {
   });
 }
 
-function readJson(req) {
+function readJson(req, signal, maxBytes = configuredMcpMaxRequestBytes()) {
   return new Promise((resolve, reject) => {
     const chunks = [];
-    req.on('data', (chunk) => chunks.push(chunk));
-    req.on('error', reject);
-    req.on('end', () => {
+    let receivedBytes = 0;
+    let settled = false;
+
+    const cleanup = () => {
+      req.off('data', onData);
+      req.off('error', onError);
+      req.off('end', onEnd);
+      if (signal) signal.removeEventListener('abort', onAbort);
+    };
+    const stopReading = () => {
+      req.__grayMatterCloseAfterResponse = true;
+      req.pause();
+    };
+    const settle = (operation, value) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      operation(value);
+    };
+    const rejectOversized = () => {
+      stopReading();
+      settle(reject, mcpRequestBodyError(maxBytes));
+    };
+    const onData = (chunk) => {
+      receivedBytes += chunk.length;
+      if (receivedBytes > maxBytes) {
+        rejectOversized();
+        return;
+      }
+      chunks.push(chunk);
+    };
+    const onError = (error) => settle(reject, error);
+    const onAbort = () => {
+      stopReading();
+      const error = signal && signal.reason instanceof Error
+        ? signal.reason
+        : Object.assign(new Error('GrayMatter MCP request body read aborted'), { name: 'AbortError' });
+      settle(reject, error);
+    };
+    const onEnd = () => {
+      req.__grayMatterRequestBodyPending = false;
       const raw = Buffer.concat(chunks).toString('utf8');
       if (!raw) {
-        resolve(null);
+        settle(resolve, null);
         return;
       }
       try {
-        resolve(JSON.parse(raw));
+        settle(resolve, JSON.parse(raw));
       } catch (error) {
-        reject(new Error(`Invalid JSON body: ${error.message}`));
+        settle(reject, new Error(`Invalid JSON body: ${error.message}`));
       }
-    });
+    };
+
+    const declaredBytes = Number.parseInt(String(req.headers['content-length'] || ''), 10);
+    if (Number.isFinite(declaredBytes) && declaredBytes > maxBytes) {
+      rejectOversized();
+      return;
+    }
+    if (signal && signal.aborted) {
+      onAbort();
+      return;
+    }
+    req.on('data', onData);
+    req.on('error', onError);
+    req.on('end', onEnd);
+    if (signal) signal.addEventListener('abort', onAbort, { once: true });
   });
+}
+
+function mcpRequestBodyError(maxRequestBodyBytes) {
+  const error = new Error(`GrayMatter MCP request body exceeds ${maxRequestBodyBytes} bytes`);
+  error.name = 'McpRequestBodyError';
+  error.statusCode = 413;
+  error.closeConnection = true;
+  error.payload = {
+    code: 'GRAYMATTER_MCP_PAYLOAD_TOO_LARGE',
+    executionLimits: {
+      maxRequestBodyBytes,
+      sharedAcrossRequests: true,
+      onExhaustion: 'FAIL_CLOSED',
+      phase: 'request_body',
+      requestBodyPolicy: 'REJECT_BEFORE_PARSE'
+    }
+  };
+  return error;
+}
+
+function closeAfterResponseHeaders(req, res, error, headers = {}) {
+  if (!(error && error.closeConnection)
+      && !req.__grayMatterCloseAfterResponse
+      && !req.__grayMatterRequestBodyPending) {
+    return headers;
+  }
+  res.once('finish', () => req.destroy());
+  return { ...headers, connection: 'close' };
 }
 
 function sendJson(req, res, status, payload, security = defaultSecurityConfig(), extraHeaders = {}) {
@@ -5134,11 +5695,13 @@ function jsonRpcResult(id, result) {
   };
 }
 
-function jsonRpcError(id, code, message) {
+function jsonRpcError(id, code, message, data) {
+  const error = { code, message };
+  if (data !== undefined) error.data = data;
   return {
     jsonrpc: '2.0',
     id,
-    error: { code, message }
+    error
   };
 }
 

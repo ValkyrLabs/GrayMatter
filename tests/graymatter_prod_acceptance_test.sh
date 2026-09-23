@@ -35,16 +35,16 @@ case "$method $path" in
     health="${TEST_SEMANTIC_HEALTH:-healthy}"
     jq -nc --arg health "$health" '{schemaAvailable:true,rbacFiltered:true,indexLifecycle:{lifecycleDataAvailable:true,manifestVersion:"index-v1",healthStatus:$health}}'
     ;;
-  'POST /graymatter/omega/capabilities/evidence')
+  'POST /graymatter/capabilities/evidence')
     jq -e '.probes | length == 4' >/dev/null <<<"$body"
     jq -e 'all(.probes[]; (.evidenceRef | contains("signature-canary/")) and (.evidenceRef | contains("mock-secret-token") | not))' >/dev/null <<<"$body"
     jq -c '{acceptedCapabilityIds:[.probes[].capabilityId]}' <<<"$body"
     ;;
   'GET /graymatter/omega/capabilities')
     if [[ "${TEST_SEMANTIC_HEALTH:-healthy}" == "healthy" ]]; then
-      printf '%s\n' '{"capabilities":[{"id":"graymatter.receipt.create","state":"LIVE_VERIFIED"},{"id":"graymatter.context.create","state":"LIVE_VERIFIED"},{"id":"graymatter.graph.shape","state":"LIVE_VERIFIED"},{"id":"graymatter.semantic.manifest","state":"LIVE_VERIFIED"}]}'
+      jq -nc '{environment:"production",scopeHash:("a" * 64),authorityHash:("b" * 64),capabilities:[{"id":null,"capabilityId":"graymatter.receipt.create","state":"LIVE_VERIFIED"},{"id":null,"capabilityId":"graymatter.context.create","state":"LIVE_VERIFIED"},{"id":null,"capabilityId":"graymatter.graph.shape","state":"LIVE_VERIFIED"},{"id":null,"capabilityId":"graymatter.semantic.manifest","state":"LIVE_VERIFIED"}]}'
     else
-      printf '%s\n' '{"capabilities":[{"id":"graymatter.receipt.create","state":"LIVE_VERIFIED"},{"id":"graymatter.context.create","state":"LIVE_VERIFIED"},{"id":"graymatter.graph.shape","state":"LIVE_VERIFIED"},{"id":"graymatter.semantic.manifest","state":"DEGRADED"}]}'
+      jq -nc '{environment:"production",scopeHash:("a" * 64),authorityHash:("b" * 64),capabilities:[{"id":"graymatter.receipt.create","state":"LIVE_VERIFIED"},{"id":"graymatter.context.create","state":"LIVE_VERIFIED"},{"id":"graymatter.graph.shape","state":"LIVE_VERIFIED"},{"id":"graymatter.semantic.manifest","state":"DEGRADED"}]}'
     fi
     ;;
   *)
@@ -61,12 +61,22 @@ TEST_EXPECT_TOKEN=mock-secret-token \
 GRAYMATTER_API_COMMAND="$TMP_DIR/graymatter_api.sh" \
 "$TMP_DIR/graymatter-prod-acceptance.sh" \
   --token-command 'printf mock-secret-token' \
+  --environment production \
   --publish-capability-evidence \
   --format json \
   --artifact "$REPORT" >"$TMP_DIR/console.json"
 
-jq -e '.publishRequested == true and .published == true and .verification == "PASSED" and (.probes | length == 4) and all(.probes[]; .passed == true)' "$REPORT" >/dev/null
-grep -q '^POST|/graymatter/omega/capabilities/evidence|' "$TMP_DIR/calls.log"
+jq -e '
+  .environment == "production"
+  and .scopeHash == ("a" * 64)
+  and .authorityHash == ("b" * 64)
+  and .publishRequested == true
+  and .published == true
+  and .verification == "PASSED"
+  and (.probes | length == 4)
+  and all(.probes[]; .passed == true and (.evidenceRef | startswith("signature-canary/production/")))
+' "$REPORT" >/dev/null
+grep -q '^POST|/graymatter/capabilities/evidence|' "$TMP_DIR/calls.log"
 ! grep -Fq 'mock-secret-token' "$REPORT"
 ! grep -Fq 'GrayMatter OmegaRAG authenticated signature canary' "$REPORT"
 
@@ -76,6 +86,7 @@ TEST_CALL_LOG="$TMP_DIR/failed-calls.log" \
 TEST_SEMANTIC_HEALTH=degraded_embedding_health \
 GRAYMATTER_API_COMMAND="$TMP_DIR/graymatter_api.sh" \
 "$TMP_DIR/graymatter-prod-acceptance.sh" \
+  --environment production \
   --publish-capability-evidence \
   --format json \
   --artifact "$FAILED_REPORT" >"$TMP_DIR/failed-console.json"
@@ -87,6 +98,12 @@ jq -e '
   .published == true and .verification == "PASSED"
   and ([.probes[] | select(.capabilityId == "graymatter.semantic.manifest") | .passed] == [false])
 ' "$FAILED_REPORT" >/dev/null
-grep -q '^POST|/graymatter/omega/capabilities/evidence|' "$TMP_DIR/failed-calls.log"
+grep -q '^POST|/graymatter/capabilities/evidence|' "$TMP_DIR/failed-calls.log"
+
+if GRAYMATTER_API_COMMAND="$TMP_DIR/graymatter_api.sh" \
+  "$TMP_DIR/graymatter-prod-acceptance.sh" --format json >/dev/null 2>&1; then
+  echo "acceptance canary allowed an unbound environment" >&2
+  exit 1
+fi
 
 echo "graymatter_prod_acceptance_test: PASS"

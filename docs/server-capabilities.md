@@ -148,7 +148,9 @@ scoped deletion proof, `omega_trajectory_get` for redacted trajectory
 inspection, `omega_evaluate` for durable deterministic evaluation,
 `omega_outcome` for content-free workflow/action/test outcome linkage, and
 `omega_index_job` for estimate/start/inspect/cancel of durable tenant-scoped
-semantic-index jobs. `omega_retrieval_run` starts, inspects, safely cancels,
+semantic-index jobs plus profile-hash-verified dimension-migration activation
+and rollback. Activation and rollback are destructive operator effects and
+require explicit human approval. `omega_retrieval_run` starts, inspects, safely cancels,
 or hash-verifiably resumes a tenant-scoped deep retrieval run; raw query text
 is forwarded only for active execution and is never retained in durable run
 state. All
@@ -164,9 +166,15 @@ the receipt, context, RBAC-visible graph-shape, and semantic-manifest
 signatures. It uses normal GrayMatter authentication, bounds the synthetic
 context request, and emits a content-free JSON report: it never writes the
 query, response bodies, tenant identifiers, or credentials to that report.
+Every run requires `--environment staging|production`; the environment is
+included in the evidence reference so reports cannot be relabeled later.
 
 Use `--publish-capability-evidence` only with the administrator authority
 needed to update the exact authentication scope. The harness publishes both
 passes and failures and then verifies that the live capability manifest reports
 `LIVE_VERIFIED` for passed signatures and `DEGRADED` for failed ones. This
 prevents stale success evidence from surviving a failed release probe.
+After publication, the harness also binds the report to the returned
+capability manifest's environment, scope hash, and authority hash. Only these
+manifest-verified reports are accepted by `scripts/gm-signature-history` for
+the seven-day Phase 0 release window.

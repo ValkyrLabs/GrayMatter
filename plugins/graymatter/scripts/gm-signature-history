@@ -1,0 +1,220 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+HISTORY=""
+OUT=""
+REPORTS=()
+
+usage() {
+  cat <<'EOF'
+Usage:
+  scripts/gm-signature-history --report PATH [--report PATH ...] [--history PATH] --out PATH
+
+Merge bounded, content-free OmegaRAG acceptance reports into the canonical
+signature-history contract. Reports must be environment-bound, freshly
+published, and verified against the corresponding capability manifest.
+EOF
+}
+
+fail() {
+  printf 'gm-signature-history failed: %s\n' "$*" >&2
+  exit 1
+}
+
+canonical_path() {
+  local path="$1"
+  local parent
+  parent="$(dirname "$path")"
+  mkdir -p "$parent"
+  parent="$(cd "$parent" && pwd -P)"
+  printf '%s/%s\n' "$parent" "$(basename "$path")"
+}
+
+sha256_file() {
+  shasum -a 256 "$1" | awk '{print $1}'
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --report)
+      shift
+      [[ -n "${1:-}" ]] || fail "--report requires a path"
+      REPORTS+=("$1")
+      ;;
+    --history)
+      shift
+      HISTORY="${1:-}"
+      [[ -n "$HISTORY" ]] || fail "--history requires a path"
+      ;;
+    --out)
+      shift
+      OUT="${1:-}"
+      [[ -n "$OUT" ]] || fail "--out requires a path"
+      ;;
+    --help|-h)
+      usage
+      exit 0
+      ;;
+    *) fail "unknown option: $1" ;;
+  esac
+  shift
+done
+
+command -v jq >/dev/null 2>&1 || fail "missing required command: jq"
+command -v shasum >/dev/null 2>&1 || fail "missing required command: shasum"
+[[ ${#REPORTS[@]} -gt 0 ]] || fail "at least one --report is required"
+[[ ${#REPORTS[@]} -le 64 ]] || fail "no more than 64 reports may be merged at once"
+[[ -n "$OUT" ]] || fail "--out is required"
+
+OUT="$(canonical_path "$OUT")"
+for report in "${REPORTS[@]}"; do
+  [[ -f "$report" ]] || fail "report does not exist: $report"
+  report_parent="$(cd "$(dirname "$report")" && pwd -P)"
+  report_path="$report_parent/$(basename "$report")"
+  [[ "$OUT" != "$report_path" ]] || fail "--out must not overwrite a report"
+done
+
+POLICY="$ROOT/references/contracts/release/graymatter_omegarag_release_policy_v1.json"
+[[ -f "$POLICY" ]] || fail "release policy is missing"
+signature_policy="$(jq -ce '
+    .sustainedSignatureCanary
+    | select(.historySchemaVersion == "omegarag-signature-history/v1")
+  ' "$POLICY")" || fail "release policy is invalid"
+now_epoch="$(date -u +%s)"
+
+tmp_dir="$(mktemp -d "${TMPDIR:-/tmp}/gm-signature-history.XXXXXX")"
+trap 'rm -rf "$tmp_dir"' EXIT
+observations_file="$tmp_dir/observations.jsonl"
+: >"$observations_file"
+
+validate_history() {
+  local path="$1"
+  jq -e --argjson now "$now_epoch" --argjson policy "$signature_policy" '
+    def utc_epoch:
+      sub("\\+00:00$"; "Z")
+      | sub("\\.[0-9]+Z$"; "Z")
+      | fromdateiso8601;
+    def only_keys($allowed): ((keys_unsorted - $allowed) | length) == 0;
+    try (
+      . as $history
+      | $history.schemaVersion == $policy.historySchemaVersion
+      and ($history | only_keys(["schemaVersion","generatedAt","observations"]))
+      and ($history.generatedAt | type == "string" and utc_epoch <= ($now + 300))
+      and ($history.observations | type == "array" and length <= $policy.maxObservations)
+      and all($history.observations[];
+        . as $observation
+        | type == "object"
+        and ($observation | only_keys([
+          "environment","observedAt","capabilityId","passed","httpStatus","contractVersion",
+          "evidenceRef","evidenceHash","scopeHash","authorityHash"
+        ]))
+        and (($policy.requiredEnvironments | index($observation.environment)) != null)
+        and (($policy.requiredCapabilityIds | index($observation.capabilityId)) != null)
+        and ($observation.observedAt | type == "string" and utc_epoch <= ($now + 300))
+        and ($observation.passed | type == "boolean")
+        and ($observation.httpStatus | type == "number" and floor == . and . >= 0 and . <= 599)
+        and $observation.contractVersion == $policy.contractVersion
+        and ($observation.evidenceRef | type == "string"
+          and test("^[A-Za-z0-9][A-Za-z0-9._:/-]{0,239}$") and (contains("..") | not))
+        and ($observation.evidenceHash | type == "string" and test("^[0-9a-f]{64}$"))
+        and ($observation.scopeHash | type == "string" and test("^[0-9a-f]{64}$"))
+        and ($observation.authorityHash | type == "string" and test("^[0-9a-f]{64}$"))
+      )
+    ) catch false
+  ' "$path" >/dev/null 2>&1
+}
+
+if [[ -n "$HISTORY" ]]; then
+  [[ -f "$HISTORY" ]] || fail "history does not exist: $HISTORY"
+  validate_history "$HISTORY" || fail "existing history is invalid"
+  jq -c '.observations[]' "$HISTORY" >>"$observations_file"
+fi
+
+for report in "${REPORTS[@]}"; do
+  report_json="$(jq -cse '
+      if length == 1 and (.[0] | type == "object") then .[0]
+      else error("expected exactly one JSON object") end
+    ' "$report" 2>/dev/null)" || fail "report is not exactly one JSON object: $report"
+  if ! jq -e --argjson now "$now_epoch" --argjson policy "$signature_policy" '
+      def utc_epoch:
+        sub("\\+00:00$"; "Z")
+        | sub("\\.[0-9]+Z$"; "Z")
+        | fromdateiso8601;
+      def only_keys($allowed): ((keys_unsorted - $allowed) | length) == 0;
+      try (
+        . as $report
+        | ($report | only_keys([
+            "reportVersion","environment","startedAt","finishedAt","runRef","queryDigest",
+            "publishRequested","published","verification","scopeHash","authorityHash","probes"
+          ]))
+        and $report.reportVersion == $policy.contractVersion
+        and (($policy.requiredEnvironments | index($report.environment)) != null)
+        and ($report.startedAt | type == "string")
+        and ($report.finishedAt | type == "string")
+        and (($report.startedAt | utc_epoch) <= ($report.finishedAt | utc_epoch))
+        and (($report.finishedAt | utc_epoch) <= ($now + 300))
+        and (($report.finishedAt | utc_epoch) >= ($now - ($policy.maxLatestObservationAgeHours * 3600)))
+        and ($report.runRef | type == "string"
+          and startswith("signature-canary/" + $report.environment + "/")
+          and length <= 240 and (contains("..") | not))
+        and ($report.queryDigest | type == "string" and test("^sha256:[0-9a-f]{64}$"))
+        and $report.publishRequested == true
+        and $report.published == true
+        and $report.verification == "PASSED"
+        and ($report.scopeHash | type == "string" and test("^[0-9a-f]{64}$"))
+        and ($report.authorityHash | type == "string" and test("^[0-9a-f]{64}$"))
+        and ($report.probes | type == "array" and length == ($policy.requiredCapabilityIds | length))
+        and (([$report.probes[].capabilityId] | sort) == ($policy.requiredCapabilityIds | sort))
+        and all($report.probes[];
+          . as $probe
+          | type == "object"
+          and ($probe | only_keys(["capabilityId","passed","httpStatus","contractVersion","reason","evidenceRef"]))
+          and ($probe.passed | type == "boolean")
+          and ($probe.httpStatus | type == "number" and floor == . and . >= 0 and . <= 599)
+          and $probe.contractVersion == $policy.contractVersion
+          and ($probe.reason | type == "string" and length > 0 and length <= 120)
+          and ($probe.evidenceRef | type == "string"
+            and startswith($report.runRef + "/")
+            and length <= 240 and (contains("..") | not))
+        )
+      ) catch false
+    ' <<<"$report_json" >/dev/null 2>&1; then
+    fail "report is invalid, stale, unpublished, or not manifest-verified: $report"
+  fi
+
+  evidence_hash="$(sha256_file "$report")"
+  jq -c --arg evidenceHash "$evidence_hash" '
+    . as $report
+    | $report.probes[]
+    | {
+        environment:$report.environment,
+        observedAt:$report.finishedAt,
+        capabilityId,
+        passed,
+        httpStatus,
+        contractVersion,
+        evidenceRef,
+        evidenceHash:$evidenceHash,
+        scopeHash:$report.scopeHash,
+        authorityHash:$report.authorityHash
+      }
+  ' <<<"$report_json" >>"$observations_file"
+done
+
+generated_at="$(date -u +%FT%TZ)"
+result="$(jq -sc \
+  --arg schemaVersion "$(jq -r '.historySchemaVersion' <<<"$signature_policy")" \
+  --arg generatedAt "$generated_at" \
+  --argjson maximum "$(jq -r '.maxObservations' <<<"$signature_policy")" '
+    sort_by(.observedAt,.environment,.capabilityId,.evidenceHash)
+    | unique_by([.environment,.observedAt,.capabilityId,.evidenceHash] | join("|"))
+    | reverse
+    | .[:$maximum]
+    | sort_by(.observedAt,.environment,.capabilityId,.evidenceHash)
+    | {schemaVersion:$schemaVersion,generatedAt:$generatedAt,observations:.}
+  ' "$observations_file")"
+
+output_tmp="$(mktemp "$(dirname "$OUT")/.gm-signature-history.XXXXXX")"
+printf '%s\n' "$result" >"$output_tmp"
+mv "$output_tmp" "$OUT"

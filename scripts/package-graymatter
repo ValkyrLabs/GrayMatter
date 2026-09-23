@@ -33,6 +33,7 @@ REQUIRED=(
   docs/graymatter-lite.md
   docs/local-models.md
   docs/knowledge-packs.md
+  docs/omegarag-release-evidence.md
   docs/openai-app-directory-submission.md
   docs/privacy-policy.md
   docs/reviewer-test-credentials.md
@@ -50,6 +51,7 @@ REQUIRED=(
   mcp-server/lib/memory-scan.cjs
   mcp-server/lib/contribution-report.cjs
   scripts/gm-contribution-report
+  scripts/gm-startup-preflight
   scripts/gm-client
   scripts/gm-query
   scripts/gm-read
@@ -73,6 +75,11 @@ REQUIRED=(
   scripts/gm-status
   scripts/smoke-test-public-mcp.sh
   scripts/gm-agent-smoke-matrix
+  scripts/gm-release-evidence
+  scripts/gm-signature-history
+  scripts/gm-omegabench-corpus
+  scripts/gm-omegabench-evidence
+  scripts/gm-objective-evidence
   scripts/gm-self-update
   scripts/gm-schema-cache-lib
   scripts/gm-mcp-launcher
@@ -106,6 +113,8 @@ REQUIRED=(
   references/contracts/mcp/graymatter_mcp_tools_v1.json
   references/contracts/mcp/graymatter_omegarag_agent_abi_v1.json
   references/contracts/swarm/graymatter_swarm_workflow_execution_receipt_v1.schema.json
+  references/contracts/release/graymatter_omegarag_release_policy_v1.json
+  references/contracts/release/graymatter_omegarag_prd_inventory_v1.json
   references/mcp/memory-tool-contract.v1.json
   references/public-release-checklist.md
   references/multi-agent-conventions.md
@@ -113,14 +122,7 @@ REQUIRED=(
 )
 
 source_path_for() {
-  case "$1" in
-    SUBMISSION_CHECKLIST.md)
-      printf '%s\n' "$ROOT/plugins/graymatter/SUBMISSION_CHECKLIST.md"
-      ;;
-    *)
-      printf '%s\n' "$ROOT/$1"
-      ;;
-  esac
+  printf '%s\n' "$ROOT/$1"
 }
 
 TEMPLATE_FILES=()

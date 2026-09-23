@@ -15,10 +15,10 @@ run_matrix_contract() {
   jq -e '.lane == "graymatter-agent-install-openclaw-skill"' "$out" >/dev/null
   jq -e '.statuses == ["pass","fail","skipped","manual_required"]' "$out" >/dev/null
   jq -e '.summary.fail == 0' "$out" >/dev/null
-  jq -e '.summary.pass >= 6' "$out" >/dev/null
+  jq -e '.summary.pass >= 7' "$out" >/dev/null
   jq -e '.summary.manual_required >= 2' "$out" >/dev/null
 
-  for stage in install_readiness read_search_readiness agent_memory_scope_readiness mcp_readiness schema_sync_readiness tool_routing_readiness; do
+  for stage in install_readiness read_search_readiness agent_memory_scope_readiness mcp_readiness schema_sync_readiness startup_preflight_readiness tool_routing_readiness; do
     jq -e --arg stage "$stage" '.stages[] | select(.name == $stage and .status == "pass")' "$out" >/dev/null
   done
 

@@ -136,10 +136,12 @@ fi
 
 if [[ -f "$ROOT/mcp-server/index.js" ]] \
   && jq -e '.scripts.stdio == "node index.js --stdio"' "$ROOT/mcp-server/package.json" >/dev/null \
+  && grep -q 'GRAYMATTER_MCP_EXECUTION_TIMEOUT_MS' "$ROOT/mcp-server/index.js" \
+  && grep -q 'GRAYMATTER_EXECUTION_DEADLINE_EXHAUSTED' "$ROOT/mcp-server/index.js" \
   && all_files .mcp.json .codex-plugin/plugin.json; then
-  record_stage "mcp_readiness" "pass" "MCP stdio/server and Codex plugin launch surfaces are present."
+  record_stage "mcp_readiness" "pass" "MCP stdio/server and Codex plugin launch surfaces are present with one fail-closed deadline per tool invocation."
 else
-  record_stage "mcp_readiness" "fail" "MCP or Codex plugin launch surfaces are missing."
+  record_stage "mcp_readiness" "fail" "MCP, Codex plugin launch, or shared tool execution deadline surfaces are missing."
 fi
 
 schema_docs=()
@@ -153,6 +155,20 @@ if all_executable scripts/gm-openapi-sync scripts/gm-openapi-summary scripts/gm-
   record_stage "schema_sync_readiness" "pass" "Schema sync tooling and api-docs source-of-truth guidance are present."
 else
   record_stage "schema_sync_readiness" "fail" "Schema sync tooling or api-docs guidance is missing."
+fi
+
+if all_executable scripts/gm-startup-preflight scripts/gm-invariant-preflight scripts/gm-openapi-sync \
+  && grep -q 'gm-startup-preflight' "$ROOT/scripts/gm-activate" \
+  && grep -q '/graymatter/omega/capabilities' "$ROOT/scripts/gm-startup-preflight" \
+  && grep -q '/graymatter/semantic-index/manifest' "$ROOT/scripts/gm-startup-preflight" \
+  && grep -q 'gm-invariant-preflight' "$ROOT/scripts/gm-startup-preflight" \
+  && grep -q 'gm-openapi-sync' "$ROOT/scripts/gm-startup-preflight" \
+  && grep -q 'GRAYMATTER_EXECUTION_DEADLINE_EPOCH' "$ROOT/scripts/gm-startup-preflight" \
+  && grep -q 'sharedAcrossRequests:true' "$ROOT/scripts/gm-startup-preflight" \
+  && grep -q 'GRAYMATTER_EXECUTION_DEADLINE_EPOCH' "$ROOT/scripts/graymatter_api.sh"; then
+  record_stage "startup_preflight_readiness" "pass" "Activation binds invariant retrieval, capability discovery, semantic-index compatibility, and live schema freshness into one startup artifact with one shared fail-closed execution deadline."
+else
+  record_stage "startup_preflight_readiness" "fail" "Activation is missing the invariant, capability, semantic-index compatibility, live schema, or shared execution deadline startup contract."
 fi
 
 routing_text="$tmp_dir/routing.txt"

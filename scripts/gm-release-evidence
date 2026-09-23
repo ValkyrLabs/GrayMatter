@@ -1,0 +1,1006 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+CAPABILITY_MANIFEST=""
+SIGNATURE_HISTORY=""
+BENCHMARK_EVIDENCE=""
+OBJECTIVE_EVIDENCE=""
+PRD_RESOLUTION_ATTESTATION=""
+OUT=""
+
+usage() {
+  cat <<'EOF'
+Usage:
+  scripts/gm-release-evidence [--capability-manifest PATH] [--signature-history PATH] [--benchmark-evidence PATH] [--objective-evidence PATH] [--prd-resolution-attestation PATH] [--out PATH]
+
+Builds a content-free OmegaRAG source-to-installed release evidence bundle.
+The strongest possible decision is ELIGIBLE_FOR_HUMAN_REVIEW; this tool never
+authorizes claims, merge, release, or production deployment.
+EOF
+}
+
+fail() {
+  printf 'gm-release-evidence failed: %s\n' "$*" >&2
+  exit 1
+}
+
+require_command() {
+  command -v "$1" >/dev/null 2>&1 || fail "missing required command: $1"
+}
+
+sha256_file() {
+  shasum -a 256 "$1" | awk '{print $1}'
+}
+
+sha256_text() {
+  shasum -a 256 | awk '{print $1}'
+}
+
+canonical_output_path() {
+  local path="$1"
+  local parent
+  parent="$(dirname "$path")"
+  mkdir -p "$parent"
+  parent="$(cd "$parent" && pwd -P)"
+  printf '%s/%s\n' "$parent" "$(basename "$path")"
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --capability-manifest)
+      shift
+      CAPABILITY_MANIFEST="${1:-}"
+      [[ -n "$CAPABILITY_MANIFEST" ]] || fail "--capability-manifest requires a path"
+      ;;
+    --signature-history)
+      shift
+      SIGNATURE_HISTORY="${1:-}"
+      [[ -n "$SIGNATURE_HISTORY" ]] || fail "--signature-history requires a path"
+      ;;
+    --benchmark-evidence)
+      shift
+      BENCHMARK_EVIDENCE="${1:-}"
+      [[ -n "$BENCHMARK_EVIDENCE" ]] || fail "--benchmark-evidence requires a path"
+      ;;
+    --objective-evidence)
+      shift
+      OBJECTIVE_EVIDENCE="${1:-}"
+      [[ -n "$OBJECTIVE_EVIDENCE" ]] || fail "--objective-evidence requires a path"
+      ;;
+    --prd-resolution-attestation)
+      shift
+      PRD_RESOLUTION_ATTESTATION="${1:-}"
+      [[ -n "$PRD_RESOLUTION_ATTESTATION" ]] \
+        || fail "--prd-resolution-attestation requires a path"
+      ;;
+    --out)
+      shift
+      OUT="${1:-}"
+      [[ -n "$OUT" ]] || fail "--out requires a path"
+      ;;
+    --help|-h)
+      usage
+      exit 0
+      ;;
+    *)
+      fail "unknown option: $1"
+      ;;
+  esac
+  shift
+done
+
+require_command jq
+require_command shasum
+
+if [[ -n "$OUT" ]]; then
+  OUT="$(canonical_output_path "$OUT")"
+fi
+if [[ -n "$CAPABILITY_MANIFEST" && -n "$OUT" && -e "$CAPABILITY_MANIFEST" ]]; then
+  capability_parent="$(cd "$(dirname "$CAPABILITY_MANIFEST")" && pwd -P)"
+  capability_path="$capability_parent/$(basename "$CAPABILITY_MANIFEST")"
+  [[ "$OUT" != "$capability_path" ]] || fail "--out must not overwrite the capability manifest"
+  [[ ! -e "$OUT" || ! "$OUT" -ef "$capability_path" ]] \
+    || fail "--out must not alias the capability manifest"
+fi
+if [[ -n "$SIGNATURE_HISTORY" && -n "$OUT" && -e "$SIGNATURE_HISTORY" ]]; then
+  signature_parent="$(cd "$(dirname "$SIGNATURE_HISTORY")" && pwd -P)"
+  signature_path="$signature_parent/$(basename "$SIGNATURE_HISTORY")"
+  [[ "$OUT" != "$signature_path" ]] || fail "--out must not overwrite the signature history"
+  [[ ! -e "$OUT" || ! "$OUT" -ef "$signature_path" ]] \
+    || fail "--out must not alias the signature history"
+fi
+if [[ -n "$BENCHMARK_EVIDENCE" && -n "$OUT" && -e "$BENCHMARK_EVIDENCE" ]]; then
+  benchmark_parent="$(cd "$(dirname "$BENCHMARK_EVIDENCE")" && pwd -P)"
+  benchmark_path="$benchmark_parent/$(basename "$BENCHMARK_EVIDENCE")"
+  [[ "$OUT" != "$benchmark_path" ]] || fail "--out must not overwrite the OmegaBench evidence set"
+  [[ ! -e "$OUT" || ! "$OUT" -ef "$benchmark_path" ]] \
+    || fail "--out must not alias the OmegaBench evidence set"
+fi
+if [[ -n "$OBJECTIVE_EVIDENCE" && -n "$OUT" && -e "$OBJECTIVE_EVIDENCE" ]]; then
+  objective_parent="$(cd "$(dirname "$OBJECTIVE_EVIDENCE")" && pwd -P)"
+  objective_path="$objective_parent/$(basename "$OBJECTIVE_EVIDENCE")"
+  [[ "$OUT" != "$objective_path" ]] || fail "--out must not overwrite the objective evidence bundle"
+  [[ ! -e "$OUT" || ! "$OUT" -ef "$objective_path" ]] \
+    || fail "--out must not alias the objective evidence bundle"
+fi
+if [[ -n "$PRD_RESOLUTION_ATTESTATION" && -n "$OUT" && -e "$PRD_RESOLUTION_ATTESTATION" ]]; then
+  prd_resolution_parent="$(cd "$(dirname "$PRD_RESOLUTION_ATTESTATION")" && pwd -P)"
+  prd_resolution_path="$prd_resolution_parent/$(basename "$PRD_RESOLUTION_ATTESTATION")"
+  [[ "$OUT" != "$prd_resolution_path" ]] \
+    || fail "--out must not overwrite the PRD resolution attestation"
+  [[ ! -e "$OUT" || ! "$OUT" -ef "$prd_resolution_path" ]] \
+    || fail "--out must not alias the PRD resolution attestation"
+fi
+
+POLICY="$ROOT/references/contracts/release/graymatter_omegarag_release_policy_v1.json"
+[[ -f "$POLICY" ]] || fail "release policy is missing"
+jq -e '
+    .schemaVersion == "graymatter-omegarag-release-policy/v1"
+    and (.prdResolution | type == "object")
+    and (.prdResolution.inventorySchemaVersion == "omegarag-prd-inventory/v1")
+    and (.prdResolution.attestationSchemaVersion == "omegarag-prd-resolution-attestation/v1")
+    and (.prdResolution.sourceRef | type == "string" and length > 0 and length <= 256)
+    and (.prdResolution.sourceSha256 | type == "string" and test("^[0-9a-f]{64}$"))
+    and (.prdResolution.requirementSetHash | type == "string" and test("^[0-9a-f]{64}$"))
+    and (.prdResolution.inventoryHash | type == "string" and test("^[0-9a-f]{64}$"))
+    and (.prdResolution.requirementCount | type == "number" and floor == . and . > 0 and . <= 1000)
+    and (.prdResolution.p0P1RequirementCount
+      | type == "number" and floor == . and . > 0 and . <= 1000)
+    and (.prdResolution.priorityCounts
+      | type == "object" and keys == ["P0","P1","P2"]
+        and all(.[]; type == "number" and floor == . and . >= 0))
+    and (.prdResolution.maxAttestationAgeHours | type == "number" and . > 0 and . <= 8760)
+    and (.sustainedSignatureCanary | type == "object")
+    and (.sustainedSignatureCanary.historySchemaVersion | type == "string" and length > 0)
+    and (.sustainedSignatureCanary.contractVersion | type == "string" and length > 0)
+    and (.sustainedSignatureCanary.releaseCapabilityEnvironment | type == "string" and length > 0)
+    and (.sustainedSignatureCanary.requiredEnvironments | type == "array" and length >= 2)
+    and (.sustainedSignatureCanary.requiredCapabilityIds | type == "array" and length == 4)
+    and (.sustainedSignatureCanary.requiredConsecutiveUtcDays | type == "number" and . >= 7)
+    and (.sustainedSignatureCanary.maxLatestObservationAgeHours | type == "number" and . > 0)
+    and (.sustainedSignatureCanary.maxObservations | type == "number" and . >= 56)
+    and (.omegaBench | type == "object")
+    and (.omegaBench.evidenceSetSchemaVersion == "omegabench-evidence-set/v1")
+    and (.omegaBench.manifestVersion == "omegabench-reproducibility/v1")
+    and (.omegaBench.corpusPackageSchemaVersion == "omegabench-corpus-package/v1")
+    and (.omegaBench.corpusAdmissionSchemaVersion == "omegabench-corpus-admission/v1")
+    and (.omegaBench.requiredCorpusAdmissionState == "ADMITTED")
+    and (.omegaBench.requiredPrivacyClassification == "PUBLIC")
+    and (.omegaBench.requiredTracks | type == "array" and length >= 4)
+    and (.omegaBench.requiredBaselines | type == "array" and length >= 6)
+    and (.omegaBench.maxManifests | type == "number" and . >= 30)
+    and (.objectiveEvidence | type == "object")
+    and (.objectiveEvidence.schemaVersion == "omegarag-objective-evidence/v1")
+    and (.objectiveEvidence.requiredSecurityProbeClasses | type == "array" and length >= 12)
+    and (.objectiveEvidence.requiredLatencyObjectives | type == "array" and length >= 5)
+  ' "$POLICY" >/dev/null \
+  || fail "release policy is invalid"
+
+tmp_dir="$(mktemp -d "${TMPDIR:-/tmp}/gm-release-evidence.XXXXXX")"
+trap 'rm -rf "$tmp_dir"' EXIT
+checks_file="$tmp_dir/checks.jsonl"
+contracts_file="$tmp_dir/contracts.jsonl"
+blockers_file="$tmp_dir/blockers.txt"
+: >"$checks_file"
+: >"$contracts_file"
+: >"$blockers_file"
+
+add_check() {
+  local id="$1"
+  local status="$2"
+  local summary="$3"
+  local details="${4-}"
+  [[ -n "$details" ]] || details='{}'
+  case "$status" in
+    PASS|FAIL|NOT_APPLICABLE) ;;
+    *) fail "invalid check status for $id: $status" ;;
+  esac
+  jq -cn \
+    --arg id "$id" \
+    --arg status "$status" \
+    --arg summary "$summary" \
+    --argjson details "$details" \
+    '{id:$id,status:$status,summary:$summary,details:$details}' >>"$checks_file"
+  if [[ "$status" == "FAIL" ]]; then
+    printf '%s\n' "$id" >>"$blockers_file"
+  fi
+}
+
+plugin_manifest="$ROOT/.codex-plugin/plugin.json"
+clawhub_manifest="$ROOT/clawhub.json"
+mcp_manifest="$ROOT/mcp-server/package.json"
+[[ -f "$plugin_manifest" && -f "$clawhub_manifest" && -f "$mcp_manifest" ]] \
+  || fail "version manifests are missing"
+
+plugin_version="$(jq -er '.version | strings | select(length > 0)' "$plugin_manifest")" \
+  || fail "plugin version is invalid"
+base_version="${plugin_version%%+codex.*}"
+clawhub_version="$(jq -er '.version | strings | select(length > 0)' "$clawhub_manifest")" \
+  || fail "ClawHub version is invalid"
+clawhub_base_version="${clawhub_version%%+codex.*}"
+mcp_version="$(jq -er '.version | strings | select(length > 0)' "$mcp_manifest")" \
+  || fail "MCP version is invalid"
+mcp_base_version="${mcp_version%%+codex.*}"
+marketplace_version=""
+marketplace_manifest="$ROOT/plugins/graymatter/.codex-plugin/plugin.json"
+if [[ -f "$marketplace_manifest" ]]; then
+  marketplace_version="$(jq -er '.version | strings | select(length > 0)' "$marketplace_manifest")" \
+    || fail "marketplace plugin version is invalid"
+fi
+
+version_details="$(jq -cn \
+  --arg pluginVersion "$plugin_version" \
+  --arg baseVersion "$base_version" \
+  --arg marketplaceVersion "$marketplace_version" \
+  --arg clawhubVersion "$clawhub_version" \
+  --arg mcpVersion "$mcp_version" '
+    {
+      pluginVersion:$pluginVersion,
+      baseVersion:$baseVersion,
+      marketplaceVersion:($marketplaceVersion | if length > 0 then . else null end),
+      clawhubVersion:$clawhubVersion,
+      mcpVersion:$mcpVersion
+    }
+  ')"
+versions_valid=true
+[[ "$base_version" == "$clawhub_base_version" && "$base_version" == "$mcp_base_version" ]] \
+  || versions_valid=false
+if [[ -n "$marketplace_version" ]]; then
+  [[ "$marketplace_version" == "$base_version" || "$marketplace_version" == "$base_version"+codex.* ]] \
+    || versions_valid=false
+fi
+if [[ "$versions_valid" == true ]]; then
+  add_check "version-alignment" "PASS" "Plugin, ClawHub, and MCP versions share one base release." "$version_details"
+else
+  add_check "version-alignment" "FAIL" "Release surface versions do not share one base release." "$version_details"
+fi
+
+source_revision=""
+revision_source=""
+if [[ -f "$ROOT/.graymatter-source-rev" ]]; then
+  source_revision="$(tr -d '[:space:]' <"$ROOT/.graymatter-source-rev")"
+  revision_source="installed-source-marker"
+elif git -C "$ROOT" rev-parse --verify HEAD >/dev/null 2>&1; then
+  source_revision="$(git -C "$ROOT" rev-parse HEAD)"
+  revision_source="git-head"
+fi
+if [[ "$source_revision" =~ ^[0-9a-f]{40,64}$ ]]; then
+  add_check "source-revision" "PASS" "The evidence is bound to a source revision." \
+    "$(jq -cn --arg revision "$source_revision" --arg source "$revision_source" '{revision:$revision,source:$source}')"
+else
+  add_check "source-revision" "FAIL" "No valid Git or installed source revision was found."
+fi
+
+archive_details='{}'
+if [[ "$plugin_version" == *+codex.* ]]; then
+  add_check "deterministic-package" "NOT_APPLICABLE" \
+    "Marketplace plugin packages are validated by their installed source marker and packaged files."
+elif [[ -f "$ROOT/graymatter.skill" ]]; then
+  archive_details="$(jq -cn --arg file "graymatter.skill" --arg sha256 "$(sha256_file "$ROOT/graymatter.skill")" \
+    '{file:$file,sha256:$sha256}')"
+  add_check "deterministic-package" "PASS" "The standalone archive is present and hash-bound." "$archive_details"
+else
+  add_check "deterministic-package" "FAIL" "The standalone archive is missing for a non-marketplace release surface."
+fi
+
+submission_manifest="$ROOT/openai-app/submission-manifest.json"
+submission_target=""
+if [[ -f "$submission_manifest" ]]; then
+  submission_target="$(jq -er '(.submissionChecklistPath // .submissionChecklist) | strings | select(length > 0)' "$submission_manifest" 2>/dev/null || true)"
+fi
+submission_details="$(jq -cn --arg manifest "openai-app/submission-manifest.json" \
+  --arg target "$(basename "${submission_target:-missing}")" '{manifest:$manifest,target:$target}')"
+if [[ -n "$submission_target" && "$submission_target" == "$(basename "$submission_target")" \
+  && -f "$ROOT/$submission_target" ]]; then
+  submission_details="$(jq -cn --arg manifest "openai-app/submission-manifest.json" \
+    --arg manifestSha256 "$(sha256_file "$submission_manifest")" \
+    --arg target "$submission_target" --arg targetSha256 "$(sha256_file "$ROOT/$submission_target")" \
+    '{manifest:$manifest,manifestSha256:$manifestSha256,target:$target,targetSha256:$targetSha256}')"
+  add_check "submission-checklist-target" "PASS" "The submission manifest resolves to a packaged checklist." "$submission_details"
+else
+  add_check "submission-checklist-target" "FAIL" "The submission checklist target is missing or escapes the package root." "$submission_details"
+fi
+
+if [[ -f "$ROOT/SUBMISSION_CHECKLIST.md" && -f "$ROOT/plugins/graymatter/SUBMISSION_CHECKLIST.md" ]]; then
+  checklist_details="$(jq -cn --arg sha256 "$(sha256_file "$ROOT/SUBMISSION_CHECKLIST.md")" '{sha256:$sha256}')"
+  if cmp -s "$ROOT/SUBMISSION_CHECKLIST.md" "$ROOT/plugins/graymatter/SUBMISSION_CHECKLIST.md"; then
+    add_check "submission-checklist-parity" "PASS" "Root and marketplace submission checklists match." "$checklist_details"
+  else
+    add_check "submission-checklist-parity" "FAIL" "Root and marketplace submission checklists differ."
+  fi
+elif [[ -f "$ROOT/SUBMISSION_CHECKLIST.md" ]]; then
+  add_check "submission-checklist-parity" "NOT_APPLICABLE" \
+    "This packaged surface contains one submission checklist." \
+    "$(jq -cn --arg sha256 "$(sha256_file "$ROOT/SUBMISSION_CHECKLIST.md")" '{sha256:$sha256}')"
+else
+  add_check "submission-checklist-parity" "FAIL" "The packaged submission checklist is missing."
+fi
+
+required_contract_count="$(jq '.requiredContracts | length' "$POLICY")"
+valid_contract_count=0
+while IFS=$'\t' read -r contract_id contract_path; do
+  contract_status="FAIL"
+  contract_hash=""
+  if [[ "$contract_path" == references/* && -f "$ROOT/$contract_path" ]] \
+    && jq -e . "$ROOT/$contract_path" >/dev/null 2>&1; then
+    contract_status="PASS"
+    contract_hash="$(sha256_file "$ROOT/$contract_path")"
+    valid_contract_count=$((valid_contract_count + 1))
+  fi
+  jq -cn --arg id "$contract_id" --arg path "$contract_path" --arg status "$contract_status" \
+    --arg sha256 "$contract_hash" \
+    '{id:$id,path:$path,status:$status,sha256:($sha256 | if length > 0 then . else null end)}' >>"$contracts_file"
+done < <(jq -r '.requiredContracts[] | [.id,.path] | @tsv' "$POLICY")
+if [[ "$valid_contract_count" -eq "$required_contract_count" ]]; then
+  add_check "contract-set" "PASS" "Every required portable contract is present, valid JSON, and hash-bound." \
+    "$(jq -s '{count:length}' "$contracts_file")"
+else
+  add_check "contract-set" "FAIL" "One or more required portable contracts is missing or invalid." \
+    "$(jq -s '{count:length,failed:map(select(.status == "FAIL") | .id)}' "$contracts_file")"
+fi
+
+if [[ -f "$ROOT/plugins/graymatter/scripts/gm-release-evidence" ]]; then
+  parity_failures=()
+  for relative in \
+    scripts/gm-release-evidence \
+    scripts/gm-signature-history \
+    scripts/gm-omegabench-corpus \
+    scripts/gm-omegabench-evidence \
+    scripts/gm-objective-evidence \
+    scripts/graymatter-prod-acceptance.sh \
+    references/contracts/release/graymatter_omegarag_release_policy_v1.json \
+    references/contracts/release/graymatter_omegarag_prd_inventory_v1.json \
+    docs/omegarag-release-evidence.md; do
+    [[ -f "$ROOT/plugins/graymatter/$relative" ]] || {
+      parity_failures+=("$relative")
+      continue
+    }
+    cmp -s "$ROOT/$relative" "$ROOT/plugins/graymatter/$relative" || parity_failures+=("$relative")
+  done
+  if [[ ${#parity_failures[@]} -eq 0 ]]; then
+    parity_details="$(jq -cn \
+      --arg scriptSha256 "$(sha256_file "$ROOT/scripts/gm-release-evidence")" \
+      --arg historyCollectorSha256 "$(sha256_file "$ROOT/scripts/gm-signature-history")" \
+      --arg omegaBenchCorpusSha256 "$(sha256_file "$ROOT/scripts/gm-omegabench-corpus")" \
+      --arg omegaBenchCollectorSha256 "$(sha256_file "$ROOT/scripts/gm-omegabench-evidence")" \
+      --arg objectiveCollectorSha256 "$(sha256_file "$ROOT/scripts/gm-objective-evidence")" \
+      --arg acceptanceCanarySha256 "$(sha256_file "$ROOT/scripts/graymatter-prod-acceptance.sh")" \
+      --arg policySha256 "$(sha256_file "$POLICY")" \
+      --arg prdInventorySha256 "$(sha256_file "$ROOT/references/contracts/release/graymatter_omegarag_prd_inventory_v1.json")" \
+      --arg docsSha256 "$(sha256_file "$ROOT/docs/omegarag-release-evidence.md")" \
+      '{scriptSha256:$scriptSha256,historyCollectorSha256:$historyCollectorSha256,omegaBenchCorpusSha256:$omegaBenchCorpusSha256,omegaBenchCollectorSha256:$omegaBenchCollectorSha256,objectiveCollectorSha256:$objectiveCollectorSha256,acceptanceCanarySha256:$acceptanceCanarySha256,policySha256:$policySha256,prdInventorySha256:$prdInventorySha256,docsSha256:$docsSha256}')"
+    add_check "marketplace-release-parity" "PASS" "Release evidence script, policy, and docs match the marketplace surface." "$parity_details"
+  else
+    add_check "marketplace-release-parity" "FAIL" "Marketplace release evidence surfaces differ from the root package." \
+      "$(jq -cn '$ARGS.positional | {mismatches:.}' --args "${parity_failures[@]}")"
+  fi
+else
+  add_check "marketplace-release-parity" "NOT_APPLICABLE" \
+    "This package contains one release evidence surface."
+fi
+
+smoke_out="$tmp_dir/smoke.json"
+smoke_details='{}'
+smoke_valid=false
+if [[ -x "$ROOT/scripts/gm-agent-smoke-matrix" ]] \
+  && "$ROOT/scripts/gm-agent-smoke-matrix" --mode local --out "$smoke_out" >/dev/null 2>&1 \
+  && jq -e . "$smoke_out" >/dev/null 2>&1; then
+  smoke_details="$(jq -c '{lane,mode,summary,stages:[.stages[] | {name,status}]}' "$smoke_out")"
+  if jq -e --argjson policy "$(jq -c . "$POLICY")" '
+      .summary.fail == 0
+      and ([ $policy.requiredSmokeStages[] as $required
+        | any(.stages[]; .name == $required and .status == "pass") ] | all)
+      and ([ $policy.manualSmokeStages[] as $manual
+        | any(.stages[]; .name == $manual and .status == "manual_required") ] | all)
+    ' "$smoke_out" >/dev/null; then
+    smoke_valid=true
+  fi
+fi
+if [[ "$smoke_valid" == true ]]; then
+  add_check "local-agent-smoke" "PASS" "Required local stages pass and approval-gated stages remain manual." "$smoke_details"
+else
+  add_check "local-agent-smoke" "FAIL" "The local agent smoke matrix did not satisfy the versioned release policy." "$smoke_details"
+fi
+
+capability_status="MISSING"
+capability_reason="No capability manifest was supplied."
+capability_projection='null'
+release_capability_environment="$(jq -r '.sustainedSignatureCanary.releaseCapabilityEnvironment' "$POLICY")"
+if [[ -n "$CAPABILITY_MANIFEST" && -f "$CAPABILITY_MANIFEST" ]]; then
+  manifest_json=""
+  if manifest_json="$(jq -cse '
+      if length == 1 and (.[0] | type == "object") then .[0]
+      else error("expected exactly one JSON object") end
+    ' "$CAPABILITY_MANIFEST" 2>/dev/null)"; then
+    now_epoch="$(date -u +%s)"
+    if jq -e --argjson now "$now_epoch" --arg requiredEnvironment "$release_capability_environment" '
+        def utc_epoch:
+          sub("\\+00:00$"; "Z")
+          | sub("\\.[0-9]+Z$"; "Z")
+          | fromdateiso8601;
+        def evidence_tier:
+          IN("AUTHENTICATED_LIVE_READ","AUTHENTICATED_SIGNATURE_CANARY","RUNTIME_COMPONENT_REGISTRATION","CONTRACT_DECLARATION","NONE");
+        def evidence_state:
+          IN("LIVE_VERIFIED","IMPLEMENTED_UNVERIFIED","DEGRADED","PLANNED","UNAVAILABLE");
+        def bounded_strings:
+          type == "array" and length <= 32 and all(.[]; type == "string" and length <= 240);
+        .manifestVersion == "omegarag-capability-manifest/v1"
+        and .environment == $requiredEnvironment
+        and (.scopeHash | type == "string" and test("^[0-9a-f]{64}$"))
+        and (.authorityHash | type == "string" and test("^[0-9a-f]{64}$"))
+        and (.checkedAt | type == "string" and utc_epoch <= ($now + 300))
+        and (.expiresAt | type == "string" and utc_epoch > $now)
+        and (.ttlSeconds | type == "number" and . > 0)
+        and (.capabilities | type == "array" and length > 0)
+        and (all(.capabilities[];
+          ((.capabilityId // .id) | type == "string" and length > 0 and length <= 160)
+          and (.state | evidence_state)
+          and (.evidenceTier | evidence_tier)
+          and (.invocable | type == "boolean")
+          and (.liveVerified | type == "boolean")
+          and (if .state == "LIVE_VERIFIED" then
+            .liveVerified == true
+            and (.evidenceExpiresAt | type == "string" and utc_epoch > $now)
+          else .liveVerified == false end)
+          and ((.lastCheckedAt == null) or (.lastCheckedAt | type == "string" and length <= 64))
+          and ((.degradedReason == null) or (.degradedReason | type == "string" and length <= 240))
+          and ((.safeNextAction == null) or (.safeNextAction | type == "string" and length <= 240))))
+        and (([.capabilities[] | .capabilityId // .id] | unique | length) == (.capabilities | length))
+        and ((.subsystems // []) | type == "array")
+        and (all((.subsystems // [])[];
+          ((.subsystemId // .id) | type == "string" and length > 0 and length <= 160)
+          and (.state | evidence_state)
+          and (.evidenceTier | evidence_tier)
+          and ((.reason == null) or (.reason | type == "string" and length <= 240))
+          and ((.safeNextAction == null) or (.safeNextAction | type == "string" and length <= 240))))
+        and (.limits | type == "object")
+        and (.distributions | type == "object")
+        and (.distributions.light | type == "object")
+        and (.distributions.cloud | type == "object")
+        and (all([.distributions.light,.distributions.cloud][];
+          (.displayName | type == "string" and length <= 120)
+          and (.evidenceTier | evidence_tier)
+          and (.currentRuntimeCompatible | type == "boolean")
+          and (.correctnessPath | bounded_strings)
+          and (.optionalAccelerators | bounded_strings)
+          and (.explicitDifferences | bounded_strings)))
+      ' <<<"$manifest_json" >/dev/null 2>&1; then
+      capability_status="CURRENT"
+      capability_reason="The production-scoped capability manifest is structurally valid and unexpired."
+      capability_projection="$(jq -c '
+        def bounded_strings: if type == "array" then map(select(type == "string") | .[0:240])[:32] else [] end;
+        def state_counts: reduce .[] as $state
+          ({LIVE_VERIFIED:0,IMPLEMENTED_UNVERIFIED:0,DEGRADED:0,PLANNED:0,UNAVAILABLE:0}; .[$state] += 1);
+        {
+          manifestVersion,
+          apiVersion,
+          environment,
+          scopeHash,
+          schemaVersion,
+          policyVersion,
+          authorityHash,
+          checkedAt,
+          expiresAt,
+          ttlSeconds,
+          stateCounts:([.capabilities[].state] | state_counts),
+          capabilities:[.capabilities[] | {
+            id:((.capabilityId // .id)[0:160]),
+            state,
+            evidenceTier,
+            invocable,
+            liveVerified,
+            lastCheckedAt,
+            evidenceExpiresAt,
+            degradedReason:(.degradedReason // "" | tostring | .[0:240] | if length > 0 then . else null end),
+            safeNextAction:(.safeNextAction // "" | tostring | .[0:240] | if length > 0 then . else null end)
+          }],
+          subsystems:[(.subsystems // [])[] | {
+            id:(.subsystemId // .id // "" | tostring | .[0:160]),
+            state,
+            evidenceTier,
+            lastCheckedAt,
+            reason:(.reason // "" | tostring | .[0:240] | if length > 0 then . else null end),
+            safeNextAction:(.safeNextAction // "" | tostring | .[0:240] | if length > 0 then . else null end)
+          }],
+          limits:(.limits | {
+            defaultTopK,maxTopK,maxAdaptiveRetrievalSteps,minContextChars,defaultContextChars,maxContextChars,
+            capabilityTtlSeconds,maxLatencyMs,maxCredits,maxContextTokens,maxGraphHops,maxProviderCalls,
+            maxCandidates,maxEvidenceBytes,maxParallelFanout,maxGraphNodes,maxGraphEdges,maxAsyncRunDurationMs,
+            maxAsyncAttempts,retryInitialBackoffMs,retryBackoffMultiplier,retryMaxBackoffMs,
+            circuitFailureThreshold,circuitOpenSeconds
+          } | with_entries(select(.value != null and (.value | type == "number")))),
+          distributions:(.distributions | with_entries(
+            select(.key == "light" or .key == "cloud")
+            | .value |= {
+              displayName:(.displayName // "" | tostring | .[0:120]),
+              evidenceTier,
+              currentRuntimeCompatible,
+              correctnessPath:(.correctnessPath | bounded_strings),
+              optionalAccelerators:(.optionalAccelerators | bounded_strings),
+              explicitDifferences:(.explicitDifferences | bounded_strings)
+            }))
+        }
+      ' <<<"$manifest_json")"
+      if jq -e '
+          any(.capabilities[]; .state == "DEGRADED" or .state == "UNAVAILABLE")
+          or any(.subsystems[]; .state == "DEGRADED" or .state == "UNAVAILABLE")
+        ' <<<"$capability_projection" >/dev/null; then
+        capability_status="BLOCKED"
+        capability_reason="The current manifest contains degraded or unavailable capability evidence."
+      fi
+    else
+      capability_status="INVALID_OR_EXPIRED"
+      capability_reason="The capability manifest is invalid, non-production, unscoped, incomplete, or expired."
+    fi
+  else
+    capability_status="INVALID_OR_EXPIRED"
+    capability_reason="The capability input is not exactly one JSON object."
+  fi
+elif [[ -n "$CAPABILITY_MANIFEST" ]]; then
+  capability_status="INVALID_OR_EXPIRED"
+  capability_reason="The requested capability manifest does not exist."
+fi
+
+capability_details="$(jq -cn --arg status "$capability_status" --arg reason "$capability_reason" \
+  --arg file "$(basename "${CAPABILITY_MANIFEST:-not-supplied}")" \
+  --argjson manifest "$capability_projection" '{status:$status,reason:$reason,file:$file,manifest:$manifest}')"
+if [[ "$capability_status" == "CURRENT" ]]; then
+  add_check "capability-manifest" "PASS" "$capability_reason" "$capability_details"
+else
+  add_check "capability-manifest" "FAIL" "$capability_reason" "$capability_details"
+fi
+
+signature_status="MISSING"
+signature_reason="No sustained signature history was supplied."
+signature_projection='null'
+signature_policy="$(jq -c '.sustainedSignatureCanary' "$POLICY")"
+if [[ -n "$SIGNATURE_HISTORY" && -f "$SIGNATURE_HISTORY" ]]; then
+  history_json=""
+  if history_json="$(jq -cse '
+      if length == 1 and (.[0] | type == "object") then .[0]
+      else error("expected exactly one JSON object") end
+    ' "$SIGNATURE_HISTORY" 2>/dev/null)"; then
+    now_epoch="$(date -u +%s)"
+    if jq -e --argjson now "$now_epoch" --argjson policy "$signature_policy" '
+        def utc_epoch:
+          sub("\\+00:00$"; "Z")
+          | sub("\\.[0-9]+Z$"; "Z")
+          | fromdateiso8601;
+        def only_keys($allowed): ((keys_unsorted - $allowed) | length) == 0;
+        try (
+          . as $history
+          | $history.schemaVersion == $policy.historySchemaVersion
+          and ($history | only_keys(["schemaVersion","generatedAt","observations"]))
+          and ($history.generatedAt | type == "string")
+          and (($history.generatedAt | utc_epoch) <= ($now + 300))
+          and (($history.generatedAt | utc_epoch) >= ($now - ($policy.maxLatestObservationAgeHours * 3600)))
+          and ($history.observations | type == "array" and length > 0 and length <= $policy.maxObservations)
+          and (all($history.observations[];
+            . as $observation
+            | type == "object"
+            and ($observation | only_keys([
+              "environment","observedAt","capabilityId","passed","httpStatus","contractVersion",
+              "evidenceRef","evidenceHash","scopeHash","authorityHash"
+            ]))
+            and ($observation.environment | type == "string")
+            and (($policy.requiredEnvironments | index($observation.environment)) != null)
+            and ($observation.capabilityId | type == "string")
+            and (($policy.requiredCapabilityIds | index($observation.capabilityId)) != null)
+            and ($observation.observedAt | type == "string")
+            and (($observation.observedAt | utc_epoch) <= ($now + 300))
+            and ($observation.passed | type == "boolean")
+            and ($observation.httpStatus | type == "number" and floor == . and . >= 0 and . <= 599)
+            and $observation.contractVersion == $policy.contractVersion
+            and ($observation.evidenceRef | type == "string"
+              and test("^[A-Za-z0-9][A-Za-z0-9._:/-]{0,239}$") and (contains("..") | not))
+            and ($observation.evidenceHash | type == "string" and test("^[0-9a-f]{64}$"))
+            and ($observation.scopeHash | type == "string" and test("^[0-9a-f]{64}$"))
+            and ($observation.authorityHash | type == "string" and test("^[0-9a-f]{64}$"))
+          ))
+        ) catch false
+      ' <<<"$history_json" >/dev/null 2>&1; then
+      signature_projection="$(jq -c \
+        --argjson now "$now_epoch" \
+        --argjson policy "$signature_policy" \
+        --argjson capability "$capability_projection" '
+          def utc_epoch:
+            sub("\\+00:00$"; "Z")
+            | sub("\\.[0-9]+Z$"; "Z")
+            | fromdateiso8601;
+          . as $history
+          | [$history.observations[]
+              | (.observedAt | utc_epoch) as $epoch
+              | . + {_epoch:$epoch,_day:($epoch | strftime("%Y-%m-%d"))}] as $observations
+          | ($observations | max_by(._epoch) | ._epoch) as $latest
+          | ($latest - ($latest % 86400)) as $latestDay
+          | [range(0; $policy.requiredConsecutiveUtcDays)
+              | ($latestDay - (. * 86400) | strftime("%Y-%m-%d"))] as $days
+          | [ $observations[]
+              | select(._epoch >= ($latestDay - (($policy.requiredConsecutiveUtcDays - 1) * 86400))
+                and ._epoch < ($latestDay + 86400)) ] as $window
+          | [ $policy.requiredEnvironments[] as $environment
+              | ([$window[] | select(.environment == $environment) | .scopeHash] | unique) as $scopeHashes
+              | ([$window[] | select(.environment == $environment) | .authorityHash] | unique) as $authorityHashes
+              | {
+                  environment:$environment,
+                  scopeHash:(if ($scopeHashes | length) == 1 then $scopeHashes[0] else null end),
+                  authorityHash:(if ($authorityHashes | length) == 1 then $authorityHashes[0] else null end),
+                  completeDays:([
+                    $days[] as $day
+                    | select([
+                        $policy.requiredCapabilityIds[] as $capabilityId
+                        | ([$window[]
+                            | select(.environment == $environment
+                              and .capabilityId == $capabilityId
+                              and ._day == $day)] as $cell
+                          | ($cell | length) > 0
+                            and all($cell[]; .passed == true and .httpStatus >= 200 and .httpStatus < 300))
+                      ] | all)
+                  ] | length)
+                }
+            ] as $environments
+          | ($environments
+              | map(select(.environment == $policy.releaseCapabilityEnvironment))
+              | first) as $production
+          | (($now - $latest) <= ($policy.maxLatestObservationAgeHours * 3600)) as $fresh
+          | ($environments | all(
+              .completeDays == $policy.requiredConsecutiveUtcDays
+              and .scopeHash != null
+              and .authorityHash != null)) as $coverage
+          | ($capability != null
+              and $capability.environment == $policy.releaseCapabilityEnvironment
+              and $production != null
+              and $production.scopeHash == $capability.scopeHash
+              and $production.authorityHash == $capability.authorityHash) as $productionBound
+          | {
+              schemaVersion:$history.schemaVersion,
+              generatedAt:$history.generatedAt,
+              contractVersion:$policy.contractVersion,
+              requiredConsecutiveUtcDays:$policy.requiredConsecutiveUtcDays,
+              requiredEnvironments:$policy.requiredEnvironments,
+              requiredCapabilityIds:$policy.requiredCapabilityIds,
+              windowStart:($days | last),
+              windowEnd:($days | first),
+              latestObservationAt:($latest | strftime("%Y-%m-%dT%H:%M:%SZ")),
+              observationCount:($window | length),
+              fresh:$fresh,
+              productionManifestBound:$productionBound,
+              environments:$environments,
+              complete:($fresh and $coverage and $productionBound)
+            }
+        ' <<<"$history_json")"
+      if jq -e '.complete == true' <<<"$signature_projection" >/dev/null; then
+        signature_status="COMPLETE"
+        signature_reason="Seven consecutive UTC days of staging and production signature canaries are complete and production-bound."
+      else
+        signature_status="INCOMPLETE"
+        signature_reason="The signature history does not establish the policy-required consecutive staging and production window."
+      fi
+    else
+      signature_status="INVALID"
+      signature_reason="The signature history is malformed, unscoped, unsupported, stale, or contains non-contract fields."
+    fi
+  else
+    signature_status="INVALID"
+    signature_reason="The signature history input is not exactly one JSON object."
+  fi
+elif [[ -n "$SIGNATURE_HISTORY" ]]; then
+  signature_status="INVALID"
+  signature_reason="The requested signature history does not exist."
+fi
+
+signature_details="$(jq -cn --arg status "$signature_status" --arg reason "$signature_reason" \
+  --arg file "$(basename "${SIGNATURE_HISTORY:-not-supplied}")" \
+  --argjson history "$signature_projection" '{status:$status,reason:$reason,file:$file,history:$history}')"
+if [[ "$signature_status" == "COMPLETE" ]]; then
+  add_check "sustained-signature-canaries" "PASS" "$signature_reason" "$signature_details"
+else
+  add_check "sustained-signature-canaries" "FAIL" "$signature_reason" "$signature_details"
+fi
+
+benchmark_status="MISSING"
+benchmark_reason="No OmegaBench evidence set was supplied."
+benchmark_projection='null'
+benchmark_validator="$ROOT/scripts/gm-omegabench-evidence"
+if [[ -n "$BENCHMARK_EVIDENCE" && -f "$BENCHMARK_EVIDENCE" ]]; then
+  raw_benchmark_projection=""
+  if [[ -x "$benchmark_validator" ]] \
+    && raw_benchmark_projection="$($benchmark_validator --validate "$BENCHMARK_EVIDENCE" --format projection 2>/dev/null)" \
+    && jq -e 'type == "object"' <<<"$raw_benchmark_projection" >/dev/null 2>&1; then
+    benchmark_projection="$(jq -c --argjson capability "$capability_projection" '
+      . as $projection
+      | ($capability != null
+          and $capability.environment == "production"
+          and $projection.scopeHash != null
+          and $projection.scopeHash == $capability.scopeHash) as $capabilityBound
+      | $projection + {
+          matrixComplete:$projection.complete,
+          productionCapabilityBound:$capabilityBound,
+          complete:($projection.complete and $capabilityBound)
+        }
+    ' <<<"$raw_benchmark_projection")"
+    if jq -e '.complete == true' <<<"$benchmark_projection" >/dev/null; then
+      benchmark_status="COMPLETE"
+      benchmark_reason="The production OmegaBench matrix is complete, corpus-admitted, coherent, fresh, and bound to the current capability scope."
+    else
+      benchmark_status="INCOMPLETE"
+      benchmark_reason="The OmegaBench evidence set does not establish the policy-required admitted-corpus production baseline matrix and capability binding."
+    fi
+  else
+    benchmark_status="INVALID"
+    benchmark_reason="The OmegaBench evidence set is malformed, unsupported, unsafe, or contains non-contract fields."
+  fi
+elif [[ -n "$BENCHMARK_EVIDENCE" ]]; then
+  benchmark_status="INVALID"
+  benchmark_reason="The requested OmegaBench evidence set does not exist."
+fi
+
+benchmark_details="$(jq -cn --arg status "$benchmark_status" --arg reason "$benchmark_reason" \
+  --arg file "$(basename "${BENCHMARK_EVIDENCE:-not-supplied}")" \
+  --argjson evidence "$benchmark_projection" '{status:$status,reason:$reason,file:$file,evidence:$evidence}')"
+if [[ "$benchmark_status" == "COMPLETE" ]]; then
+  add_check "omegabench-baseline" "PASS" "$benchmark_reason" "$benchmark_details"
+else
+  add_check "omegabench-baseline" "FAIL" "$benchmark_reason" "$benchmark_details"
+fi
+
+objective_status="MISSING"
+objective_reason="No security, correctness, and SLO objective evidence bundle was supplied."
+objective_projection='null'
+objective_validator="$ROOT/scripts/gm-objective-evidence"
+if [[ -n "$OBJECTIVE_EVIDENCE" && -f "$OBJECTIVE_EVIDENCE" ]]; then
+  raw_objective_projection=""
+  if [[ -x "$objective_validator" ]] \
+    && raw_objective_projection="$($objective_validator --validate "$OBJECTIVE_EVIDENCE" --format projection 2>/dev/null)" \
+    && jq -e 'type == "object"' <<<"$raw_objective_projection" >/dev/null 2>&1; then
+    objective_projection="$(jq -c --argjson capability "$capability_projection" '
+      . as $projection
+      | ($capability != null
+          and $capability.environment == "production"
+          and $projection.scopeHash != null
+          and $projection.scopeHash == $capability.scopeHash) as $capabilityBound
+      | $projection + {
+          productionCapabilityBound:$capabilityBound,
+          complete:($projection.complete and $capabilityBound)
+        }
+    ' <<<"$raw_objective_projection")"
+    if jq -e '.complete == true' <<<"$objective_projection" >/dev/null; then
+      objective_status="COMPLETE"
+      objective_reason="The security, receipt-lineage, availability, latency, recovery, and deletion objectives pass with fresh evidence bound to the current production scope."
+    else
+      objective_status="INCOMPLETE"
+      objective_reason="The objective evidence does not establish every required current production gate and capability binding."
+    fi
+  else
+    objective_status="INVALID"
+    objective_reason="The objective evidence is malformed, stale, incomplete, unsafe, or contains non-contract fields."
+  fi
+elif [[ -n "$OBJECTIVE_EVIDENCE" ]]; then
+  objective_status="INVALID"
+  objective_reason="The requested objective evidence bundle does not exist."
+fi
+
+objective_details="$(jq -cn --arg status "$objective_status" --arg reason "$objective_reason" \
+  --arg file "$(basename "${OBJECTIVE_EVIDENCE:-not-supplied}")" \
+  --argjson evidence "$objective_projection" '{status:$status,reason:$reason,file:$file,evidence:$evidence}')"
+if [[ "$objective_status" == "COMPLETE" ]]; then
+  add_check "omegarag-objectives" "PASS" "$objective_reason" "$objective_details"
+else
+  add_check "omegarag-objectives" "FAIL" "$objective_reason" "$objective_details"
+fi
+
+prd_policy="$(jq -c '.prdResolution' "$POLICY")"
+prd_inventory_file="$ROOT/references/contracts/release/graymatter_omegarag_prd_inventory_v1.json"
+prd_inventory_status="MISSING"
+prd_inventory_reason="The packaged canonical PRD inventory is missing."
+prd_inventory_projection='null'
+if [[ -f "$prd_inventory_file" ]]; then
+  prd_inventory_json=""
+  if prd_inventory_json="$(jq -cse '
+      if length == 1 and (.[0] | type == "object") then .[0]
+      else error("expected exactly one JSON object") end
+    ' "$prd_inventory_file" 2>/dev/null)"; then
+    provided_inventory_hash="$(jq -r '.inventoryHash // ""' <<<"$prd_inventory_json")"
+    computed_inventory_hash="$(jq -cS 'del(.inventoryHash)' <<<"$prd_inventory_json" | sha256_text)"
+    if [[ "$provided_inventory_hash" == "$computed_inventory_hash" ]] \
+      && jq -e --argjson policy "$prd_policy" '
+        def only_keys($allowed): ((keys_unsorted - $allowed) | length) == 0;
+        . as $inventory
+        | type == "object"
+        and only_keys([
+          "schemaVersion","sourceRef","sourceSha256","requirementSetHash","requirementCount",
+          "p0P1RequirementCount","priorityCounts","familyCounts","requirements","inventoryHash"
+        ])
+        and .schemaVersion == $policy.inventorySchemaVersion
+        and .sourceRef == $policy.sourceRef
+        and .sourceSha256 == $policy.sourceSha256
+        and .requirementSetHash == $policy.requirementSetHash
+        and .inventoryHash == $policy.inventoryHash
+        and .requirementCount == $policy.requirementCount
+        and .p0P1RequirementCount == $policy.p0P1RequirementCount
+        and .priorityCounts == $policy.priorityCounts
+        and (.familyCounts | type == "object" and length > 0)
+        and ($inventory.requirements | type == "array" and length == $inventory.requirementCount)
+        and (([$inventory.requirements[].id] | unique | length) == $inventory.requirementCount)
+        and all($inventory.requirements[];
+          . as $requirement
+          | type == "object"
+          and only_keys(["id","family","priority","requirementHash","acceptanceEvidenceHash","sourceLine"])
+          and (.id | type == "string" and test("^OMR-[A-Z]+-[0-9]{3}$"))
+          and (.family | type == "string" and test("^[A-Z]+$"))
+          and (.priority | IN("P0","P1","P2"))
+          and (.requirementHash | type == "string" and test("^[0-9a-f]{64}$"))
+          and (.acceptanceEvidenceHash | type == "string" and test("^[0-9a-f]{64}$"))
+          and (.sourceLine | type == "number" and floor == . and . > 0)
+          and ($requirement.id | startswith("OMR-" + $requirement.family + "-")))
+        and $inventory.priorityCounts == ($inventory.requirements | group_by(.priority)
+          | map({key:.[0].priority,value:length}) | from_entries)
+        and $inventory.familyCounts == ($inventory.requirements | group_by(.family)
+          | map({key:.[0].family,value:length}) | from_entries)
+        and $inventory.p0P1RequirementCount == ([$inventory.requirements[]
+          | select(.priority == "P0" or .priority == "P1")] | length)
+      ' <<<"$prd_inventory_json" >/dev/null 2>&1; then
+      prd_inventory_status="CURRENT"
+      prd_inventory_reason="The packaged inventory is self-hash-valid and exactly policy-bound to the canonical PRD requirement set."
+      prd_inventory_projection="$(jq -c '
+        {schemaVersion,sourceRef,sourceSha256,requirementSetHash,inventoryHash,
+          requirementCount,p0P1RequirementCount,priorityCounts,familyCounts}
+      ' <<<"$prd_inventory_json")"
+    else
+      prd_inventory_status="INVALID_OR_DRIFTED"
+      prd_inventory_reason="The packaged inventory is malformed, self-hash-invalid, or differs from the policy-bound canonical PRD set."
+    fi
+  else
+    prd_inventory_status="INVALID_OR_DRIFTED"
+    prd_inventory_reason="The packaged inventory is not exactly one JSON object."
+  fi
+fi
+
+prd_inventory_details="$(jq -cn \
+  --arg status "$prd_inventory_status" \
+  --arg reason "$prd_inventory_reason" \
+  --arg file "$(basename "$prd_inventory_file")" \
+  --argjson inventory "$prd_inventory_projection" \
+  '{status:$status,reason:$reason,file:$file,inventory:$inventory}')"
+if [[ "$prd_inventory_status" == "CURRENT" ]]; then
+  add_check "prd-requirement-inventory" "PASS" "$prd_inventory_reason" "$prd_inventory_details"
+else
+  add_check "prd-requirement-inventory" "FAIL" "$prd_inventory_reason" "$prd_inventory_details"
+fi
+
+prd_resolution_status="MISSING"
+prd_resolution_reason="No aggregate product/security PRD resolution attestation was supplied."
+prd_resolution_projection='null'
+if [[ -n "$PRD_RESOLUTION_ATTESTATION" && -f "$PRD_RESOLUTION_ATTESTATION" ]]; then
+  prd_resolution_json=""
+  if prd_resolution_json="$(jq -cse '
+      if length == 1 and (.[0] | type == "object") then .[0]
+      else error("expected exactly one JSON object") end
+    ' "$PRD_RESOLUTION_ATTESTATION" 2>/dev/null)"; then
+    now_epoch="$(date -u +%s)"
+    if jq -e \
+      --argjson now "$now_epoch" \
+      --argjson policy "$prd_policy" \
+      --arg sourceRevision "$source_revision" '
+        def only_keys($allowed): ((keys_unsorted - $allowed) | length) == 0;
+        def utc_epoch:
+          sub("\\+00:00$"; "Z")
+          | sub("\\.[0-9]+Z$"; "Z")
+          | fromdateiso8601;
+        def safe_ref:
+          type == "string" and test("^[A-Za-z0-9][A-Za-z0-9._:/-]{0,239}$")
+          and (contains("..") | not) and (startswith("/") | not);
+        def signoff:
+          type == "object"
+          and only_keys(["evidenceRef","evidenceHash","approvedAt"])
+          and (.evidenceRef | safe_ref)
+          and (.evidenceHash | type == "string" and test("^[0-9a-f]{64}$"))
+          and (.approvedAt | type == "string");
+        try (
+          . as $attestation
+          | type == "object"
+          and only_keys([
+            "schemaVersion","attestedAt","sourceRevision","inventoryHash",
+            "requirementSetHash","p0P1RequirementCount","allP0P1Resolved",
+            "productSignoff","securitySignoff"
+          ])
+          and .schemaVersion == $policy.attestationSchemaVersion
+          and (.attestedAt | type == "string")
+          and ((.attestedAt | utc_epoch) <= ($now + 300))
+          and ((.attestedAt | utc_epoch) >= ($now - ($policy.maxAttestationAgeHours * 3600)))
+          and .sourceRevision == $sourceRevision
+          and (.sourceRevision | test("^[0-9a-f]{40,64}$"))
+          and .inventoryHash == $policy.inventoryHash
+          and .requirementSetHash == $policy.requirementSetHash
+          and .p0P1RequirementCount == $policy.p0P1RequirementCount
+          and (.allP0P1Resolved | type == "boolean")
+          and (.productSignoff | signoff)
+          and (.securitySignoff | signoff)
+          and .productSignoff.evidenceRef != .securitySignoff.evidenceRef
+          and ((.productSignoff.approvedAt | utc_epoch) <= (($attestation.attestedAt | utc_epoch) + 300))
+          and ((.securitySignoff.approvedAt | utc_epoch) <= (($attestation.attestedAt | utc_epoch) + 300))
+          and ((.productSignoff.approvedAt | utc_epoch) <= ($now + 300))
+          and ((.securitySignoff.approvedAt | utc_epoch) <= ($now + 300))
+        ) catch false
+      ' <<<"$prd_resolution_json" >/dev/null 2>&1; then
+      prd_resolution_projection="$(jq -c '
+        {schemaVersion,attestedAt,sourceRevision,inventoryHash,requirementSetHash,
+          p0P1RequirementCount,allP0P1Resolved,productSignoff,securitySignoff}
+      ' <<<"$prd_resolution_json")"
+      if [[ "$prd_inventory_status" != "CURRENT" ]]; then
+        prd_resolution_status="INVENTORY_BLOCKED"
+        prd_resolution_reason="The resolution attestation cannot be accepted while the packaged PRD inventory is invalid or missing."
+      elif jq -e '.allP0P1Resolved == true' <<<"$prd_resolution_json" >/dev/null; then
+        prd_resolution_status="COMPLETE"
+        prd_resolution_reason="Product and security attest that every P0/P1 requirement in the exact current PRD inventory is resolved for this source revision."
+      else
+        prd_resolution_status="INCOMPLETE"
+        prd_resolution_reason="The aggregate attestation does not resolve every P0/P1 requirement in the exact current PRD inventory."
+      fi
+    else
+      prd_resolution_status="INVALID_OR_STALE"
+      prd_resolution_reason="The PRD resolution attestation is malformed, stale, source-mismatched, inventory-mismatched, or lacks distinct product/security signoff evidence."
+    fi
+  else
+    prd_resolution_status="INVALID_OR_STALE"
+    prd_resolution_reason="The PRD resolution input is not exactly one JSON object."
+  fi
+elif [[ -n "$PRD_RESOLUTION_ATTESTATION" ]]; then
+  prd_resolution_status="INVALID_OR_STALE"
+  prd_resolution_reason="The requested PRD resolution attestation does not exist."
+fi
+
+prd_resolution_details="$(jq -cn \
+  --arg status "$prd_resolution_status" \
+  --arg reason "$prd_resolution_reason" \
+  --arg file "$(basename "${PRD_RESOLUTION_ATTESTATION:-not-supplied}")" \
+  --argjson attestation "$prd_resolution_projection" \
+  '{status:$status,reason:$reason,file:$file,attestation:$attestation}')"
+if [[ "$prd_resolution_status" == "COMPLETE" ]]; then
+  add_check "prd-p0-p1-resolution" "PASS" "$prd_resolution_reason" "$prd_resolution_details"
+else
+  add_check "prd-p0-p1-resolution" "FAIL" "$prd_resolution_reason" "$prd_resolution_details"
+fi
+
+decision="HOLD"
+if [[ ! -s "$blockers_file" ]]; then
+  decision="ELIGIBLE_FOR_HUMAN_REVIEW"
+fi
+
+generated_at="$(date -u +%FT%TZ)"
+result="$(jq -n \
+  --arg schemaVersion "graymatter-omegarag-release-evidence/v1" \
+  --arg generatedAt "$generated_at" \
+  --arg decision "$decision" \
+  --arg sourceRevision "$source_revision" \
+  --arg revisionSource "$revision_source" \
+  --argjson versions "$version_details" \
+  --argjson archive "$archive_details" \
+  --argjson contracts "$(jq -s . "$contracts_file")" \
+  --argjson checks "$(jq -s . "$checks_file")" \
+  --argjson limitations "$(jq -c '.knownLimitations' "$POLICY")" '
+    {
+      schemaVersion:$schemaVersion,
+      generatedAt:$generatedAt,
+      decision:$decision,
+      authorizations:{
+        releaseAuthorized:false,
+        claimPromotionAuthorized:false,
+        mergeAuthorized:false,
+        productionDeploymentAuthorized:false
+      },
+      source:{revision:$sourceRevision,revisionSource:$revisionSource},
+      versions:$versions,
+      packageArchive:$archive,
+      contracts:$contracts,
+      checks:$checks,
+      knownLimitations:$limitations
+    }
+  ')"
+
+if [[ -n "$OUT" ]]; then
+  printf '%s\n' "$result" >"$OUT"
+else
+  printf '%s\n' "$result"
+fi

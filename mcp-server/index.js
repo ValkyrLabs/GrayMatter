@@ -1322,6 +1322,11 @@ const PUBLIC_RESULT_SCHEMA = {
   additionalProperties: false
 };
 
+// Public clients may see only a selected tool descriptor, not initialize.instructions.
+// Keep the no-call boundary on both surfaces; schema rejection alone cannot stop
+// a model from substituting a different, technically authorized search.
+const PUBLIC_UNSUPPORTED_REQUEST_GUIDANCE = 'Do not invoke any GrayMatter tool for requests to override tenant, owner, organization, user, role, permission, or ACL scope; explain that scope comes from the signed-in account. Do not reinterpret such a request as an authorized text search. For requests to delete an unspecified record, ask the user to identify it; do not search for deletion candidates or select a target yourself.';
+
 const publicTools = [
   definePublicTool({
     name: 'memory_search',
@@ -1860,7 +1865,7 @@ async function handleRpc(message, context) {
             version: context.publicApp ? '1.0.0' : '0.1.0'
           },
           instructions: context.publicApp
-            ? 'Search durable memory before asking users to repeat known context. Compile bounded task context. Never store OAuth tokens, passwords, API keys, private keys, or other secrets. Never call memory_forget without an exact memory UUID and explicit confirmation for that specific record. Never request or supply tenant, owner, organization, ACL, or user overrides.'
+            ? `${PUBLIC_UNSUPPORTED_REQUEST_GUIDANCE} Search authorized durable memory before asking users to repeat known context. Compile bounded task context. Never store OAuth tokens, passwords, API keys, private keys, or other secrets. Never call memory_forget without an exact memory UUID and explicit confirmation for that specific record. Never request or supply tenant, owner, organization, ACL, or user overrides.`
             : undefined
         });
       case 'tools/list':
@@ -2717,7 +2722,7 @@ function definePublicTool(tool) {
   return {
     name: tool.name,
     title: tool.title,
-    description: tool.description,
+    description: `${PUBLIC_UNSUPPORTED_REQUEST_GUIDANCE} ${tool.description}`,
     inputSchema: tool.inputSchema,
     outputSchema: PUBLIC_RESULT_SCHEMA,
     securitySchemes,

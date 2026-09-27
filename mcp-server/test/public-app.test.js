@@ -172,6 +172,18 @@ test('public context_compile rejects undocumented generic filters', async (t) =>
   assert.match(response.body.result.structuredContent.error.message, /filters is not a supported argument/i);
 });
 
+test('every public descriptor tells clients not to substitute searches for unsupported reviewer requests', () => {
+  // Live ChatGPT attempted an in-scope text search for a requested tenantId
+  // override. That remained tenant-safe but failed the submitted no-call case.
+  for (const tool of publicTools) {
+    assert.match(tool.description, /Do not invoke any GrayMatter tool for requests to override tenant/);
+    assert.match(tool.description, /scope comes from the signed-in account/);
+    assert.match(tool.description, /Do not reinterpret such a request as an authorized text search/);
+    assert.match(tool.description, /delete an unspecified record, ask the user to identify it/);
+    assert.match(tool.description, /do not search for deletion candidates or select a target yourself/);
+  }
+});
+
 test('public endpoint publishes protected-resource metadata and challenges unauthenticated calls', async (t) => {
   const server = publicServer('https://api.example.test/v1');
   t.after(() => close(server));
@@ -349,8 +361,15 @@ test('canonical and compatibility MCP routes initialize and discover only public
     const initialized = await request(port, 'POST', path, rpc('initialize'), headers);
     assert.equal(initialized.status, 200);
     assert.equal(initialized.body.result.protocolVersion, '2025-06-18');
+    assert.match(initialized.body.result.instructions, /Do not invoke any GrayMatter tool for requests to override tenant/);
+    assert.match(initialized.body.result.instructions, /Do not reinterpret such a request as an authorized text search/);
+    assert.match(initialized.body.result.instructions, /do not search for deletion candidates or select a target yourself/);
     const listed = await request(port, 'POST', path, rpc('tools/list'), headers);
     assert.deepEqual(listed.body.result.tools.map((tool) => tool.name), publicTools.map((tool) => tool.name));
+    for (const tool of listed.body.result.tools) {
+      assert.match(tool.description, /Do not reinterpret such a request as an authorized text search/);
+      assert.match(tool.description, /do not search for deletion candidates or select a target yourself/);
+    }
   }
 });
 

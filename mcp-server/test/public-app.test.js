@@ -184,6 +184,17 @@ test('every public descriptor tells clients not to substitute searches for unsup
   }
 });
 
+test('memory descriptors preserve requested provenance when broadening a topic search', () => {
+  for (const name of ['memory_search', 'memory_get']) {
+    const description = publicTools.find((tool) => tool.name === name).description;
+    assert.match(description, /preserve all identifying qualifiers/);
+    assert.match(description, /seeded versus newly created/);
+    assert.match(description, /verify those qualifiers against returned metadata and memory_get/);
+    assert.match(description, /Do not substitute a newer or similarly worded record/);
+    assert.match(description, /report no verified match if the evidence is insufficient/);
+  }
+});
+
 test('public endpoint publishes protected-resource metadata and challenges unauthenticated calls', async (t) => {
   const server = publicServer('https://api.example.test/v1');
   t.after(() => close(server));
@@ -364,6 +375,8 @@ test('canonical and compatibility MCP routes initialize and discover only public
     assert.match(initialized.body.result.instructions, /Do not invoke any GrayMatter tool for requests to override tenant/);
     assert.match(initialized.body.result.instructions, /Do not reinterpret such a request as an authorized text search/);
     assert.match(initialized.body.result.instructions, /do not search for deletion candidates or select a target yourself/);
+    assert.match(initialized.body.result.instructions, /preserve all identifying qualifiers/);
+    assert.match(initialized.body.result.instructions, /Do not substitute a newer or similarly worded record/);
     const listed = await request(port, 'POST', path, rpc('tools/list'), headers);
     assert.deepEqual(listed.body.result.tools.map((tool) => tool.name), publicTools.map((tool) => tool.name));
     for (const tool of listed.body.result.tools) {

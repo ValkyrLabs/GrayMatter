@@ -1326,12 +1326,13 @@ const PUBLIC_RESULT_SCHEMA = {
 // Keep the no-call boundary on both surfaces; schema rejection alone cannot stop
 // a model from substituting a different, technically authorized search.
 const PUBLIC_UNSUPPORTED_REQUEST_GUIDANCE = 'Do not invoke any GrayMatter tool for requests to override tenant, owner, organization, user, role, permission, or ACL scope; explain that scope comes from the signed-in account. Do not reinterpret such a request as an authorized text search. For requests to delete an unspecified record, ask the user to identify it; do not search for deletion candidates or select a target yourself.';
+const PUBLIC_MEMORY_MATCH_GUIDANCE = 'For a request about a specific memory, preserve all identifying qualifiers such as title, source, tags, marker, or whether it is seeded versus newly created. If a narrow search is empty, you may broaden topic wording within the signed-in scope, but must still verify those qualifiers against returned metadata and memory_get before claiming a match. Do not substitute a newer or similarly worded record that lacks the requested provenance; report no verified match if the evidence is insufficient.';
 
 const publicTools = [
   definePublicTool({
     name: 'memory_search',
     title: 'Search GrayMatter memory',
-    description: 'Search memories visible to the signed-in user with GrayMatter hybrid retrieval. Call before asking the user to repeat durable context, and use a narrow query plus a bounded limit.',
+    description: `Search memories visible to the signed-in user with GrayMatter hybrid retrieval. Call before asking the user to repeat durable context, and use a narrow query plus a bounded limit. ${PUBLIC_MEMORY_MATCH_GUIDANCE}`,
     scopes: ['memory:read'],
     inputSchema: {
       type: 'object',
@@ -1353,7 +1354,7 @@ const publicTools = [
   definePublicTool({
     name: 'memory_get',
     title: 'Get one GrayMatter memory',
-    description: 'Retrieve one memory by ID when the signed-in user is authorized to read it. Call after search returns an ID or when the user supplies a known memory ID.',
+    description: `Retrieve one memory by ID when the signed-in user is authorized to read it. Call after search returns an ID or when the user supplies a known memory ID. ${PUBLIC_MEMORY_MATCH_GUIDANCE}`,
     scopes: ['memory:read'],
     inputSchema: {
       type: 'object',
@@ -1865,7 +1866,7 @@ async function handleRpc(message, context) {
             version: context.publicApp ? '1.0.0' : '0.1.0'
           },
           instructions: context.publicApp
-            ? `${PUBLIC_UNSUPPORTED_REQUEST_GUIDANCE} Search authorized durable memory before asking users to repeat known context. Compile bounded task context. Never store OAuth tokens, passwords, API keys, private keys, or other secrets. Never call memory_forget without an exact memory UUID and explicit confirmation for that specific record. Never request or supply tenant, owner, organization, ACL, or user overrides.`
+            ? `${PUBLIC_UNSUPPORTED_REQUEST_GUIDANCE} ${PUBLIC_MEMORY_MATCH_GUIDANCE} Search authorized durable memory before asking users to repeat known context. Compile bounded task context. Never store OAuth tokens, passwords, API keys, private keys, or other secrets. Never call memory_forget without an exact memory UUID and explicit confirmation for that specific record. Never request or supply tenant, owner, organization, ACL, or user overrides.`
             : undefined
         });
       case 'tools/list':

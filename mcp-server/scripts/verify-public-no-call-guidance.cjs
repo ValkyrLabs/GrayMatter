@@ -17,6 +17,12 @@ const checkGuidance = (value) => {
   assert.match(value, /Do not reinterpret such a request as an authorized text search/);
   assert.match(value, /do not search for deletion candidates or select a target yourself/);
 };
+const checkMatchGuidance = (value) => {
+  assert.match(value, /preserve all identifying qualifiers/);
+  assert.match(value, /verify those qualifiers against returned metadata and memory_get/);
+  assert.match(value, /Do not substitute a newer or similarly worded record/);
+  assert.match(value, /report no verified match if the evidence is insufficient/);
+};
 const withoutDescriptions = (items) => items.map(({ description, ...rest }) => rest);
 const listen = (server) => new Promise((resolve) => server.listen(0, '127.0.0.1', () => resolve(server.address().port)));
 const close = (server) => new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
@@ -24,6 +30,8 @@ const close = (server) => new Promise((resolve, reject) => server.close((error) 
 async function main() {
   assert.deepEqual(candidate.publicTools.map((tool) => tool.name), expectedNames);
   candidate.publicTools.forEach((tool) => checkGuidance(tool.description));
+  candidate.publicTools.filter((tool) => ['memory_search', 'memory_get'].includes(tool.name))
+    .forEach((tool) => checkMatchGuidance(tool.description));
   if (baseline) {
     assert.deepEqual(candidate.tools, baseline.tools, 'private tool surface changed');
     assert.deepEqual(withoutDescriptions(candidate.publicTools), withoutDescriptions(baseline.publicTools),
@@ -63,10 +71,13 @@ async function main() {
       const initialized = await rpc(route, 'initialize');
       assert.equal(initialized.status, 200);
       checkGuidance(initialized.body.result.instructions);
+      checkMatchGuidance(initialized.body.result.instructions);
       const listed = await rpc(route, 'tools/list');
       assert.equal(listed.status, 200);
       assert.deepEqual(listed.body.result.tools.map((tool) => tool.name), expectedNames);
       listed.body.result.tools.forEach((tool) => checkGuidance(tool.description));
+      listed.body.result.tools.filter((tool) => ['memory_search', 'memory_get'].includes(tool.name))
+        .forEach((tool) => checkMatchGuidance(tool.description));
       assert.equal((await rpc(route, 'initialize', null, false)).status, 401);
       const override = await rpc(route, 'tools/call', {
         name: 'memory_search', arguments: { query: 'review', tenantId: 'other-tenant' }
@@ -81,6 +92,7 @@ async function main() {
     console.log(JSON.stringify({
       result: 'PASS', routes: 2, publicTools: 8,
       initializedAndListedGuidance: true,
+      requestedProvenanceGuidance: true,
       baselineNonDescriptionMetadataUnchanged: Boolean(baseline),
       unauthorizedAndOverrideRequestsRejected: true,
       rejectedRequestsReachedUpstream: upstreamCalls,

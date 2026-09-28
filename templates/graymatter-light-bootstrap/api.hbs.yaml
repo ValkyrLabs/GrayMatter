@@ -717,6 +717,498 @@
     }
   ],
   "paths": {
+    "/v1/graymatter/retrieval-context/{id}/fork": {
+      "post": {
+        "summary": "Fork a receipt-backed context with fresh owner and source-hash checks",
+        "tags": [
+          "GrayMatter Lite Memory"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "query": {
+                    "type": "string"
+                  },
+                  "tokenBudget": {
+                    "type": "integer",
+                    "minimum": 128,
+                    "maximum": 16000
+                  }
+                },
+                "required": [
+                  "query"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Child context reference and receipt"
+          }
+        }
+      }
+    },
+    "/v1/memory/semantic-health": {
+      "get": {
+        "summary": "Inspect local vector index profiles without contacting a model",
+        "tags": [
+          "GrayMatter Lite Memory"
+        ],
+        "responses": {
+          "200": {
+            "description": "Portable and optional semantic vector counts"
+          }
+        }
+      }
+    },
+    "/v1/memory/capabilities": {
+      "get": {
+        "summary": "Discover GrayMatter Lite local vector and hybrid retrieval",
+        "tags": [
+          "GrayMatter Lite Memory"
+        ],
+        "responses": {
+          "200": {
+            "description": "Portable index capability metadata"
+          }
+        }
+      }
+    },
+    "/v1/memory/semantic-index/search": {
+      "post": {
+        "summary": "Search owned memories with keyword, vector, or hybrid ranking",
+        "tags": [
+          "GrayMatter Lite Memory"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "query": {
+                    "type": "string"
+                  },
+                  "limit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 100
+                  },
+                  "retrievalMode": {
+                    "type": "string",
+                    "enum": [
+                      "KEYWORD",
+                      "VECTOR",
+                      "HYBRID",
+                      "SCHEMA_FILTERED",
+                      "RECENCY_BIASED"
+                    ]
+                  },
+                  "type": {
+                    "type": "string"
+                  },
+                  "source": {
+                    "type": "string"
+                  },
+                  "tags": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "filters": {
+                    "type": "object",
+                    "description": "Lite accepts only type, source/sourceChannel, and tags; other keys are rejected",
+                    "additionalProperties": false,
+                    "properties": {
+                      "type": {
+                        "type": "string"
+                      },
+                      "source": {
+                        "type": "string"
+                      },
+                      "sourceChannel": {
+                        "type": "string"
+                      },
+                      "tags": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                },
+                "required": [
+                  "query"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Owner-scoped ranked memory hits with lexical/vector scores and index profile"
+          }
+        }
+      }
+    },
+    "/v1/memory/reindex": {
+      "post": {
+        "summary": "Rebuild the authenticated principal memory vector projection",
+        "tags": [
+          "GrayMatter Lite Memory"
+        ],
+        "responses": {
+          "200": {
+            "description": "Indexed, semantic-indexed, and stale-row counts"
+          }
+        },
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "dryRun": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/memory/semantic-index/reindex": {
+      "post": {
+        "summary": "Alias for local memory reindex",
+        "tags": [
+          "GrayMatter Lite Memory"
+        ],
+        "responses": {
+          "200": {
+            "description": "Indexed, semantic-indexed, and stale-row counts"
+          }
+        },
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "dryRun": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/graymatter/retrieval-context": {
+      "post": {
+        "summary": "Compile bounded Bifrost context from owned memory",
+        "tags": [
+          "GrayMatter Lite Memory"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "query": {
+                    "type": "string"
+                  },
+                  "topK": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 100
+                  },
+                  "tokenBudget": {
+                    "type": "integer",
+                    "minimum": 128,
+                    "maximum": 16000
+                  },
+                  "retrievalMode": {
+                    "type": "string",
+                    "enum": [
+                      "KEYWORD",
+                      "VECTOR",
+                      "HYBRID",
+                      "SCHEMA_FILTERED",
+                      "RECENCY_BIASED"
+                    ]
+                  },
+                  "protectedRefs": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "format": "uuid"
+                    }
+                  },
+                  "filters": {
+                    "type": "object",
+                    "description": "Lite accepts only type, source/sourceChannel, and tags; other keys are rejected",
+                    "additionalProperties": false,
+                    "properties": {
+                      "type": {
+                        "type": "string"
+                      },
+                      "source": {
+                        "type": "string"
+                      },
+                      "sourceChannel": {
+                        "type": "string"
+                      },
+                      "tags": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                },
+                "required": [
+                  "query"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Bounded context, citations, and content-free receipt reference"
+          }
+        }
+      }
+    },
+    "/v1/graymatter-retrieval-receipts": {
+      "post": {
+        "summary": "Retrieve memory with durable Bifrost receipt",
+        "tags": [
+          "GrayMatter Lite Memory"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "query": {
+                    "type": "string"
+                  },
+                  "topK": {
+                    "type": "integer"
+                  },
+                  "retrievalMode": {
+                    "type": "string"
+                  },
+                  "includeText": {
+                    "type": "boolean"
+                  },
+                  "filters": {
+                    "type": "object",
+                    "description": "Lite accepts only type, source/sourceChannel, and tags; other keys are rejected",
+                    "additionalProperties": false,
+                    "properties": {
+                      "type": {
+                        "type": "string"
+                      },
+                      "source": {
+                        "type": "string"
+                      },
+                      "sourceChannel": {
+                        "type": "string"
+                      },
+                      "tags": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                },
+                "required": [
+                  "query"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Receipt with policy-gated retrieval context"
+          }
+        }
+      }
+    },
+    "/v1/graymatter-retrieval-receipts/{id}": {
+      "get": {
+        "summary": "Inspect an owned content-free retrieval receipt and source freshness",
+        "tags": [
+          "GrayMatter Lite Memory"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Receipt status and stale refs"
+          },
+          "404": {
+            "description": "Receipt not owned or missing"
+          }
+        }
+      }
+    },
+    "/v1/graymatter/retrieval-context/{id}/recompress": {
+      "post": {
+        "summary": "Recompress a receipt after rechecking every source",
+        "tags": [
+          "GrayMatter Lite Memory"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "query": {
+                    "type": "string"
+                  },
+                  "tokenBudget": {
+                    "type": "integer",
+                    "minimum": 128,
+                    "maximum": 16000
+                  },
+                  "protectedRefs": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "format": "uuid"
+                    }
+                  },
+                  "evictedRefs": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "format": "uuid"
+                    }
+                  }
+                },
+                "required": [
+                  "query"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Child receipt and rechecked context"
+          },
+          "409": {
+            "description": "Query or protected source changed"
+          }
+        }
+      }
+    },
+    "/v1/graymatter/retrieval-context/{id}/hydrate/{memoryId}": {
+      "get": {
+        "summary": "Hydrate one exact receipt source after current owner and hash checks",
+        "tags": [
+          "GrayMatter Lite Memory"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "memoryId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "maxTokens",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 4000
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Bounded redacted source excerpt"
+          },
+          "404": {
+            "description": "Receipt or memory not owned or missing"
+          },
+          "409": {
+            "description": "Source changed"
+          }
+        }
+      }
+    },
     "/v1/api-docs": {
       "get": {
         "tags": [

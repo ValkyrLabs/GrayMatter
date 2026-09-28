@@ -209,7 +209,7 @@ test('one-command installer connects the marketplace and installs the plugin', a
   assert.match(result.stdout, /downloading plugin[\s\S]*performing signup\/login[\s\S]*authenticating[\s\S]*GrayMatter plugin ready/u);
   const calls = fs.readFileSync(log, 'utf8');
   if (fs.existsSync(path.join(root, '.agents', 'plugins', 'marketplace.json'))) {
-    assert.match(calls, /plugin marketplace add .*GrayMatter --json/u);
+    assert.ok(calls.includes(`plugin marketplace add ${root} --json`));
     assert.match(calls, /plugin add graymatter@graymatter --json/u);
   }
 });

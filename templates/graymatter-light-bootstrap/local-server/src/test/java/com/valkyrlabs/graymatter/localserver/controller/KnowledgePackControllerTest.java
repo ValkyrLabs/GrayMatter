@@ -13,6 +13,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.valkyrlabs.graymatter.localserver.model.PrincipalRecord;
 import com.valkyrlabs.graymatter.localserver.repository.KnowledgePackRepository;
 import com.valkyrlabs.graymatter.localserver.repository.MemoryEntryRepository;
+import com.valkyrlabs.graymatter.localserver.repository.MemorySearchIndexRepository;
 import com.valkyrlabs.graymatter.localserver.repository.PrincipalRecordRepository;
 import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
@@ -58,6 +59,9 @@ class KnowledgePackControllerTest {
     private MemoryEntryRepository memoryEntries;
 
     @Autowired
+    private MemorySearchIndexRepository searchIndexes;
+
+    @Autowired
     private PrincipalRecordRepository principals;
 
     @Autowired
@@ -65,6 +69,7 @@ class KnowledgePackControllerTest {
 
     @BeforeEach
     void resetOwnedData() {
+        searchIndexes.deleteAll();
         memoryEntries.deleteAll();
         knowledgePacks.deleteAll();
         if (principals.findByUsernameIgnoreCase("reader").isEmpty()) {
@@ -110,6 +115,7 @@ class KnowledgePackControllerTest {
 
         assertThat(knowledgePacks.count()).isEqualTo(1);
         assertThat(memoryEntries.count()).isEqualTo(1);
+        assertThat(searchIndexes.findByPrincipalUsernameIgnoreCase("admin")).hasSize(1);
 
         mockMvc.perform(get("/v1/knowledge-packs/{id}", localPackId)
                 .with(httpBasic("reader", "reader-password")))

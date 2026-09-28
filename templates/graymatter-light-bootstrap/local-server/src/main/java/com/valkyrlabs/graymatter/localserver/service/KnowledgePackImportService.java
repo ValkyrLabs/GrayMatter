@@ -53,16 +53,19 @@ public class KnowledgePackImportService {
     private final PrincipalRecordRepository principals;
     private final KnowledgePackRepository knowledgePacks;
     private final MemoryEntryRepository memoryEntries;
+    private final MemoryHybridSearchService search;
 
     public KnowledgePackImportService(
         ObjectMapper objectMapper,
         PrincipalRecordRepository principals,
         KnowledgePackRepository knowledgePacks,
-        MemoryEntryRepository memoryEntries) {
+        MemoryEntryRepository memoryEntries,
+        MemoryHybridSearchService search) {
         this.objectMapper = objectMapper;
         this.principals = principals;
         this.knowledgePacks = knowledgePacks;
         this.memoryEntries = memoryEntries;
+        this.search = search;
     }
 
     @Transactional
@@ -132,7 +135,7 @@ public class KnowledgePackImportService {
                 pack,
                 optionalText(object, "sourceId", null, 64)));
         }
-        memoryEntries.saveAll(importedMemories);
+        memoryEntries.saveAll(importedMemories).forEach(search::indexFeatureHash);
         return result(pack, false);
     }
 

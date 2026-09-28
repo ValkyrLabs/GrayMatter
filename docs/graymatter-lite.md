@@ -12,7 +12,9 @@ Lite includes:
 - the `./vaix` source builder and private toolchain bootstrap;
 - the Spring Boot/H2 local server and embedded sign-in dashboard;
 - one local principal and basic profile preferences;
-- MemoryEntry write, list, query, and read APIs;
+- MemoryEntry write, list, hybrid query, and read APIs;
+- an H2-backed local vector projection, BM25 keyword ranking, and receipt-backed
+  Bifrost context compression over owned memories;
 - signed KnowledgePack import, graph/archive retention, and portable export;
 - a vetted starter KnowledgePack stored in H2 on first launch;
 - the GrayMatter MCP server;
@@ -133,6 +135,69 @@ preferred portable memory format; H2 backup is the exact local recovery format.
 
 The backend does not choose an LLM. Local models use the MCP server as their
 memory tool boundary. See [local-models.md](local-models.md).
+
+### Hybrid memory search
+
+`POST /v1/MemoryEntry/query` now uses hybrid retrieval by default and keeps its
+existing `results` response shape. `POST /v1/memory/semantic-index/search`
+exposes score and index-profile details. Set `retrievalMode` to `KEYWORD`,
+`VECTOR`, `HYBRID`, `SCHEMA_FILTERED`, or `RECENCY_BIASED`; `type`, `source`,
+and `tags` are exact filters within the
+authenticated local principal. `POST /v1/memory/reindex` rebuilds this
+principal's H2 index and removes stale index rows. Existing memories backfill
+when queried; KnowledgePack imports regenerate the portable vector projection
+locally. `{"dryRun":true}` estimates a reindex without writing. Lite rejects
+source-specific generated-domain reindex requests. Embeddings from an imported
+archive are never trusted.
+
+The MCP `filters` object accepts only `type`, `source`/`sourceChannel`, and
+`tags`. Unsupported filters fail with HTTP 400 so a narrow request cannot
+silently become a broad search.
+
+The default `feature-hash-384-v1` vectors work without a model or network.
+They improve fuzzy lexical recall but are **not** a semantic language model.
+For semantic embeddings from a local model, install Ollama and a local embedding
+model, then set:
+
+```bash
+GRAYMATTER_EMBEDDING_PROVIDER=ollama
+GRAYMATTER_EMBEDDING_OLLAMA_MODEL=nomic-embed-text
+```
+
+The server calls only Ollama's loopback `/api/embed` endpoint. Run
+`POST /v1/memory/reindex` after switching models. If the local model is down,
+the search response reports `semanticDegraded: true` and uses feature hashes;
+the durable memory stays available. `/v1/memory/capabilities` reports the
+configured profiles without sending a test embedding request. The portable
+Java/H2 scan is intended for personal memory scale; there is no ANN engine in
+Lite.
+
+### Bifrost context for agents
+
+`POST /v1/graymatter/retrieval-context` and
+`POST /v1/graymatter-retrieval-receipts` search owned memories, prioritize
+decisions and unresolved evidence, select query-aware excerpts, redact common
+credential patterns, and return a citation-ready context with a durable
+content-free receipt. The context budget is 128–16,000. The compiler bounds
+UTF-8 output bytes by that budget, a conservative model-independent token
+ceiling. Canonical `MemoryEntry` text is not changed by compression.
+
+Receipts store source IDs and SHA-256 hashes, not source text. Inspect one with
+`GET /v1/graymatter-retrieval-receipts/{id}`. Recompress with
+`POST /v1/graymatter/retrieval-context/{id}/recompress` using the same query,
+an optional smaller `tokenBudget`, and optional `protectedRefs` or
+`evictedRefs`. Protected refs carry into child contexts and cannot be evicted.
+`POST /v1/graymatter/retrieval-context/{id}/fork` creates an independently
+addressable child with the same source rechecks. Each result has a
+`contextPageRef` that an agent can carry through a handoff. An exact source can
+be hydrated through
+`GET /v1/graymatter/retrieval-context/{id}/hydrate/{memoryId}?maxTokens=1000`.
+Every inspection, recompression, and hydration rechecks current ownership and
+source hash; changed or removed memories cannot be replayed from old context.
+The response `answerPolicy` tells an agent when evidence is insufficient.
+
+These APIs cover Lite's agentic-memory boundary. They do not include hosted
+ValkyrAI workflows, SkillOptics evaluation, or generated-domain retrieval.
 
 ## SWARM integration
 

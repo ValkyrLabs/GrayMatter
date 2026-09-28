@@ -68,7 +68,9 @@ kept in the `graymatter-lite-data` volume.
 ## What is included
 
 - one local user/workspace with Basic-auth sign-in and a switchable local profile;
-- durable `MemoryEntry` creation, read, search, and H2 persistence;
+- durable `MemoryEntry` creation, read, hybrid search, and H2 persistence;
+- local vector indexing with optional loopback Ollama embeddings, plus bounded
+  Bifrost context, citation pointers, source rechecks, and retrieval receipts;
 - the existing Valkyr dashboard, memory workbench, telemetry, and SWARM status;
 - the bundled stdio/HTTP MCP server for Codex, OpenClaw, Claude, local-model
   hosts, and other MCP-compatible clients;

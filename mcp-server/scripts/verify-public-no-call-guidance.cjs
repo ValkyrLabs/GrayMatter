@@ -22,6 +22,10 @@ const checkMatchGuidance = (value) => {
   assert.match(value, /verify those qualifiers against returned metadata and memory_get/);
   assert.match(value, /Do not substitute a newer or similarly worded record/);
   assert.match(value, /report no verified match if the evidence is insufficient/);
+  assert.match(value, /bounded page, not an exhaustive result set/);
+  assert.match(value, /continue the same query and filters with offset=nextOffset/);
+  assert.match(value, /up to three pages total/);
+  assert.match(value, /disclose that the search is incomplete/);
 };
 const withoutDescriptions = (items) => items.map(({ description, ...rest }) => rest);
 const listen = (server) => new Promise((resolve) => server.listen(0, '127.0.0.1', () => resolve(server.address().port)));

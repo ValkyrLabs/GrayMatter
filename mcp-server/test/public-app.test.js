@@ -195,6 +195,16 @@ test('memory descriptors preserve requested provenance when broadening a topic s
   }
 });
 
+test('specific memory matching follows bounded pagination before declaring no verified match', () => {
+  for (const name of ['memory_search', 'memory_get']) {
+    const description = publicTools.find((tool) => tool.name === name).description;
+    assert.match(description, /bounded page, not an exhaustive result set/);
+    assert.match(description, /continue the same query and filters with offset=nextOffset/);
+    assert.match(description, /up to three pages total/);
+    assert.match(description, /disclose that the search is incomplete/);
+  }
+});
+
 test('public endpoint publishes protected-resource metadata and challenges unauthenticated calls', async (t) => {
   const server = publicServer('https://api.example.test/v1');
   t.after(() => close(server));

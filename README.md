@@ -1,4 +1,4 @@
-# GrayMatter Lite
+# GrayMatter
 
 [Retrieval coverage and contribution evidence](docs/contribution-evidence.md)
 explains complete-list discovery, explicit reuse versus write verification, and

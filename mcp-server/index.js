@@ -4133,8 +4133,14 @@ function retrievalReceiptPolicy(receipt) {
     'REQUIRE_CLARIFICATION',
     'DENY'
   ]);
+  // The OpenAPI enum (ALLOW_ANSWER / OK) and the local bifrost-lite-context/v1 server
+  // (ANSWER_WITH_CITATIONS / SUFFICIENT_CONTEXT) name the same two states differently.
+  const allowedPolicy = new Set(['ALLOW_ANSWER', 'ANSWER_WITH_CITATIONS']);
+  const allowedStatus = new Set(['OK', 'SUFFICIENT_CONTEXT']);
+  const proceedActions = new Set(['ANSWER', 'USE_CONTEXT']);
   const blockedStatus = new Set([
     'NO_RESULTS',
+    'NO_MATCHES',
     'LOW_CONFIDENCE',
     'STALE_CONTEXT',
     'CONFLICTING_CONTEXT',
@@ -4162,11 +4168,11 @@ function retrievalReceiptPolicy(receipt) {
   if (answerPolicy === 'ALLOW_WITH_CAVEAT' || caveatStatus.has(retrievalStatus)) {
     requiredActions.push('answer_with_caveat_and_provenance');
   }
-  if (recommendedAction && recommendedAction !== 'ANSWER') {
+  if (recommendedAction && !proceedActions.has(String(recommendedAction).toUpperCase())) {
     requiredActions.push(`recommended_${recommendedAction.toLowerCase()}`);
   }
 
-  const answerAllowed = answerPolicy === 'ALLOW_ANSWER' && (!retrievalStatus || retrievalStatus === 'OK');
+  const answerAllowed = allowedPolicy.has(answerPolicy) && (!retrievalStatus || allowedStatus.has(retrievalStatus));
   const caveatRequired = answerPolicy === 'ALLOW_WITH_CAVEAT' || caveatStatus.has(retrievalStatus);
   const blocked = !answerAllowed && !caveatRequired;
   const disposition = answerAllowed

@@ -79,3 +79,59 @@ for (const thor_reference of [undefined, '../../other', 'receipt\nprivate', 'x'.
     assert.equal(thor_result.graymatterInspection, undefined);
   });
 }
+
+// The local GrayMatter server (bifrost-lite-context/v1) does not emit the OpenAPI enum
+// (ALLOW_ANSWER / OK). It emits SUFFICIENT_CONTEXT, PARTIAL_COVERAGE and NO_MATCHES with
+// ANSWER_WITH_CITATIONS or DO_NOT_ANSWER_CONFIDENTLY.
+test('a sufficient bifrost-lite receipt authorizes a cited answer', async () => {
+  const thor_result = await thor_inspect('http://localhost:8787/v1', {
+    receiptId: 'receipt-bifrost-ok', policyVersion: 'bifrost-lite-context/v1',
+    retrievalStatus: 'SUFFICIENT_CONTEXT', answerPolicy: 'ANSWER_WITH_CITATIONS',
+    recommendedAction: 'use_context',
+  });
+  assert.equal(thor_result.graymatterPolicy.answerAllowed, true);
+  assert.equal(thor_result.graymatterPolicy.disposition, 'answer_from_memory_allowed');
+  assert.deepEqual(thor_result.graymatterPolicy.requiredActions, []);
+  assert.equal(thor_result.graymatterPolicy.warning, undefined);
+});
+
+test('a bifrost-lite receipt with no matches does not authorize an answer', async () => {
+  const thor_result = await thor_inspect('http://localhost:8787/v1', {
+    receiptId: 'receipt-bifrost-none', policyVersion: 'bifrost-lite-context/v1',
+    retrievalStatus: 'NO_MATCHES', answerPolicy: 'DO_NOT_ANSWER_CONFIDENTLY',
+    recommendedAction: 'retry_retrieval_or_inspect_sources',
+  });
+  assert.equal(thor_result.graymatterPolicy.answerAllowed, false);
+  assert.equal(thor_result.graymatterPolicy.disposition, 'do_not_answer_from_memory');
+  assert.ok(thor_result.graymatterPolicy.requiredActions.includes('handle_no_matches'));
+  assert.ok(thor_result.graymatterPolicy.requiredActions.includes('do_not_answer_confidently'));
+});
+
+test('a partial bifrost-lite receipt never authorizes a confident answer', async () => {
+  const thor_result = await thor_inspect('http://localhost:8787/v1', {
+    receiptId: 'receipt-bifrost-partial', policyVersion: 'bifrost-lite-context/v1',
+    retrievalStatus: 'PARTIAL_COVERAGE', answerPolicy: 'DO_NOT_ANSWER_CONFIDENTLY',
+    recommendedAction: 'retry_retrieval_or_inspect_sources',
+  });
+  assert.equal(thor_result.graymatterPolicy.answerAllowed, false);
+  assert.equal(thor_result.graymatterPolicy.caveatRequired, true);
+  assert.ok(thor_result.graymatterPolicy.requiredActions.includes('do_not_answer_confidently'));
+});
+
+test('an allowing policy paired with a blocking status still fails closed', async () => {
+  for (const thor_status of ['NO_MATCHES', 'PARTIAL_COVERAGE', 'STALE_CONTEXT', 'ERROR']) {
+    const thor_result = await thor_inspect('http://localhost:8787/v1', {
+      receiptId: `receipt-${thor_status}`, retrievalStatus: thor_status,
+      answerPolicy: 'ANSWER_WITH_CITATIONS',
+    });
+    assert.equal(thor_result.graymatterPolicy.answerAllowed, false, thor_status);
+  }
+});
+
+test('an unrecognised answer policy fails closed even with sufficient context', async () => {
+  const thor_result = await thor_inspect('http://localhost:8787/v1', {
+    receiptId: 'receipt-unknown-policy', retrievalStatus: 'SUFFICIENT_CONTEXT',
+    answerPolicy: 'SOMETHING_NEW',
+  });
+  assert.equal(thor_result.graymatterPolicy.answerAllowed, false);
+});

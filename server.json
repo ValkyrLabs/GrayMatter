@@ -1,0 +1,40 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.ValkyrLabs/graymatter",
+  "title": "GrayMatter",
+  "description": "Secure durable memory and bounded context for AI agents, with hosted OAuth and local Lite support.",
+  "repository": {
+    "url": "https://github.com/ValkyrLabs/GrayMatter",
+    "source": "github"
+  },
+  "version": "0.3.3",
+  "websiteUrl": "https://github.com/ValkyrLabs/GrayMatter",
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://api-0.valkyrlabs.com/graymatter/mcp"
+    }
+  ],
+  "_meta": {
+    "io.modelcontextprotocol.registry/publisher-provided": {
+      "publisher": {
+        "name": "Valkyr Labs",
+        "url": "https://github.com/ValkyrLabs"
+      },
+      "authentication": {
+        "type": "oauth2",
+        "hostedAccountRequired": true,
+        "protectedResourceMetadataUrl": "https://api-0.valkyrlabs.com/.well-known/oauth-protected-resource",
+        "authorizationServerMetadataUrl": "https://api-0.valkyrlabs.com/.well-known/oauth-authorization-server"
+      },
+      "localLite": {
+        "hostedAccountRequired": false,
+        "installation": "Separate source or GrayMatter extension setup; this listing installs the hosted connection.",
+        "documentationUrl": "https://github.com/ValkyrLabs/GrayMatter/blob/main/docs/graymatter-light.md",
+        "registryPackagePublished": false
+      },
+      "installationDocumentationUrl": "https://github.com/ValkyrLabs/GrayMatter/blob/main/docs/mcp-registry.md",
+      "supportUrl": "https://github.com/ValkyrLabs/GrayMatter/issues"
+    }
+  }
+}

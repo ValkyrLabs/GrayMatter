@@ -20,11 +20,11 @@ function executable(file, content) {
   fs.writeFileSync(file, content, { mode: 0o755 });
 }
 
-function runAuth(env) {
+function runAuth(env, mode = 'keychain') {
   return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [authScript, 'keychain'], {
+    const child = spawn(process.execPath, [authScript, mode], {
       cwd: root,
-      env: { ...process.env, ...env },
+      env: { ...process.env, GRAYMATTER_STATE_DIR: fs.mkdtempSync(path.join(os.tmpdir(), 'graymatter-auth-state-')), ...env },
       stdio: ['ignore', 'pipe', 'pipe']
     });
     let stdout = '';
@@ -40,7 +40,7 @@ function runInstaller(env) {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [installerScript], {
       cwd: root,
-      env: { ...process.env, ...env },
+      env: { ...process.env, GRAYMATTER_STATE_DIR: fs.mkdtempSync(path.join(os.tmpdir(), 'graymatter-auth-state-')), ...env },
       stdio: ['ignore', 'pipe', 'pipe']
     });
     let stdout = '';
@@ -87,9 +87,9 @@ test('macOS native dialog signs in and never persists the password', async (t) =
   assert.equal(result.code, 0, result.stderr);
   assert.deepEqual((await fixture.request).body, { username: 'reviewer-mac', password: thorTestSecret });
   const calls = fs.readFileSync(log, 'utf8');
-  assert.match(calls, /add-generic-password .* -s VALKYR_AUTH /u);
+  assert.match(calls, /add-generic-password .* -s GRAYMATTER_[a-f0-9]+ /u);
   assert.doesNotMatch(calls, new RegExp(`${thorTestSecret}|(?:add-generic-password|Write).*VALKYR_AUTH_PASSWORD`, 'u'));
-  assert.match(calls, /delete-generic-password .*VALKYR_AUTH_PASSWORD/u);
+  assert.match(calls, /delete-generic-password .*GRAYMATTER_[a-f0-9]+_PASSWORD/u);
   const dialogCalls = fs.readFileSync(dialogLog, 'utf8').trim().split('\n');
   assert.equal(dialogCalls.length, 1, 'macOS sign-in should use one native dialog invocation');
   assert.match(dialogCalls[0], /-l JavaScript .*gm-macos-signin\.js/u);
@@ -113,9 +113,9 @@ test('Windows native dialog uses Credential Manager and never persists the passw
   assert.deepEqual((await fixture.request).body, { username: 'reviewer-win', password: thorTestSecret });
   const calls = fs.readFileSync(log, 'utf8');
   assert.match(calls, /-Action Prompt/u);
-  assert.match(calls, /-Action Write .*GrayMatter:VALKYR_AUTH:default/u);
+  assert.match(calls, /-Action Write .*GrayMatter:GRAYMATTER_[a-f0-9]+:default/u);
   assert.doesNotMatch(calls, new RegExp(`${thorTestSecret}|-Action Write .*VALKYR_AUTH_PASSWORD`, 'u'));
-  assert.match(calls, /-Action Delete .*VALKYR_AUTH_PASSWORD/u);
+  assert.match(calls, /-Action Delete .*GRAYMATTER_[a-f0-9]+_PASSWORD/u);
   assert.match(result.stderr, /Windows Credential Manager/u);
 });
 
@@ -209,7 +209,7 @@ test('one-command installer connects the marketplace and installs the plugin', a
   assert.match(result.stdout, /downloading plugin[\s\S]*performing signup\/login[\s\S]*authenticating[\s\S]*GrayMatter plugin ready/u);
   const calls = fs.readFileSync(log, 'utf8');
   if (fs.existsSync(path.join(root, '.agents', 'plugins', 'marketplace.json'))) {
-    assert.match(calls, /plugin marketplace add .*GrayMatter --json/u);
+    assert.ok(calls.includes(`plugin marketplace add ${root} --json\n`));
     assert.match(calls, /plugin add graymatter@graymatter --json/u);
   }
 });

@@ -7,10 +7,10 @@ import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 import { readStoredToken } from './gm-auth.mjs';
 import { authState } from './gm-mcp-launcher.mjs';
+import { connectionEnvironment, resolveConnection } from './gm-connection.mjs';
 
 const thor_scriptDir = dirname(fileURLToPath(import.meta.url));
 const thor_root = resolve(thor_scriptDir, '..');
-const thor_apiBase = (process.env.VALKYR_API_BASE || 'https://api-0.valkyrlabs.com/v1').replace(/\/$/u, '');
 
 function thor_stage(thor_message) {
   process.stdout.write(`${thor_message}\n`);
@@ -114,13 +114,15 @@ async function main() {
 
   thor_stage('performing signup/login');
   if (process.env.GRAYMATTER_INSTALL_SKIP_AUTH !== '1') {
-    let thor_token = readStoredToken();
-    let thor_state = await authState(thor_token, thor_apiBase);
+    let thor_connection = resolveConnection();
+    let thor_token = readStoredToken(thor_connection);
+    let thor_state = thor_connection.blended ? 'valid' : await authState(thor_token, thor_connection.apiBase, thor_connection);
     if (thor_state === 'missing' || thor_state === 'invalid') {
-      const thor_auth = thor_run(process.execPath, [join(thor_scriptDir, 'gm-auth.mjs'), 'keychain'], { stdio: 'inherit' });
+      const thor_auth = thor_run(process.execPath, [join(thor_scriptDir, 'gm-auth.mjs'), 'keychain'], { stdio: 'inherit', env: connectionEnvironment(thor_connection) });
       if (thor_auth.status !== 0) throw new Error('GrayMatter sign-in did not complete.');
-      thor_token = readStoredToken();
-      thor_state = await authState(thor_token, thor_apiBase);
+      thor_connection = resolveConnection(process.env, { preferSaved: true });
+      thor_token = readStoredToken(thor_connection);
+      thor_state = await authState(thor_token, thor_connection.apiBase, thor_connection);
     }
     thor_stage('authenticating');
     if (thor_state === 'missing' || thor_state === 'invalid') throw new Error('GrayMatter could not verify the saved session.');
@@ -135,7 +137,7 @@ async function main() {
   thor_stage('GrayMatter plugin ready');
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
   main().catch((thor_error) => {
     process.stderr.write(`GrayMatter installation failed: ${thor_error.message}\n`);
     process.exitCode = 4;

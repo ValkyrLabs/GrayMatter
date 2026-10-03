@@ -1,0 +1,9 @@
+node_modules/
+dist/
+runtime/
+shared/
+shared-source-proof.json
+*.vsix
+output/
+lite-source.tar.gz
+lite-source.json

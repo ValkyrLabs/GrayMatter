@@ -1,5 +1,9 @@
 # GrayMatter Lite
 
+[Retrieval coverage and contribution evidence](docs/contribution-evidence.md)
+explains complete-list discovery, explicit reuse versus write verification, and
+receipt-to-decision-to-artifact-to-test reporting without invented savings.
+
 GrayMatter Lite is a real open-source memory product for one person or one
 workspace. It runs locally or on infrastructure you control and includes the
 same useful product loop from the first launch: sign in, create durable memory,
@@ -11,7 +15,24 @@ the committed ThorAPI `api.hbs.yaml`, `./vaix` builder, Spring/H2 backend,
 embedded dashboard, MCP server, starter KnowledgePack, Docker definition,
 tests, and public documentation in this repository.
 
-## Install in one command
+## Choose hosted or local memory
+
+[Start with the setup page](https://valkyrlabs.com/graymatter/install).
+**GrayMatter Cloud is the recommended default**: use your valkyrlabs.com account
+and the native plugin sign-in to connect hosted memory. Tenant and account
+permissions are enforced by the hosted service.
+
+**Local GrayMatter Lite needs no valkyrlabs.com signup**. In ValorIDE, click
+**Connect Local GrayMatter Lite** on the welcome screen (or use that command
+from the command palette), then select this source folder if asked. ValorIDE
+starts Lite and verifies the local account and MCP memory tools. Choose Ollama,
+LM Studio or your own model provider separately. The first source build may
+need toolchain and dependency downloads; installed local memory works offline.
+
+For other clients, use the source commands below. Hosted workflows, ecommerce
+and application hosting use their authenticated ValkyrAI services.
+
+## Install local Lite in one command
 
 On macOS or Linux:
 
@@ -336,9 +357,9 @@ Set-Location GrayMatter
 .\\install.ps1
 ```
 
-The installer automatically connects this checkout to Codex when the Codex CLI is available, installs the plugin, and opens one native GrayMatter sign-in window. macOS uses a single AppKit dialog with username and masked-password fields; Windows uses one WinForms dialog backed by Windows Credential Manager. A rejected login returns to the same flow with the username preserved and a clear correction message. The password is sent only to the HTTPS login endpoint and is never printed or saved. Only the returned session and username are stored.
+The installer automatically connects this checkout to Codex when the Codex CLI is available, installs the plugin, and opens one native GrayMatter sign-in window. macOS uses a single AppKit dialog; Windows uses one WinForms dialog backed by Windows Credential Manager. The first screen offers **GrayMatter Cloud (api-0)**, **Local GrayMatter Lite (localhost:8787)**, **Local ValkyrAI (localhost:8080)**, and **Other self-hosted server**, with an editable server URL and masked password field. A rejected login returns to the same flow with the username preserved and a clear correction message. ValkyrAI/Cloud passwords are sent only to the selected login endpoint and are never printed or saved; the returned session is stored in the platform credential vault. Local HTTP is allowed only on loopback; remote instances require HTTPS. GrayMatter Lite uses its existing local account authentication and keeps local credentials in a private mode-0600 profile file.
 
-Returning users sign in immediately. New users choose **Create Free Account**, finish the dedicated GrayMatter Cloud signup page in their browser, then return to the still-open connection window and sign in with the username they created. **Recover Account** opens the dedicated username/password recovery page. Browser redirects, clipboard tokens, and manual JWT handling are never part of normal sign-in: the native window exchanges the credentials directly with `api-0` and reliably captures the returned session from the response body, headers, or secure cookies.
+Returning users sign in immediately. New users choose **Create Free Account**, finish the dedicated GrayMatter Cloud signup page in their browser, then return to the still-open connection window and sign in with the username they created. **Recover Account** opens the dedicated username/password recovery page. For a local or self-hosted instance, choose its connection before entering credentials. GrayMatter Lite accounts come from `./vaix setup`; ValkyrAI accounts come from that instance's signup or administrator. **Open Instance** opens the selected server instead of Cloud signup. A Cloud account is optional. The selected server is saved as an account profile for the next plugin launch, and its credentials stay separate from hosted accounts. Browser redirects, clipboard tokens, and manual JWT handling are never part of normal sign-in: the native window exchanges credentials with the selected ValkyrAI server and captures its session from the response body, headers, or secure cookies.
 
 Sign-in identity example:
 
@@ -347,6 +368,8 @@ Username: your-username
 ```
 
 The happy path deliberately has only four visible stages: `downloading plugin`, `performing signup/login`, `authenticating`, and `GrayMatter plugin ready`. It does not require `jq` or manual JWT handling. Advanced OpenClaw operators can run `scripts/gm-activate` afterward for the complete smoke-test, agent-registration, and schema-sync bootstrap.
+
+`scripts/gm-activate` is the preferred first-run path. It checks for updates, signs in, stores the session in Keychain when available, validates the install, registers the agent, and writes a bounded startup-preflight artifact after invariant retrieval, authenticated capability discovery, and live OpenAPI freshness checks.
 
 Before task planning, code edits, production-affecting actions, or answers based on project history, agents must immediately run the invariant preflight for the current workspace/product:
 
@@ -579,10 +602,10 @@ The user should **not** have to manually acquire or paste a raw auth token.
 
 The intended first-run OpenClaw auth step is:
 
-1. GrayMatter opens a native macOS or Windows sign-in dialog for the `api-0` username
+1. GrayMatter opens a native macOS or Windows connection dialog; choose Cloud, localhost, or your self-hosted server
 2. The password is collected in a masked native field
 3. OpenClaw exchanges those credentials for a session
-4. GrayMatter stores only the resulting session and username in macOS Keychain or Windows Credential Manager; the password is discarded
+4. ValkyrAI/Cloud sessions are stored in the credential vault; GrayMatter Lite local accounts use their private profile credential file
 5. OpenClaw creates or refreshes an Agent record for itself in api-0
 6. Subsequent GrayMatter use reads the session from the platform credential vault automatically
 
@@ -787,7 +810,7 @@ Preferred auth flow:
 - exchange for a `VALKYR_AUTH` token
 - store only that token and the username securely in the platform credential vault for future runs
 
-Passwords are never persisted. On macOS and Windows the first plugin launch opens the native sign-in dialog automatically, including when the MCP host has no interactive terminal. Signup and recovery use dedicated website pages, then the user returns to the still-open native connection window. Normal session capture never depends on a browser redirect or clipboard token.
+Hosted/ValkyrAI passwords are never persisted; GrayMatter Lite local profiles use private credential files. On macOS and Windows the first plugin launch opens the native sign-in dialog automatically, including when the MCP host has no interactive terminal. Signup and recovery use dedicated website pages, then the user returns to the still-open native connection window. Normal session capture never depends on a browser redirect or clipboard token.
 
 Do not hardcode secrets into the repo or skill.
 Do not print tokens.

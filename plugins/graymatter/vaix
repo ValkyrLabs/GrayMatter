@@ -351,12 +351,20 @@ thor_stop() {
   thor_stop_one "$thor_backend_pid" "GrayMatter Lite"
 }
 
-thor_test() {
+thor_test() (
   local thor_java="" thor_maven="" thor_node=""
   thor_java="$(thor_ensure_java)"
   thor_maven="$(thor_ensure_maven)"
   thor_node="$(thor_ensure_node)"
   thor_export_toolchain "$thor_java" "$thor_maven"
+  # Contract tests own disposable profiles. Keep setup credentials and paths out of their environment.
+  local thor_test_variable=""
+  for thor_test_variable in $(compgen -v); do
+    case "$thor_test_variable" in
+      GRAYMATTER_*|VALKYR_AUTH*|VALKYR_JWT_SESSION|VALKYR_API_BASE|VAIX_STATE_DIR)
+        unset "$thor_test_variable" ;;
+    esac
+  done
   env \
     -u GRAYMATTER_ADMIN_USERNAME \
     -u GRAYMATTER_ADMIN_PASSWORD \
@@ -379,7 +387,7 @@ thor_test() {
       -u VALKYR_API_BASE \
       "$thor_node" --test "${thor_root}/mcp-server/test/"*.test.js
   fi
-}
+)
 
 thor_doctor() {
   thor_load_admin_env

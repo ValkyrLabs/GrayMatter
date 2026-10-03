@@ -5,6 +5,7 @@ import com.valkyrlabs.graymatter.localserver.repository.UserPreferencesRepositor
 import java.security.Principal;
 import java.time.Instant;
 import java.util.UUID;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -29,6 +30,7 @@ public class UserPreferencesController {
     }
 
     @PutMapping("/me")
+    @Transactional
     public UserPreferencesResponse update(
         Principal authenticated,
         @RequestBody UpdateUserPreferencesRequest request) {

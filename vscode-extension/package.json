@@ -1,0 +1,141 @@
+{
+  "name": "graymatter-memory",
+  "displayName": "GrayMatter Memory",
+  "description": "Durable memory and context for VS Code agents. Hosted GrayMatter by default, or local Lite without signup.",
+  "version": "0.1.0",
+  "publisher": "ValkyrLabsInc",
+  "author": "Valkyr Labs Inc.",
+  "license": "AGPL-3.0-only",
+  "engines": {
+    "vscode": "^1.103.0"
+  },
+  "categories": [
+    "Machine Learning",
+    "Other"
+  ],
+  "keywords": [
+    "graymatter",
+    "mcp",
+    "memory",
+    "context",
+    "ai"
+  ],
+  "icon": "media/icon.png",
+  "galleryBanner": {
+    "color": "#16384b",
+    "theme": "dark"
+  },
+  "homepage": "https://valkyrlabs.com/graymatter/install",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ValkyrLabs/GrayMatter.git",
+    "directory": "vscode-extension"
+  },
+  "bugs": {
+    "url": "https://github.com/ValkyrLabs/GrayMatter/issues"
+  },
+  "main": "./dist/extension.cjs",
+  "extensionKind": [
+    "workspace"
+  ],
+  "activationEvents": [
+    "onMcpServerDefinitionProvider:graymatter.memory"
+  ],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": "limited",
+      "description": "Hosted memory is available. Local source setup requires a trusted workspace."
+    },
+    "virtualWorkspaces": false
+  },
+  "contributes": {
+    "mcpServerDefinitionProviders": [
+      {
+        "id": "graymatter.memory",
+        "label": "GrayMatter Memory"
+      }
+    ],
+    "commands": [
+      {
+        "command": "graymatter.getStarted",
+        "title": "GrayMatter: Get Started"
+      },
+      {
+        "command": "graymatter.connectHosted",
+        "title": "GrayMatter: Connect Hosted Memory (Recommended)"
+      },
+      {
+        "command": "graymatter.connectLocal",
+        "title": "GrayMatter: Connect Local GrayMatter Lite"
+      },
+      {
+        "command": "graymatter.verifyConnection",
+        "title": "GrayMatter: Verify Connection"
+      },
+      {
+        "command": "graymatter.openSetup",
+        "title": "GrayMatter: Open Setup Guide"
+      }
+    ],
+    "configuration": {
+      "title": "GrayMatter",
+      "properties": {
+        "graymatter.hostedApiBase": {
+          "type": "string",
+          "scope": "application",
+          "default": "https://api-0.valkyrlabs.com/v1",
+          "description": "Hosted GrayMatter API. Use HTTPS, or loopback HTTP for a self-hosted development instance. Credentials remain bound to the selected server/account."
+        }
+      }
+    },
+    "walkthroughs": [
+      {
+        "id": "graymatter.setup",
+        "title": "Set up GrayMatter memory",
+        "description": "Connect hosted memory or local Lite without signup.",
+        "steps": [
+          {
+            "id": "choose",
+            "title": "Choose your memory",
+            "description": "[Hosted memory (recommended)](command:graymatter.connectHosted)\n[Local Lite \u2014 no hosted signup](command:graymatter.connectLocal)",
+            "media": {
+              "markdown": "media/setup.md"
+            },
+            "completionEvents": [
+              "onCommand:graymatter.connectHosted",
+              "onCommand:graymatter.connectLocal"
+            ]
+          },
+          {
+            "id": "verify",
+            "title": "Verify and use memory",
+            "description": "[Verify the connection](command:graymatter.verifyConnection), then enable GrayMatter tools in your agent's tool picker. Ask it to save a harmless note and read it back.",
+            "media": {
+              "markdown": "media/setup.md"
+            },
+            "completionEvents": [
+              "onCommand:graymatter.verifyConnection"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "scripts": {
+    "build": "node scripts/build.cjs",
+    "check": "tsc -p tsconfig.json",
+    "test": "node --test test/*.test.cjs",
+    "vscode:prepublish": "npm run build",
+    "package:vsix": "node scripts/package.cjs",
+    "release:check": "npm run check && npm test && npm run package:vsix",
+    "test:native": "node test/native/run.cjs"
+  },
+  "devDependencies": {
+    "@types/vscode": "1.103.0",
+    "@types/node": "^22.0.0",
+    "@modelcontextprotocol/sdk": "1.17.4",
+    "esbuild": "0.25.9",
+    "typescript": "5.9.2",
+    "@vscode/vsce": "3.9.2"
+  }
+}

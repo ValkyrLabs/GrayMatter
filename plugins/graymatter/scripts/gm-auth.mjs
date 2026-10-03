@@ -1,18 +1,15 @@
 #!/usr/bin/env node
 
 import { spawnSync } from 'node:child_process';
+import { realpathSync } from 'node:fs';
 import process from 'node:process';
 import readline from 'node:readline';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
+import { CLOUD_API_BASE, CONNECTION_CHOICES, connectionEnvironment, normalizeApiBase, resolveConnection, saveConnection } from './gm-connection.mjs';
 
 const thor_scriptDir = path.dirname(fileURLToPath(import.meta.url));
-const thor_apiBase = (process.env.VALKYR_API_BASE || 'https://api-0.valkyrlabs.com/v1').replace(/\/$/u, '');
 const thor_loginPath = process.env.GRAYMATTER_LOGIN_PATH || '/auth/login';
-const thor_loginUrl = `${thor_apiBase}/${thor_loginPath.replace(/^\//u, '')}`;
-const thor_service = process.env.VALKYR_KEYCHAIN_SERVICE || 'VALKYR_AUTH';
-const thor_usernameService = process.env.VALKYR_USERNAME_KEYCHAIN_SERVICE || `${thor_service}_USERNAME`;
-const thor_legacyPasswordService = process.env.VALKYR_PASSWORD_KEYCHAIN_SERVICE || `${thor_service}_PASSWORD`;
 const thor_signupUrl = process.env.VALKYR_HUMAN_SIGNUP_URL || 'https://valkyrlabs.com/graymatter/cloud/signup?source=graymatter&intent=signup';
 const thor_recoveryUrl = process.env.VALKYR_HUMAN_RECOVERY_URL || 'https://valkyrlabs.com/forgot-password?source=graymatter';
 const thor_platform = process.env.GRAYMATTER_TEST_PLATFORM || process.platform;
@@ -103,12 +100,17 @@ function deleteCredential(thor_candidateService, thor_account) {
   }
 }
 
-export function readStoredToken() {
+export function readStoredToken(thor_connection = resolveConnection()) {
+  if (thor_connection.kind === 'local' || thor_connection.blended) return '';
   const thor_envToken = process.env.VALKYR_AUTH_TOKEN || process.env.VALKYR_JWT_SESSION || process.env.VALKYR_AUTH || '';
-  if (thor_envToken) return thor_envToken.trim();
-  const thor_username = process.env.GRAYMATTER_USERNAME || process.env.VALKYR_USERNAME || readCredential(thor_usernameService, 'default');
+  if (thor_envToken && !thor_connection.profileName
+    && normalizeApiBase(process.env.VALKYR_API_BASE || CLOUD_API_BASE) === thor_connection.apiBase) return thor_envToken.trim();
+  const thor_service = thor_connection.keychainService;
+  const thor_username = thor_connection.username || readCredential(`${thor_service}_USERNAME`, 'default');
+  const thor_legacy = thor_connection.apiBase === CLOUD_API_BASE && !thor_connection.profileName;
   for (const thor_account of [...new Set([thor_username, 'default'].filter(Boolean))]) {
-    for (const thor_candidateService of [...new Set([thor_service, 'VALKYR_AUTH', 'openclaw-valkyrai-admin-jwtSession'])]) {
+    if (thor_connection.profileName && thor_account === 'default') continue;
+    for (const thor_candidateService of thor_legacy ? [...new Set([thor_service, 'VALKYR_AUTH', 'openclaw-valkyrai-admin-jwtSession'])] : [thor_service]) {
       const thor_token = readCredential(thor_candidateService, thor_account);
       if (thor_token) return thor_token;
     }
@@ -116,14 +118,17 @@ export function readStoredToken() {
   return '';
 }
 
-function promptMac(thor_defaultUsername = '', thor_errorMessage = '') {
+function promptMac(thor_defaultUsername = '', thor_errorMessage = '', thor_connection = resolveConnection()) {
   const thor_result = thor_run('osascript', ['-l', 'JavaScript', thor_macosHelper], {
     env: {
       ...process.env,
       GRAYMATTER_SIGNUP_URL: thor_signupUrl,
       GRAYMATTER_RECOVERY_URL: thor_recoveryUrl,
       GRAYMATTER_DEFAULT_USERNAME: thor_defaultUsername,
-      GRAYMATTER_AUTH_ERROR: thor_errorMessage
+      GRAYMATTER_AUTH_ERROR: thor_errorMessage,
+      GRAYMATTER_CONNECTION_CHOICES: JSON.stringify(CONNECTION_CHOICES),
+      GRAYMATTER_DEFAULT_API_BASE: thor_connection.apiBase,
+      GRAYMATTER_DEFAULT_CONNECTION_KIND: thor_connection.kind
     },
     stdio: ['ignore', 'pipe', 'ignore']
   });
@@ -135,12 +140,14 @@ function promptMac(thor_defaultUsername = '', thor_errorMessage = '') {
   }
 }
 
-function promptWindows(thor_defaultUsername = '', thor_errorMessage = '') {
+function promptWindows(thor_defaultUsername = '', thor_errorMessage = '', thor_connection = resolveConnection()) {
   const thor_output = thor_windowsHelperCall('Prompt', [
     '-SignupUrl', thor_signupUrl,
     '-RecoveryUrl', thor_recoveryUrl,
     '-DefaultUsername', thor_defaultUsername,
-    '-ErrorMessage', thor_errorMessage
+    '-ErrorMessage', thor_errorMessage,
+    '-DefaultApiBase', thor_connection.apiBase,
+    '-DefaultConnectionKind', thor_connection.kind
   ]);
   try {
     return JSON.parse(thor_output);
@@ -149,11 +156,24 @@ function promptWindows(thor_defaultUsername = '', thor_errorMessage = '') {
   }
 }
 
-function promptTerminal(thor_defaultUsername = '', thor_errorMessage = '') {
+async function promptTerminal(thor_defaultUsername = '', thor_errorMessage = '', thor_connection = resolveConnection()) {
   if (!process.stdin.isTTY || !process.stderr.isTTY) {
     throw new Error(`Interactive sign-in is unavailable. Create an account at ${thor_signupUrl}, or recover access at ${thor_recoveryUrl}, then rerun GrayMatter from a desktop session.`);
   }
   if (thor_errorMessage) process.stderr.write(`${thor_errorMessage}\n`);
+  process.stderr.write('Connect to GrayMatter Cloud, local GrayMatter Lite, or your self-hosted ValkyrAI instance.\n');
+  const thor_picker = readline.createInterface({ input: process.stdin, output: process.stderr });
+  const thor_question = (message) => new Promise((resolve) => thor_picker.question(message, resolve));
+  process.stderr.write(CONNECTION_CHOICES.map((choice, index) => `${index + 1}. ${choice.label}`).join('\n') + '\n');
+  const thor_selection = (await thor_question('Connection [Enter to keep current]: ')).trim();
+  const thor_choice = thor_selection ? CONNECTION_CHOICES[Number(thor_selection) - 1] : thor_connection;
+  if (!thor_choice) { thor_picker.close(); throw new Error('Choose a connection from 1 to 4.'); }
+  const thor_apiBase = (await thor_question(`Server URL [${thor_choice.apiBase || thor_connection.apiBase}]: `)).trim() || thor_choice.apiBase || thor_connection.apiBase;
+  const thor_kind = thor_selection === '4'
+    ? ((await thor_question('Instance type: 1 ValkyrAI, 2 GrayMatter Lite [1]: ')).trim() === '2' ? 'local' : 'hosted')
+    : thor_choice.kind;
+  thor_picker.close();
+  process.stderr.write(normalizeApiBase(thor_apiBase) === CLOUD_API_BASE ? `New account: ${thor_signupUrl}\n` : 'Use an account created on this instance. Cloud signup is optional.\n');
   return new Promise((thor_resolve, thor_reject) => {
     const thor_interface = readline.createInterface({ input: process.stdin, output: process.stderr });
     thor_interface.question(`GrayMatter username${thor_defaultUsername ? ` [${thor_defaultUsername}]` : ''}: `, (thor_usernameInput) => {
@@ -170,7 +190,7 @@ function promptTerminal(thor_defaultUsername = '', thor_errorMessage = '') {
           process.stdin.off('data', thor_onData);
           process.stdin.setRawMode?.(false);
           process.stderr.write('\n');
-          thor_resolve({ username: thor_username.trim(), password: thor_password });
+          thor_resolve({ username: thor_username.trim(), password: thor_password, apiBase: thor_apiBase, kind: thor_kind });
         } else if (thor_key === '\u0003') {
           process.stdin.setRawMode?.(false);
           thor_reject(new Error('GrayMatter sign-in was cancelled.'));
@@ -186,14 +206,15 @@ function promptTerminal(thor_defaultUsername = '', thor_errorMessage = '') {
 }
 
 async function collectCredentials(thor_options = {}) {
-  const thor_storedUsername = readCredential(thor_usernameService, 'default');
-  const thor_username = thor_options.defaultUsername || process.env.GRAYMATTER_USERNAME || process.env.VALKYR_USERNAME || thor_storedUsername;
+  const thor_connection = thor_options.connection || resolveConnection();
+  const thor_storedUsername = thor_connection.kind === 'local' ? '' : readCredential(`${thor_connection.keychainService}_USERNAME`, 'default');
+  const thor_username = thor_options.defaultUsername || thor_connection.username || thor_storedUsername;
   const thor_password = process.env.GRAYMATTER_PASSWORD || process.env.VALKYR_PASSWORD || '';
   if (!thor_options.forcePrompt && thor_username && thor_password) return { username: thor_username, password: thor_password };
   if (process.env.GRAYMATTER_TEST_DIALOG_JSON) return JSON.parse(process.env.GRAYMATTER_TEST_DIALOG_JSON);
-  if (thor_platform === 'darwin') return promptMac(thor_username, thor_options.errorMessage);
-  if (thor_platform === 'win32') return promptWindows(thor_username, thor_options.errorMessage);
-  return promptTerminal(thor_username, thor_options.errorMessage);
+  if (thor_platform === 'darwin') return promptMac(thor_username, thor_options.errorMessage, thor_connection);
+  if (thor_platform === 'win32') return promptWindows(thor_username, thor_options.errorMessage, thor_connection);
+  return promptTerminal(thor_username, thor_options.errorMessage, thor_connection);
 }
 
 function sessionFromResponse(thor_body, thor_headers) {
@@ -227,7 +248,10 @@ function tokenIsClearlyReadOnly(thor_token) {
   }
 }
 
-export async function login(thor_credentials) {
+export async function login(thor_credentials, thor_connection = resolveConnection()) {
+  const thor_apiBase = normalizeApiBase(thor_connection.apiBase);
+  const thor_basic = thor_connection.kind === 'local';
+  const thor_loginUrl = thor_basic ? `${thor_apiBase}/UserPreferences/me` : `${thor_apiBase}/${thor_loginPath.replace(/^\//u, '')}`;
   const thor_attempts = Math.max(1, Number(process.env.GRAYMATTER_HTTP_RETRIES || 4));
   let thor_lastError;
   for (let thor_attempt = 1; thor_attempt <= thor_attempts; thor_attempt += 1) {
@@ -235,9 +259,12 @@ export async function login(thor_credentials) {
     const thor_timeout = setTimeout(() => thor_controller.abort(), Number(process.env.GRAYMATTER_LOGIN_TIMEOUT_MS || 60000));
     try {
       const thor_response = await fetch(thor_loginUrl, {
-        method: 'POST',
-        headers: { accept: 'application/json', 'content-type': 'application/json' },
-        body: JSON.stringify(thor_credentials),
+        method: thor_basic ? 'GET' : 'POST',
+        headers: thor_basic
+          ? { accept: 'application/json', authorization: `Basic ${Buffer.from(`${thor_credentials.username}:${thor_credentials.password}`).toString('base64')}` }
+          : { accept: 'application/json', 'content-type': 'application/json' },
+        body: thor_basic ? undefined : JSON.stringify({ username: thor_credentials.username, password: thor_credentials.password }),
+        redirect: 'manual',
         signal: thor_controller.signal
       });
       const thor_body = await thor_response.text();
@@ -245,6 +272,14 @@ export async function login(thor_credentials) {
         const thor_error = new Error(thor_response.status === 401 ? 'GrayMatter username or password was not accepted.' : `GrayMatter sign-in failed (HTTP ${thor_response.status}).`);
         thor_error.retryable = thor_response.status >= 500 || thor_response.status === 429;
         throw thor_error;
+      }
+      if (thor_basic) {
+        let thor_principal;
+        try { thor_principal = JSON.parse(thor_body); } catch { /* Reject a non-API response. */ }
+        if (String(thor_principal?.username || '').toLowerCase() !== thor_credentials.username.toLowerCase()) {
+          throw new Error('This server did not confirm the GrayMatter Lite account. Check its URL and instance type.');
+        }
+        return { token: '', xsrfToken: '' };
       }
       const { token: thor_token, xsrfToken: thor_xsrfToken } = sessionFromResponse(thor_body, thor_response.headers);
       if (!thor_token) throw new Error('GrayMatter signed in but the server did not return a usable session.');
@@ -264,11 +299,14 @@ export async function login(thor_credentials) {
   throw thor_lastError;
 }
 
-export function storeSession(thor_username, thor_token) {
+export function storeSession(thor_username, thor_token, thor_connection = resolveConnection()) {
+  const thor_service = thor_connection.keychainService;
   writeCredential(thor_service, thor_username, thor_token);
-  writeCredential(thor_service, 'default', thor_token);
-  writeCredential(thor_usernameService, 'default', thor_username);
-  deleteCredential(thor_legacyPasswordService, thor_username);
+  if (!thor_connection.profileName && process.env.GRAYMATTER_KEYCHAIN_UPDATE_DEFAULT !== '0') {
+    writeCredential(thor_service, 'default', thor_token);
+    writeCredential(`${thor_service}_USERNAME`, 'default', thor_username);
+  }
+  deleteCredential(`${thor_service}_PASSWORD`, thor_username);
 }
 
 async function main() {
@@ -280,40 +318,73 @@ async function main() {
   }
   const thor_environmentCredentials = Boolean((process.env.GRAYMATTER_USERNAME || process.env.VALKYR_USERNAME) && (process.env.GRAYMATTER_PASSWORD || process.env.VALKYR_PASSWORD));
   const thor_maxAttempts = Math.max(1, Number(process.env.GRAYMATTER_MAX_INTERACTIVE_ATTEMPTS || 5));
-  let thor_credentials = await collectCredentials();
+  let thor_connection = resolveConnection();
+  const thor_boundConnection = thor_connection;
+  if (thor_connection.blended) throw new Error('Select one GrayMatter account profile before signing in.');
+  let thor_credentials = await collectCredentials({ connection: thor_connection });
   let thor_session;
   for (let thor_attempt = 1; thor_attempt <= thor_maxAttempts; thor_attempt += 1) {
     if (!thor_credentials.username || !thor_credentials.password) throw new Error('Both a GrayMatter username and password are required.');
     try {
-      thor_session = await login(thor_credentials);
+      const thor_apiBase = normalizeApiBase(thor_credentials.apiBase || thor_connection.apiBase);
+      const thor_kind = thor_credentials.kind || thor_connection.kind;
+      if (!['local', 'hosted'].includes(thor_kind)) throw new Error('Choose a GrayMatter Lite or ValkyrAI instance.');
+      if (process.env.GRAYMATTER_KEYCHAIN_UPDATE_DEFAULT === '0'
+        && (thor_apiBase !== thor_boundConnection.apiBase || thor_kind !== thor_boundConnection.kind || thor_credentials.username !== thor_boundConnection.username)) {
+        throw new Error('Use this profile\'s configured server and username. Run gm-login separately to connect another instance or account.');
+      }
+      if (thor_apiBase !== thor_connection.apiBase || thor_kind !== thor_connection.kind
+        || (thor_connection.profileName && thor_credentials.username !== thor_connection.username)) {
+        thor_connection = resolveConnection({ VALKYR_API_BASE: thor_apiBase, GRAYMATTER_LIGHT_MODE: thor_kind === 'local' ? 'true' : 'false', GRAYMATTER_PROFILES_FILE: process.env.GRAYMATTER_PROFILES_FILE, GRAYMATTER_STATE_DIR: process.env.GRAYMATTER_STATE_DIR });
+      }
+      thor_connection = { ...thor_connection, apiBase: thor_apiBase, kind: thor_kind, username: thor_credentials.username };
+      thor_session = await login(thor_credentials, thor_connection);
       break;
     } catch (thor_error) {
       if (thor_environmentCredentials || thor_attempt === thor_maxAttempts) throw thor_error;
       thor_credentials = await collectCredentials({
         forcePrompt: true,
         defaultUsername: thor_credentials.username,
+        connection: thor_connection,
         errorMessage: `${thor_error.message} Check your details and try again.`
       });
     }
   }
   const thor_token = thor_session.token;
-  if (thor_mode !== 'token') storeSession(thor_credentials.username, thor_token);
+  if (thor_mode === 'token' && thor_connection.kind === 'local') throw new Error('GrayMatter Lite uses a local account, not a session token. Use gm-login keychain to connect.');
+  if (thor_mode !== 'token') {
+    if (thor_connection.kind === 'hosted') storeSession(thor_credentials.username, thor_token, thor_connection);
+    else thor_connection.password = thor_credentials.password;
+    if (process.env.GRAYMATTER_KEYCHAIN_UPDATE_DEFAULT !== '0') saveConnection(thor_connection);
+  }
   if (thor_mode === 'env') {
-    process.stdout.write(`export VALKYR_API_BASE=${JSON.stringify(thor_apiBase)}\nexport VALKYR_AUTH_TOKEN=${JSON.stringify(thor_token)}\n`);
-    if (thor_session.xsrfToken) process.stdout.write(`export GRAYMATTER_XSRF_TOKEN=${JSON.stringify(thor_session.xsrfToken)}\n`);
+    const thor_quote = (value) => `'${String(value).replace(/'/gu, `'\\''`)}'`;
+    const thor_environment = connectionEnvironment(thor_connection);
+    process.stdout.write('unset GRAYMATTER_PROFILE GRAYMATTER_ACTIVE_PROFILE GRAYMATTER_PROFILE_MODE GRAYMATTER_PROFILES GRAYMATTER_BLEND_PROFILES GRAYMATTER_PROFILE_RESOLVED GRAYMATTER_LIGHT_MODE GRAYMATTER_LIGHT_USERNAME GRAYMATTER_LIGHT_PASSWORD VALKYR_JWT_SESSION VALKYR_AUTH GRAYMATTER_XSRF_TOKEN\n');
+    for (const thor_name of ['VALKYR_API_BASE', 'VALKYR_KEYCHAIN_SERVICE', 'GRAYMATTER_PROFILE_MODE', 'GRAYMATTER_ACTIVE_PROFILE', 'GRAYMATTER_PROFILE', 'GRAYMATTER_USERNAME', 'GRAYMATTER_LIGHT_MODE', 'GRAYMATTER_LIGHT_USERNAME', 'GRAYMATTER_LIGHT_PASSWORD']) {
+      if (thor_environment[thor_name]) process.stdout.write(`export ${thor_name}=${thor_quote(thor_environment[thor_name])}\n`);
+    }
+    process.stdout.write(`export VALKYR_AUTH_TOKEN=${thor_quote(thor_token)}\n`);
+    if (thor_session.xsrfToken) process.stdout.write(`export GRAYMATTER_XSRF_TOKEN=${thor_quote(thor_session.xsrfToken)}\n`);
   } else if (thor_mode === 'token') {
     process.stdout.write(`${thor_token}\n`);
   }
-  process.stderr.write(thor_mode === 'token'
+  process.stderr.write(thor_connection.kind === 'local'
+    ? `Connected to GrayMatter Lite at ${thor_connection.apiBase}. Local account credentials stored in the private profile credential file.\n`
+    : thor_mode === 'token'
     ? 'GrayMatter sign-in complete; password was not saved.\n'
     : `GrayMatter sign-in complete. Session stored in ${thor_platform === 'win32' ? 'Windows Credential Manager' : thor_platform === 'darwin' ? 'macOS Keychain' : 'the system credential vault'}; password was not saved.\n`);
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
   main().catch((thor_error) => {
     process.stderr.write(`GrayMatter sign-in failed: ${thor_error.message}\n`);
-    process.stderr.write(`Create a free account: ${thor_signupUrl}\n`);
-    process.stderr.write(`Recover access: ${thor_recoveryUrl}\n`);
+    let thor_isCloud = false;
+    try { thor_isCloud = resolveConnection().apiBase === CLOUD_API_BASE; } catch { /* Keep the original routing error. */ }
+    if (thor_isCloud) {
+      process.stderr.write(`Create a free account: ${thor_signupUrl}\n`);
+      process.stderr.write(`Recover access: ${thor_recoveryUrl}\n`);
+    } else process.stderr.write('Use the account created on your selected local or self-hosted instance.\n');
     process.exitCode = 4;
   });
 }

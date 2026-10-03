@@ -1,0 +1,15 @@
+node_modules/**
+src/**
+shared/**
+scripts/**
+test/**
+**/*.map
+**/*.tsbuildinfo
+*.vsix
+tsconfig.json
+package-lock.json
+marketplace-review.json
+shared-source-proof.json
+.gitignore
+dist/lite-source-tests.cjs
+output/**

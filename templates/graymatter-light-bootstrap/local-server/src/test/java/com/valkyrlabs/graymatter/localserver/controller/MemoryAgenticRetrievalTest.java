@@ -179,6 +179,28 @@ class MemoryAgenticRetrievalTest {
     }
 
     @Test
+    void contextMadeMostlyOfStubExcerptsIsNotSufficient() throws Exception {
+        for (int i = 0; i < 12; i++) {
+            write("admin", "graymatter-light", "decision",
+                "starved evidence number " + i + " " + "detail about starved evidence ".repeat(50), "starve");
+        }
+        mvc.perform(post("/v1/graymatter/retrieval-context").with(httpBasic("admin", "graymatter-light"))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"query\":\"starved evidence\",\"tokenBudget\":1024,\"topK\":12}"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.retrievalStatus").value("PARTIAL_COVERAGE"))
+            .andExpect(jsonPath("$.answerPolicy").value("DO_NOT_ANSWER_CONFIDENTLY"))
+            .andExpect(jsonPath("$.recommendedAction").value("retry_retrieval_or_inspect_sources"));
+
+        mvc.perform(post("/v1/graymatter/retrieval-context").with(httpBasic("admin", "graymatter-light"))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"query\":\"starved evidence\",\"tokenBudget\":4000,\"topK\":2}"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.retrievalStatus").value("SUFFICIENT_CONTEXT"))
+            .andExpect(jsonPath("$.answerPolicy").value("ANSWER_WITH_CITATIONS"));
+    }
+
+    @Test
     void unicodeContextHonorsUtf8Budget() throws Exception {
         write("admin", "graymatter-light", "context", "cafés résumé ".repeat(150), "unicode");
         String body = mvc.perform(post("/v1/graymatter/retrieval-context")

@@ -193,8 +193,12 @@ public class MemoryContextService {
                                             BifrostLiteCompressor.ContextResult context,
                                             String vectorProfile, boolean semanticDegraded,
                                             List<UUID> stale, boolean includeText) {
+        // A context that is mostly stub excerpts (budget spread over too many sources) holds pointers to
+        // hydrate, not evidence to answer from, so it is partial even though nothing was omitted.
+        long stubs = context.items().stream().filter(BifrostLiteCompressor::isStub).count();
+        boolean mostlyStubs = stubs * 2 > context.items().size();
         boolean usable = !context.items().isEmpty() && stale.isEmpty()
-            && context.omittedRefs().isEmpty();
+            && context.omittedRefs().isEmpty() && !mostlyStubs;
         String status = context.items().isEmpty() ? "NO_MATCHES"
             : usable ? "SUFFICIENT_CONTEXT" : "PARTIAL_COVERAGE";
         return new ContextResponse(receipt.getId(), receipt.getId(), receipt.getParentReceiptId(),

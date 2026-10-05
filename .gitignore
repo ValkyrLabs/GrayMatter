@@ -8,3 +8,6 @@ memory/
 scripts/__pycache__/
 node_modules/
 *.pyc
+
+# Build output
+target/

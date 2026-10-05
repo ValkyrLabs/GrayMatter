@@ -109,7 +109,7 @@ tests/schema_regeneration_test.sh
 ```
 
 It generates twice and compares hashes, rejects a conflicting extension,
-builds generated Java and TypeScript, starts the authenticated local runtime,
+builds generated Java and verifies generated TypeScript contracts, starts the authenticated local runtime,
 writes a memory, verifies the served contract, then starts the expanded
 ThorAPI application and reads both `GrayMatter` and `CustomerCase` resources.
 
@@ -148,3 +148,16 @@ The pinned ThorAPI release still needs upstream fixes for:
 
 The local compatibility patches are deliberately narrow. Schema omissions are
 fixed in canonical YAML, never hidden in generated source.
+
+### Validate the complete generated TypeScript surface
+
+The schema acceptance check verifies generation and the Java build/runtime. To
+compile the generated client, RTK services, and UI, install the dependencies in
+`generated/typescript/package.json`, then run
+`npx tsc --noEmit -p generated/typescript/tsconfig.json` from the bundle root.
+The generated compiler configuration includes `src`, `redux`, `utils`, and `types`.
+
+The UI requires `@valkyr/component-library` as declared in that package. If this
+package cannot be resolved, the complete UI build is blocked; the Java runtime
+acceptance does not establish TypeScript build readiness. Keep the complete
+compiler scope when reporting that result.

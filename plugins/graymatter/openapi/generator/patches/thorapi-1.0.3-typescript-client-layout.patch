@@ -1,0 +1,81 @@
+--- templates/typescript-redux-query/generator.config.yaml
++++ templates/typescript-redux-query/generator.config.yaml
+@@ -62,7 +62,7 @@
+   # allows use of "DataObject" interface in the openapi spec
+   dataObject.ts.mustache:
+     templateType: SupportingFiles
+-    folder: model/
++    folder: src/models/
+     destinationFilename: DataObject.ts
+ 
+   modelService.mustache:
+@@ -145,3 +145,8 @@
+     templateType: SupportingFiles
+     folder: /
+     destinationFilename: README.md
++
++  import-meta-env.d.ts.mustache:
++    templateType: SupportingFiles
++    folder: src/types/
++    destinationFilename: import-meta-env.d.ts
+--- templates/typescript-redux-query/tsconfig.json.mustache
++++ templates/typescript-redux-query/tsconfig.json.mustache
+@@ -31,6 +31,8 @@
+       "@thorapi": [
+         "./index.ts"
+       ],
++      "@thorapi/model": ["./src/models/index.ts"],
++      "@thorapi/model/*": ["./src/models/*"],
+       "@thorapi/*": [
+         "./*"
+       ],
+@@ -44,6 +46,9 @@
+   },
+   "include": [
+     "src",
++    "redux",
++    "utils",
++    "types",
+     "src/@types/vite-env.d.ts",
+     "src/@types/index.d.ts",
+     "vite.config.ts"
+--- templates/typescript-redux-query/index.mustache
++++ templates/typescript-redux-query/index.mustache
+@@ -15,9 +15,9 @@
+ export * from './runtime';
+ {{#apiInfo}}
+ {{#apis.0}}
+-export * from '../api';
++export * from './apis';
+ {{/apis.0}}
+ {{/apiInfo}}
+ {{#models.0}}
+-export * from '../model';
++export * from './models';
+ {{/models.0}}--- /dev/null
++++ templates/typescript-redux-query/import-meta-env.d.ts.mustache
+@@ -0,0 +1,24 @@
++// Environment exposed by browser bundlers; this declaration does not provide values.
++interface ImportMetaEnv {
++  readonly [key: string]: string | boolean | undefined;
++  readonly DEV: boolean;
++  readonly PROD: boolean;
++  readonly BASE_URL: string;
++  readonly MODE: string;
++  readonly VITE_API_BASE?: string;
++  readonly VITE_API_BASE_URL?: string;
++  readonly VITE_API_PROXY_TARGET?: string;
++  readonly VITE_API_URL?: string;
++  readonly VITE_SAFEVAULT_API_BASE_URL?: string;
++  readonly VITE_SAFEVAULT_USE_PROXY?: string;
++  readonly VITE_THORAPI_API_BASE_URL?: string;
++  readonly VITE_THORAPI_BASE_URL?: string;
++  readonly VITE_THORAPI_USE_PROXY?: string;
++  readonly VITE_USE_API_PROXY?: string;
++  readonly VITE_VALKYR_API_BASE?: string;
++  readonly VITE_VALKYR_API_URL?: string;
++  readonly VITE_basePath?: string;
++}
++interface ImportMeta {
++  readonly env: ImportMetaEnv;
++}

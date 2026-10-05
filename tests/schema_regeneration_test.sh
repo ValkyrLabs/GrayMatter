@@ -95,6 +95,12 @@ for (const path of ["/GrayMatter", "/MemoryEntry", "/CustomerCase", "/MemoryEntr
 assert.ok(!Object.hasOwn(paths, "/CreateMemoryEntryRequest"));
 assert.equal(spec["x-thorapi-generation-health"].status, "ok");
 assert.equal(spec["x-graymatter-mcp-contract"].mappings.memory_put, "POST /MemoryEntry/write");
+const generated = require("node:path").join(require("node:path").dirname(process.argv[2]), "../generated/typescript");
+const tsconfig = JSON.parse(fs.readFileSync(require("node:path").join(generated, "tsconfig.json"), "utf8"));
+assert.deepEqual(tsconfig.compilerOptions.paths["@thorapi/model"], ["./src/models/index.ts"]);
+for (const source of ["src", "redux", "utils", "types"]) assert.ok(tsconfig.include.includes(source));
+assert.ok(fs.existsSync(require("node:path").join(generated, "src/models/DataObject.ts")));
+assert.ok(fs.existsSync(require("node:path").join(generated, "src/types/import-meta-env.d.ts")));
 JS
 
 first_hashes="$(hash_files \

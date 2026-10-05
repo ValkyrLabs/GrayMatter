@@ -459,6 +459,7 @@ for schema_path in \
   openapi/generator/patches/thorapi-1.0.3-java-spring-application.patch \
   openapi/generator/patches/thorapi-1.0.3-java-spring-pageable-repository.patch \
   openapi/generator/patches/thorapi-1.0.3-java-spring-repository.patch \
+  openapi/generator/patches/thorapi-1.0.3-typescript-client-layout.patch \
   tools/schema-pipeline/pom.xml \
   tools/schema-pipeline/src/main/java/com/valkyrlabs/graymatter/codegen/GrayMatterSchemaPipeline.java \
   templates/graymatter-light-bootstrap/local-server/pom.xml \

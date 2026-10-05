@@ -15,13 +15,74 @@ the committed ThorAPI `api.hbs.yaml`, `./vaix` builder, Spring/H2 backend,
 embedded dashboard, MCP server, starter KnowledgePack, Docker definition,
 tests, and public documentation in this repository.
 
-## Install in one command
+## Quick start for an agent (GrayMatter locally, memory in Postgres)
+
+This Viakoo fork runs the GrayMatter memory server **on your machine** but keeps the
+durable memory in a **Postgres/Citus** database instead of the embedded H2 file. A
+new agent — Claude Code or Codex — can be reading and writing durable memory in a
+few minutes. Copy-paste the five steps below.
+
+**Prerequisites:** Java 17+, Maven, Node 20+ and `git` on PATH (or let `./vaix`
+fetch them privately under `.vaix/runtime`); a reachable Postgres with an **empty
+database** for the memory (e.g. `gm-agent-memory`). Optional: [LM Studio](https://lmstudio.ai)
+serving `text-embedding-nomic-embed-text-v1.5` on `:1234` for semantic search —
+without it, search falls back to lexical.
+
+```bash
+# 1. Clone and build from source
+git clone https://github.com/viakoo/GMAgentMemory.git
+cd GMAgentMemory
+./vaix build                       # renders + compiles the Spring backend -> jar (postgres driver included)
+
+# 2. Create the local profile, then point it at Postgres
+./vaix credentials                 # creates .graymatter-lite/admin.env (local sign-in)
+cat >> .graymatter-lite/admin.env <<'EOF'
+GRAYMATTER_DB_DRIVER=org.postgresql.Driver
+GRAYMATTER_DB_URL=jdbc:postgresql://<HOST>:5432/<DATABASE>
+GRAYMATTER_DB_USERNAME=<USER>
+GRAYMATTER_DB_PASSWORD=<PASSWORD>
+EOF
+chmod 600 .graymatter-lite/admin.env   # admin.env is sourced and exported on every start
+
+# 3. Start it (backend :8787, HTTP MCP :3333)
+./vaix up
+./vaix doctor                      # health check
+
+# 4. Confirm it is on Postgres (not H2) and build the semantic index
+grep -iE 'PgConnection|Database version' .vaix/graymatter-lite.log | tail -2
+source .graymatter-lite/admin.env
+curl -s -u "$GRAYMATTER_LIGHT_USERNAME:$GRAYMATTER_LIGHT_PASSWORD" \
+  -X POST http://localhost:8787/v1/memory/reindex -H 'content-type: application/json' -d '{}'
+
+# 5. Connect your agent's memory tools to the HTTP MCP
+claude mcp add --transport http graymatter http://localhost:3333/mcp
+#   Codex / other MCP clients: add an HTTP MCP server at the same URL.
+```
+
+The agent's memory tools (`memory_write`, `memory_query`, `memory_read`,
+`memory_retrieve_with_receipt`, …) now read and write the Postgres-backed memory.
+No auth is needed for the local-dev MCP; the server holds the DB credentials.
+
+Notes:
+
+- On the **first start**, Hibernate creates the schema automatically
+  (`ddl-auto=update`) and seeds a small starter knowledge pack. If you are
+  **migrating** existing memories, clear that seed first and preserve memory ids —
+  see [`VIAKOO.md`](VIAKOO.md) for the id-preserving migration recipe.
+- After loading or changing data, rebuild the vector index with the
+  `POST /v1/memory/reindex` call shown above.
+- Stop with `./vaix stop`. Logs: `.vaix/graymatter-lite.log` (backend),
+  `.vaix/graymatter-mcp.log` (MCP bridge). Credentials: `./vaix credentials`.
+- Leave the `GRAYMATTER_DB_*` lines out of `admin.env` to run on the default local
+  H2 instead.
+
+## Install in one command (default H2 backend)
 
 On macOS or Linux:
 
 ```bash
-git clone https://github.com/ValkyrLabs/GrayMatter.git
-cd GrayMatter
+git clone https://github.com/viakoo/GMAgentMemory.git
+cd GMAgentMemory
 ./vaix setup
 ```
 

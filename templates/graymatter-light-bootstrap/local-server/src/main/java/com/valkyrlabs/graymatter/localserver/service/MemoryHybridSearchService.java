@@ -43,6 +43,11 @@ public class MemoryHybridSearchService {
     }
 
     @Transactional
+    /** Drop the search projection of a deleted memory; the index row shares the memory's id. */
+    public void forget(java.util.UUID memoryId) {
+        if (indexes.existsById(memoryId)) indexes.deleteById(memoryId);
+    }
+
     public void index(MemoryEntry entry) {
         if (entry.getId() == null) throw new IllegalArgumentException("MemoryEntry must be saved before indexing");
         writeIndex(entry, null, true);

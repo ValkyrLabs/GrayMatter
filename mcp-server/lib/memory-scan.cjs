@@ -99,15 +99,28 @@ async function scanMemoryEntries(thor_fetch, thor_options = {}) {
   return { entries: [...thor_entries.values()], coverage: thor_coverage };
 }
 
+// MemoryEntry.tags arrives in three shapes depending on the backend: an array of
+// strings, an array of {name} objects, or — from the GrayMatter Lite local
+// server — a single comma-separated string. Assuming an array threw
+// "(thor_entry.tags || []).map is not a function" and took down every caller of
+// isActiveMemory, which is filtered over all memory listings. Mirrors the
+// tolerant normalization already used in index.js.
+function normalizeTags(thor_raw) {
+  const thor_list = Array.isArray(thor_raw) ? thor_raw : String(thor_raw ?? '').split(',');
+  return thor_list
+    .map(thor_tag => String(thor_tag?.name ?? thor_tag).trim().toLowerCase())
+    .filter(Boolean);
+}
+
 function isActiveMemory(thor_entry) {
-  const thor_tags = (thor_entry.tags || []).map(thor_tag => String(thor_tag?.name || thor_tag).toLowerCase());
+  const thor_tags = normalizeTags(thor_entry?.tags);
   return thor_entry.trashed !== true
     && !thor_entry.supersededByRef
     && !['superseded', 'retracted', 'archived', 'obsolete'].includes(String(thor_entry.status || '').toLowerCase())
     && !thor_tags.some(thor_tag => ['superseded', 'retracted', 'obsolete', 'status:superseded', 'status:retracted'].includes(thor_tag));
 }
 
-module.exports = { scanMemoryEntries, entriesOf, isActiveMemory };
+module.exports = { scanMemoryEntries, entriesOf, isActiveMemory, normalizeTags };
 
 if (require.main === module) {
   const { execFile } = require('node:child_process');

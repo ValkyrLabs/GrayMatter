@@ -1,7 +1,7 @@
 'use strict';
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { scanMemoryEntries, entriesOf, isActiveMemory } = require('../lib/memory-scan.cjs');
+const { scanMemoryEntries, entriesOf, isActiveMemory, normalizeTags } = require('../lib/memory-scan.cjs');
 
 test('decision preflight filters at the API before pagination without changing its eligible set', async () => {
   const thor_rows = Array.from({ length: 4188 }, (_, thor_i) => ({
@@ -114,4 +114,32 @@ test('parallel reads stay bounded, preserve page order, and discard speculative 
   assert.equal(thor_result.coverage.pages, 3);
   assert.equal(thor_result.coverage.requestedPages, 4);
   assert.deepEqual(thor_result.entries.map(thor_entry => thor_entry.id), ['page-0', 'page-1']);
+});
+
+// Regression: the GrayMatter Lite local server returns tags as one
+// comma-separated string, so `(entry.tags || []).map` threw
+// "is not a function" and every caller of isActiveMemory — which is filtered
+// over all memory listings — failed.
+test('isActiveMemory accepts every shape tags arrives in', () => {
+  // Comma-separated string, as GrayMatter Lite returns it.
+  assert.equal(isActiveMemory({ tags: 'knowledge-pack,graymatter,memory' }), true);
+  assert.equal(isActiveMemory({ tags: 'prd,status:superseded,v2' }), false);
+  assert.equal(isActiveMemory({ tags: 'prd, retracted , v2' }), false);
+
+  // Arrays, both forms, still work.
+  assert.equal(isActiveMemory({ tags: ['a', 'b'] }), true);
+  assert.equal(isActiveMemory({ tags: ['status:retracted'] }), false);
+  assert.equal(isActiveMemory({ tags: [{ name: 'obsolete' }] }), false);
+
+  // Absent or empty is active, not a crash.
+  assert.equal(isActiveMemory({}), true);
+  assert.equal(isActiveMemory({ tags: null }), true);
+  assert.equal(isActiveMemory({ tags: '' }), true);
+});
+
+test('normalizeTags lowercases, trims and drops empties', () => {
+  assert.deepEqual(normalizeTags('A, b ,,C'), ['a', 'b', 'c']);
+  assert.deepEqual(normalizeTags([{ name: 'Alpha' }, 'Beta']), ['alpha', 'beta']);
+  assert.deepEqual(normalizeTags(null), []);
+  assert.deepEqual(normalizeTags(undefined), []);
 });

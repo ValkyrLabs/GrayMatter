@@ -156,16 +156,33 @@ silently become a broad search.
 
 The default `feature-hash-384-v1` vectors work without a model or network.
 They improve fuzzy lexical recall but are **not** a semantic language model.
-For semantic embeddings from a local model, install Ollama and a local embedding
-model, then set:
+For semantic embeddings from a local model, run a local embedding server and
+set the provider:
 
 ```bash
+# Ollama (native /api/embed on 127.0.0.1:11434)
 GRAYMATTER_EMBEDDING_PROVIDER=ollama
-GRAYMATTER_EMBEDDING_OLLAMA_MODEL=nomic-embed-text
+GRAYMATTER_EMBEDDING_MODEL=nomic-embed-text
+
+# LM Studio (OpenAI-compatible /v1/embeddings on 127.0.0.1:1234)
+GRAYMATTER_EMBEDDING_PROVIDER=lmstudio
+GRAYMATTER_EMBEDDING_MODEL=text-embedding-nomic-embed-text-v1.5
+
+# Any other OpenAI-compatible server (llama.cpp llama-server, vLLM, ...)
+GRAYMATTER_EMBEDDING_PROVIDER=openai
+GRAYMATTER_EMBEDDING_BASE_URL=http://127.0.0.1:8081/v1
+GRAYMATTER_EMBEDDING_MODEL=<model id>
 ```
 
-The server calls only Ollama's loopback `/api/embed` endpoint. Run
-`POST /v1/memory/reindex` after switching models. If the local model is down,
+LM Studio does not implement Ollama's native API (it answers `/api/embed` with
+an error), so use `lmstudio` or `openai` for it, not `ollama`.
+`GRAYMATTER_EMBEDDING_BASE_URL` overrides the default port and must be `http://`
+on loopback; `GRAYMATTER_EMBEDDING_TIMEOUT_MS` (default 3000) bounds each call.
+`GRAYMATTER_EMBEDDING_OLLAMA_MODEL` is still read when `GRAYMATTER_EMBEDDING_MODEL`
+is unset. An OpenAI-compatible response that names a different model than the
+configured one is refused (LM Studio answers an unknown model with whichever
+model is loaded), so the index never mixes vector spaces. Run
+`POST /v1/memory/reindex` after switching providers or models. If the local model is down,
 the search response reports `semanticDegraded: true` and uses feature hashes;
 the durable memory stays available. `/v1/memory/capabilities` reports the
 configured profiles without sending a test embedding request. The portable

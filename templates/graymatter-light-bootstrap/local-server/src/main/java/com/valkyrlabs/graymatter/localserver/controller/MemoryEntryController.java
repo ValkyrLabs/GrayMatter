@@ -15,6 +15,9 @@ import java.util.List;
 import java.util.UUID;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -55,6 +58,23 @@ public class MemoryEntryController {
         return memoryEntries.findByIdAndPrincipalUsernameIgnoreCase(id, authenticated.getName())
             .map(MemoryEntryResponse::from)
             .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "MemoryEntry not found"));
+    }
+
+    /**
+     * Delete one of the caller's memories (declared in the api-0 contract as
+     * {@code DELETE /v1/MemoryEntry/{id}}; Lite answered 405 before). Another
+     * principal's id is a 404, never a 403, so ids cannot be probed. The search
+     * projection goes in the same transaction; retrieval receipts that cited the
+     * memory report it under staleRefs when hydrated.
+     */
+    @DeleteMapping("/{id}")
+    @Transactional
+    public ResponseEntity<Void> delete(Principal authenticated, @PathVariable UUID id) {
+        MemoryEntry entry = memoryEntries.findByIdAndPrincipalUsernameIgnoreCase(id, authenticated.getName())
+            .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "MemoryEntry not found"));
+        search.forget(entry.getId());
+        memoryEntries.delete(entry);
+        return ResponseEntity.noContent().build();
     }
 
     @PostMapping("/read")

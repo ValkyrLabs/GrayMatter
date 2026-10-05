@@ -41,9 +41,11 @@ From the repository root, prefer `./vaix setup`. For Docker, set
 `docker compose -f deploy/docker-compose.lite.yml up --build`.
 
 Vector search defaults to an offline feature-hash projection. For semantic
-embeddings, set `GRAYMATTER_EMBEDDING_PROVIDER=ollama` and
-`GRAYMATTER_EMBEDDING_OLLAMA_MODEL` to an installed local embedding model, then
-call `POST /v1/memory/reindex`. Ollama is contacted only on loopback. If it is
+embeddings, set `GRAYMATTER_EMBEDDING_PROVIDER` to `ollama` (native `/api/embed`),
+`lmstudio` (OpenAI-compatible `/v1/embeddings` on :1234) or `openai` (any
+OpenAI-compatible server; set `GRAYMATTER_EMBEDDING_BASE_URL`), and
+`GRAYMATTER_EMBEDDING_MODEL` to an installed local embedding model, then call
+`POST /v1/memory/reindex`. The embedding server is contacted only on loopback. If it is
 unavailable, query responses expose `semanticDegraded` and use the offline
 projection. Receipt context never overwrites a canonical memory; hydration
 and recompression recheck owner and source hash.

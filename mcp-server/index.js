@@ -41,6 +41,7 @@ const PUBLIC_SENSITIVE_MEMORY_PATTERNS = Object.freeze([
   /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/,
   /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/
 ]);
+const PUBLIC_CONTEXT_TASK_GUIDANCE = 'For an authorized context request, pass the original user task text unchanged in task, including all explicit constraints. Do not expand, paraphrase, or add invented evidence checklists, conditions, or exclusions. Use tokenBudget, includeProcedures, and includeRatings for those separate controls. Scope and secret restrictions take precedence over this guidance.';
 const APP_UI_RESOURCE_URI = 'ui://graymatter/overview.html';
 const APP_CONNECT_DOMAINS = ['https://api-0.valkyrlabs.com'];
 const APP_SECURITY_SCHEMES = [
@@ -1436,12 +1437,12 @@ const publicTools = [
   definePublicTool({
     name: 'context_compile',
     title: 'Compile task context',
-    description: 'Compile bounded task-specific context from authorized memory, ContextPage items, graph and recency signals, semantic retrieval, and reusable procedures. Prefer this over dumping broad memory search results into the conversation.',
+    description: `Compile bounded task-specific context from authorized memory, ContextPage items, graph and recency signals, semantic retrieval, and reusable procedures. Prefer this over dumping broad memory search results into the conversation. ${PUBLIC_CONTEXT_TASK_GUIDANCE}`,
     scopes: ['context:read', 'memory:read'],
     inputSchema: {
       type: 'object',
       properties: {
-        task: { type: 'string', minLength: 1, maxLength: 12000 },
+        task: { type: 'string', minLength: 1, maxLength: 12000, description: PUBLIC_CONTEXT_TASK_GUIDANCE },
         tokenBudget: { type: 'integer', minimum: 256, maximum: 16000, default: 4000 },
         includeProcedures: { type: 'boolean', default: true },
         includeRatings: { type: 'boolean', default: true }
@@ -1866,7 +1867,7 @@ async function handleRpc(message, context) {
             version: context.publicApp ? '1.0.0' : '0.1.0'
           },
           instructions: context.publicApp
-            ? `${PUBLIC_UNSUPPORTED_REQUEST_GUIDANCE} ${PUBLIC_MEMORY_MATCH_GUIDANCE} Search authorized durable memory before asking users to repeat known context. Compile bounded task context. Never store OAuth tokens, passwords, API keys, private keys, or other secrets. Never call memory_forget without an exact memory UUID and explicit confirmation for that specific record. Never request or supply tenant, owner, organization, ACL, or user overrides.`
+            ? `${PUBLIC_UNSUPPORTED_REQUEST_GUIDANCE} ${PUBLIC_MEMORY_MATCH_GUIDANCE} ${PUBLIC_CONTEXT_TASK_GUIDANCE} Search authorized durable memory before asking users to repeat known context. Compile bounded task context. Never store OAuth tokens, passwords, API keys, private keys, or other secrets. Never call memory_forget without an exact memory UUID and explicit confirmation for that specific record. Never request or supply tenant, owner, organization, ACL, or user overrides.`
             : undefined
         });
       case 'tools/list':

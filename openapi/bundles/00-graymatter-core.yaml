@@ -1,0 +1,1226 @@
+---
+openapi: 3.0.3
+info:
+  title: GrayMatter Lite API
+  version: 0.4.0
+  description: Canonical ThorAPI source for the local GrayMatter domain. Generated
+    audit, ownership, CRUD, repository, service, controller, and client surfaces are
+    derived from this document; generated source is never edited directly.
+  contact:
+    email: info@valkyrlabs.com
+  license:
+    name: AGPL-3.0-only
+    url: https://www.gnu.org/licenses/agpl-3.0.html
+servers:
+- url: "/v1"
+  description: GrayMatter Lite local server
+tags:
+- name: GrayMatter
+  description: GrayMatter aggregate and memory operations
+- name: MemoryEntry
+  description: Durable local memory records
+- name: MemoryRetentionPolicy
+  description: Local memory retention policy
+- name: UserPreference
+  description: Local user preferences
+- name: Workbook
+  description: GridHeim-compatible local workbooks
+- name: KnowledgePack
+  description: Portable signed GrayMatter knowledge packs
+- name: LocalRuntimeOperations
+  description: Handwritten local-runtime adapters around generated domain services
+security:
+- basicAuth: []
+paths:
+  "/api-docs":
+    get:
+      tags:
+      - LocalRuntimeOperations
+      operationId: getOpenApiSchema
+      x-thorapi-nonCrud: true
+      summary: Return the generated OpenAPI document
+      responses:
+        '200':
+          description: Generated OpenAPI document
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+  "/MemoryEntry/write":
+    post:
+      tags:
+      - LocalRuntimeOperations
+      operationId: writeMemoryEntry
+      x-thorapi-nonCrud: true
+      summary: Write a durable memory through the local compatibility contract
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/CreateMemoryEntryRequest"
+      responses:
+        '200':
+          description: Persisted memory
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/MemoryEntry"
+  "/MemoryEntry/read":
+    post:
+      tags:
+      - LocalRuntimeOperations
+      operationId: readMemoryEntries
+      x-thorapi-nonCrud: true
+      summary: Read memories through the compatibility query envelope
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/QueryMemoryEntryRequest"
+      responses:
+        '200':
+          description: Matching memories
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  "$ref": "#/components/schemas/MemoryEntry"
+  "/MemoryEntry/query":
+    post:
+      tags:
+      - LocalRuntimeOperations
+      operationId: queryMemoryEntries
+      x-thorapi-nonCrud: true
+      summary: Query owner-visible memories
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/QueryMemoryEntryRequest"
+      responses:
+        '200':
+          description: Query result envelope
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/MemoryQueryResponse"
+  "/memory/status":
+    get:
+      tags:
+      - LocalRuntimeOperations
+      operationId: getMemoryStatus
+      x-thorapi-nonCrud: true
+      summary: Report local memory readiness and metrics
+      responses:
+        '200':
+          description: Memory readiness
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/MemoryStatusResponse"
+  "/memory/usage":
+    get:
+      tags:
+      - LocalRuntimeOperations
+      operationId: getMemoryUsage
+      x-thorapi-nonCrud: true
+      summary: Report local memory usage
+      responses:
+        '200':
+          description: Memory usage
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/MemoryUsageResponse"
+  "/graymatter/stats":
+    get:
+      tags:
+      - LocalRuntimeOperations
+      operationId: getGrayMatterStats
+      x-thorapi-nonCrud: true
+      summary: Report the GrayMatter Lite aggregate state
+      responses:
+        '200':
+          description: Aggregate state
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/GrayMatterStatsResponse"
+  "/graymatter/activation/bridge":
+    get:
+      tags:
+      - LocalRuntimeOperations
+      operationId: getActivationBridge
+      x-thorapi-nonCrud: true
+      summary: Inspect the hosted promotion bridge
+      responses:
+        '200':
+          description: Bridge state
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/GrayMatterActivationBridgeResponse"
+  "/graymatter/activation/bridge/event":
+    post:
+      tags:
+      - LocalRuntimeOperations
+      operationId: recordActivationBridgeEvent
+      x-thorapi-nonCrud: true
+      summary: Record a bounded local promotion event
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/GrayMatterActivationEventRequest"
+      responses:
+        '200':
+          description: Recorded event
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/GrayMatterActivationEventResponse"
+  "/swarm-ops/graph":
+    get:
+      tags:
+      - LocalRuntimeOperations
+      operationId: getSwarmGraph
+      x-thorapi-nonCrud: true
+      summary: Return the local SWARM graph projection
+      responses:
+        '200':
+          description: Local graph projection
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/SwarmGraphSnapshot"
+  "/knowledge-packs":
+    get:
+      tags:
+      - LocalRuntimeOperations
+      operationId: listKnowledgePacks
+      x-thorapi-nonCrud: true
+      summary: List imported owner-visible KnowledgePacks
+      responses:
+        '200':
+          description: Imported KnowledgePacks
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  "$ref": "#/components/schemas/KnowledgePackSummary"
+  "/knowledge-packs/import":
+    post:
+      tags:
+      - LocalRuntimeOperations
+      operationId: importKnowledgePack
+      x-thorapi-nonCrud: true
+      summary: Import a signed KnowledgePack
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+              - file
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '200':
+          description: Import result
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/KnowledgePackImportResult"
+  "/knowledge-packs/export":
+    get:
+      tags:
+      - LocalRuntimeOperations
+      operationId: exportKnowledgePack
+      x-thorapi-nonCrud: true
+      summary: Export owner-visible memory as a KnowledgePack
+      responses:
+        '200':
+          description: Signed KnowledgePack archive
+          content:
+            application/vnd.valkyrlabs.graymatter-knowledge-pack+zip:
+              schema:
+                type: string
+                format: binary
+  "/knowledge-packs/{id}":
+    get:
+      tags:
+      - LocalRuntimeOperations
+      operationId: getImportedKnowledgePack
+      x-thorapi-nonCrud: true
+      parameters:
+      - "$ref": "#/components/parameters/id"
+      responses:
+        '200':
+          description: KnowledgePack summary
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/KnowledgePackSummary"
+  "/knowledge-packs/{id}/graph":
+    get:
+      tags:
+      - LocalRuntimeOperations
+      operationId: getKnowledgePackGraph
+      x-thorapi-nonCrud: true
+      parameters:
+      - "$ref": "#/components/parameters/id"
+      responses:
+        '200':
+          description: KnowledgePack object graph
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/KnowledgePackGraphResponse"
+  "/knowledge-packs/{id}/archive":
+    get:
+      tags:
+      - LocalRuntimeOperations
+      operationId: downloadKnowledgePackArchive
+      x-thorapi-nonCrud: true
+      parameters:
+      - "$ref": "#/components/parameters/id"
+      responses:
+        '200':
+          description: Original imported archive
+          content:
+            application/vnd.valkyrlabs.graymatter-knowledge-pack+zip:
+              schema:
+                type: string
+                format: binary
+  "/graymatter/retrieval-context/{id}/fork":
+    post:
+      summary: Fork a receipt-backed context with fresh owner and source-hash checks
+      tags:
+      - LocalRuntimeOperations
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                query:
+                  type: string
+                tokenBudget:
+                  type: integer
+                  minimum: 128
+                  maximum: 16000
+              required:
+              - query
+      responses:
+        '200':
+          description: Child context reference and receipt
+      operationId: graymatterLiteGraymatterRetrievalContextIdForkPost
+      x-thorapi-nonCrud: true
+  "/memory/semantic-health":
+    get:
+      summary: Inspect local vector index profiles without contacting a model
+      tags:
+      - LocalRuntimeOperations
+      responses:
+        '200':
+          description: Portable and optional semantic vector counts
+      operationId: graymatterLiteMemorySemanticHealthGet
+      x-thorapi-nonCrud: true
+  "/memory/capabilities":
+    get:
+      summary: Discover GrayMatter Lite local vector and hybrid retrieval
+      tags:
+      - LocalRuntimeOperations
+      responses:
+        '200':
+          description: Portable index capability metadata
+      operationId: graymatterLiteMemoryCapabilitiesGet
+      x-thorapi-nonCrud: true
+  "/memory/semantic-index/search":
+    post:
+      summary: Search owned memories with keyword, vector, or hybrid ranking
+      tags:
+      - LocalRuntimeOperations
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                query:
+                  type: string
+                limit:
+                  type: integer
+                  minimum: 1
+                  maximum: 100
+                retrievalMode:
+                  type: string
+                  enum:
+                  - KEYWORD
+                  - VECTOR
+                  - HYBRID
+                  - SCHEMA_FILTERED
+                  - RECENCY_BIASED
+                type:
+                  type: string
+                source:
+                  type: string
+                tags:
+                  type: array
+                  items:
+                    type: string
+                filters:
+                  type: object
+                  description: Lite accepts only type, source/sourceChannel, and tags;
+                    other keys are rejected
+                  additionalProperties: false
+                  properties:
+                    type:
+                      type: string
+                    source:
+                      type: string
+                    sourceChannel:
+                      type: string
+                    tags:
+                      type: array
+                      items:
+                        type: string
+              required:
+              - query
+      responses:
+        '200':
+          description: Owner-scoped ranked memory hits with lexical/vector scores
+            and index profile
+      operationId: graymatterLiteMemorySemanticIndexSearchPost
+      x-thorapi-nonCrud: true
+  "/memory/reindex":
+    post:
+      summary: Rebuild the authenticated principal memory vector projection
+      tags:
+      - LocalRuntimeOperations
+      responses:
+        '200':
+          description: Indexed, semantic-indexed, and stale-row counts
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                dryRun:
+                  type: boolean
+      operationId: graymatterLiteMemoryReindexPost
+      x-thorapi-nonCrud: true
+  "/memory/semantic-index/reindex":
+    post:
+      summary: Alias for local memory reindex
+      tags:
+      - LocalRuntimeOperations
+      responses:
+        '200':
+          description: Indexed, semantic-indexed, and stale-row counts
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                dryRun:
+                  type: boolean
+      operationId: graymatterLiteMemorySemanticIndexReindexPost
+      x-thorapi-nonCrud: true
+  "/graymatter/retrieval-context":
+    post:
+      summary: Compile bounded Bifrost context from owned memory
+      tags:
+      - LocalRuntimeOperations
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                query:
+                  type: string
+                topK:
+                  type: integer
+                  minimum: 1
+                  maximum: 100
+                tokenBudget:
+                  type: integer
+                  minimum: 128
+                  maximum: 16000
+                retrievalMode:
+                  type: string
+                  enum:
+                  - KEYWORD
+                  - VECTOR
+                  - HYBRID
+                  - SCHEMA_FILTERED
+                  - RECENCY_BIASED
+                protectedRefs:
+                  type: array
+                  items:
+                    type: string
+                    format: uuid
+                filters:
+                  type: object
+                  description: Lite accepts only type, source/sourceChannel, and tags;
+                    other keys are rejected
+                  additionalProperties: false
+                  properties:
+                    type:
+                      type: string
+                    source:
+                      type: string
+                    sourceChannel:
+                      type: string
+                    tags:
+                      type: array
+                      items:
+                        type: string
+              required:
+              - query
+      responses:
+        '200':
+          description: Bounded context, citations, and content-free receipt reference
+      operationId: graymatterLiteGraymatterRetrievalContextPost
+      x-thorapi-nonCrud: true
+  "/graymatter-retrieval-receipts":
+    post:
+      summary: Retrieve memory with durable Bifrost receipt
+      tags:
+      - LocalRuntimeOperations
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                query:
+                  type: string
+                topK:
+                  type: integer
+                retrievalMode:
+                  type: string
+                includeText:
+                  type: boolean
+                filters:
+                  type: object
+                  description: Lite accepts only type, source/sourceChannel, and tags;
+                    other keys are rejected
+                  additionalProperties: false
+                  properties:
+                    type:
+                      type: string
+                    source:
+                      type: string
+                    sourceChannel:
+                      type: string
+                    tags:
+                      type: array
+                      items:
+                        type: string
+              required:
+              - query
+      responses:
+        '200':
+          description: Receipt with policy-gated retrieval context
+      operationId: graymatterLiteGraymatterRetrievalReceiptsPost
+      x-thorapi-nonCrud: true
+  "/graymatter-retrieval-receipts/{id}":
+    get:
+      summary: Inspect an owned content-free retrieval receipt and source freshness
+      tags:
+      - LocalRuntimeOperations
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: Receipt status and stale refs
+        '404':
+          description: Receipt not owned or missing
+      operationId: graymatterLiteGraymatterRetrievalReceiptsIdGet
+      x-thorapi-nonCrud: true
+  "/graymatter/retrieval-context/{id}/recompress":
+    post:
+      summary: Recompress a receipt after rechecking every source
+      tags:
+      - LocalRuntimeOperations
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                query:
+                  type: string
+                tokenBudget:
+                  type: integer
+                  minimum: 128
+                  maximum: 16000
+                protectedRefs:
+                  type: array
+                  items:
+                    type: string
+                    format: uuid
+                evictedRefs:
+                  type: array
+                  items:
+                    type: string
+                    format: uuid
+              required:
+              - query
+      responses:
+        '200':
+          description: Child receipt and rechecked context
+        '409':
+          description: Query or protected source changed
+      operationId: graymatterLiteGraymatterRetrievalContextIdRecompressPost
+      x-thorapi-nonCrud: true
+  "/graymatter/retrieval-context/{id}/hydrate/{memoryId}":
+    get:
+      summary: Hydrate one exact receipt source after current owner and hash checks
+      tags:
+      - LocalRuntimeOperations
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: memoryId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: maxTokens
+        in: query
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 4000
+      responses:
+        '200':
+          description: Bounded redacted source excerpt
+        '404':
+          description: Receipt or memory not owned or missing
+        '409':
+          description: Source changed
+      operationId: graymatterLiteGraymatterRetrievalContextIdHydrateMemoryidGet
+      x-thorapi-nonCrud: true
+components:
+  schemas:
+    Principal:
+      type: object
+      x-thorapi-table-name: graymatter_principal
+      description: Generated domain principal used by ThorAPI ownership and ACL contracts.
+      required:
+      - username
+      - password
+      - email
+      properties:
+        username:
+          type: string
+          minLength: 5
+          maxLength: 60
+          x-thorapi-dataField: unique=true, index=true
+        password:
+          type: string
+          format: password
+          writeOnly: true
+          minLength: 8
+          maxLength: 64
+          pattern: "^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)[\\x21-\\x7E]{8,64}$"
+          x-field-extra-annotation: "@SecureField(encryptionType = SecureField.EncryptionType.HASHED,
+            strength = 10)"
+        email:
+          type: string
+          format: email
+          maxLength: 320
+          x-thorapi-dataField: unique=true, index=true
+        enabled:
+          type: boolean
+          default: true
+        credentialNonExpired:
+          type: boolean
+          default: true
+        accountEnabled:
+          type: boolean
+          default: true
+        accountNonLocked:
+          type: boolean
+          default: true
+        accountNonExpired:
+          type: boolean
+          default: true
+        roles:
+          type: array
+          items:
+            "$ref": "#/components/schemas/Role"
+        grantedAuthorities:
+          type: array
+          items:
+            "$ref": "#/components/schemas/Authority"
+        userPreferences:
+          type: array
+          items:
+            "$ref": "#/components/schemas/UserPreference"
+    Authority:
+      type: object
+      x-thorapi-table-name: graymatter_authority
+      description: Generated authority assigned to a Principal.
+      required:
+      - authority
+      properties:
+        principalId:
+          type: string
+          format: uuid
+        username:
+          type: string
+          maxLength: 60
+        authority:
+          type: string
+          minLength: 1
+          maxLength: 80
+    Role:
+      type: object
+      x-thorapi-table-name: graymatter_role
+      description: Generated RBAC role definition.
+      required:
+      - roleName
+      properties:
+        principalId:
+          type: string
+          format: uuid
+        roleName:
+          type: string
+          enum:
+          - EVERYONE
+          - STAFF
+          - ADMIN
+          default: EVERYONE
+    GrayMatter:
+      type: object
+      x-thorapi-table-name: graymatter
+      description: Persistent aggregate for a local GrayMatter memory workspace.
+      required:
+      - name
+      - description
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+          x-thorapi-dataField: unique=true
+        description:
+          type: string
+          maxLength: 4000
+        recommendations:
+          type: string
+          maxLength: 4000
+        alerts:
+          type: array
+          maxItems: 50
+          items:
+            type: string
+            maxLength: 500
+    MemoryEntry:
+      type: object
+      x-thorapi-table-name: memory_entry
+      description: Durable memory nucleus owned and authorized by generated ThorAPI
+        services.
+      required:
+      - type
+      - text
+      properties:
+        type:
+          type: string
+          enum:
+          - configuration
+          - preference
+          - decision
+          - todo
+          - context
+          - artifact
+        title:
+          type: string
+          maxLength: 255
+        text:
+          type: string
+          maxLength: 655350
+          x-thorapi-stringStorage: portable-lob
+        tags:
+          type: array
+          maxItems: 50
+          items:
+            type: string
+            minLength: 1
+            maxLength: 128
+        sourceChannel:
+          type: string
+          maxLength: 128
+        sourceMessageId:
+          type: string
+          maxLength: 256
+        sourceUrl:
+          type: string
+          format: uri
+          maxLength: 1000
+        grayMatter:
+          "$ref": "#/components/schemas/GrayMatter"
+        retentionPolicy:
+          "$ref": "#/components/schemas/MemoryRetentionPolicy"
+    MemoryRetentionPolicy:
+      type: object
+      x-thorapi-table-name: memory_retention_policy
+      description: Generated retention policy for a local memory scope.
+      required:
+      - name
+      - retentionDays
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+        retentionDays:
+          type: integer
+          minimum: 1
+          maximum: 36500
+        archiveBeforeDelete:
+          type: boolean
+          default: true
+        description:
+          type: string
+          maxLength: 2000
+    UserPreference:
+      type: object
+      x-thorapi-table-name: user_preference
+      description: Generated normalized user preference.
+      required:
+      - preferenceKey
+      - preferenceValue
+      properties:
+        preferenceKey:
+          type: string
+          minLength: 1
+          maxLength: 128
+        preferenceValue:
+          type: string
+          maxLength: 4000
+        category:
+          type: string
+          maxLength: 80
+    Workbook:
+      type: object
+      x-thorapi-table-name: workbook
+      description: Generated local workbook root used by GridHeim-compatible clients.
+      required:
+      - name
+      - status
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+        status:
+          type: string
+          enum:
+          - WorkbookOpen
+          - WorkbookClosed
+          - WorkbookArchived
+          default: WorkbookOpen
+        description:
+          type: string
+          maxLength: 2000
+    KnowledgePack:
+      type: object
+      x-thorapi-table-name: knowledge_pack
+      description: Generated durable metadata for one imported portable KnowledgePack.
+      required:
+      - sourcePackId
+      - name
+      - formatVersion
+      - contentDigest
+      - archiveSha256
+      - trustModel
+      - identityAssurance
+      properties:
+        sourcePackId:
+          type: string
+          format: uuid
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+        formatVersion:
+          type: string
+          maxLength: 32
+        contentDigest:
+          type: string
+          minLength: 64
+          maxLength: 64
+        archiveSha256:
+          type: string
+          minLength: 64
+          maxLength: 64
+        trustModel:
+          type: string
+          maxLength: 64
+        identityAssurance:
+          type: string
+          maxLength: 128
+        objectCount:
+          type: integer
+          minimum: 0
+        edgeCount:
+          type: integer
+          minimum: 0
+        blobCount:
+          type: integer
+          minimum: 0
+        memoryEntryCount:
+          type: integer
+          minimum: 0
+    CreateMemoryEntryRequest:
+      type: object
+      x-thorapi-nonCrud: true
+      required:
+      - text
+      properties:
+        text:
+          type: string
+          maxLength: 655350
+        type:
+          type: string
+          enum:
+          - configuration
+          - preference
+          - decision
+          - todo
+          - context
+          - artifact
+          default: context
+        sourceChannel:
+          type: string
+          maxLength: 128
+        sourceMessageId:
+          type: string
+          maxLength: 256
+        sourceUrl:
+          type: string
+          format: uri
+          maxLength: 1000
+        metadata:
+          type: string
+          maxLength: 16000
+        tags:
+          type: array
+          maxItems: 50
+          items:
+            type: string
+            maxLength: 128
+    QueryMemoryEntryRequest:
+      type: object
+      x-thorapi-nonCrud: true
+      properties:
+        q:
+          type: string
+          maxLength: 4000
+        query:
+          type: string
+          maxLength: 4000
+        type:
+          type: string
+        source:
+          type: string
+          maxLength: 128
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 20
+        maxResults:
+          type: integer
+          minimum: 1
+          maximum: 100
+    MemoryQueryResponse:
+      type: object
+      x-thorapi-nonCrud: true
+      required:
+      - results
+      properties:
+        results:
+          type: array
+          items:
+            "$ref": "#/components/schemas/MemoryEntry"
+    MetricValue:
+      type: object
+      x-thorapi-nonCrud: true
+      required:
+      - label
+      - value
+      - state
+      properties:
+        label:
+          type: string
+        value:
+          type: integer
+          format: int64
+        unit:
+          type: string
+        state:
+          type: string
+    MemoryStatusResponse:
+      type: object
+      x-thorapi-nonCrud: true
+      properties:
+        status:
+          type: string
+        mode:
+          type: string
+        metrics:
+          type: array
+          items:
+            "$ref": "#/components/schemas/MetricValue"
+    MemoryUsageResponse:
+      type: object
+      x-thorapi-nonCrud: true
+      properties:
+        mode:
+          type: string
+        memoryEntries:
+          type: integer
+          format: int64
+        knowledgePacks:
+          type: integer
+          format: int64
+    GrayMatterStatsResponse:
+      type: object
+      x-thorapi-nonCrud: true
+      properties:
+        memoryEntries:
+          type: integer
+          format: int64
+        workbooks:
+          type: integer
+          format: int64
+        knowledgePacks:
+          type: integer
+          format: int64
+        mode:
+          type: string
+    GrayMatterActivationBridgeResponse:
+      type: object
+      x-thorapi-nonCrud: true
+      properties:
+        state:
+          type: string
+        localPrincipal:
+          type: string
+        hostedTarget:
+          type: string
+          format: uri
+    GrayMatterActivationEventRequest:
+      type: object
+      x-thorapi-nonCrud: true
+      properties:
+        eventType:
+          type: string
+          maxLength: 80
+        details:
+          type: string
+          maxLength: 2000
+    GrayMatterActivationEventResponse:
+      type: object
+      x-thorapi-nonCrud: true
+      properties:
+        status:
+          type: string
+        state:
+          type: string
+    SwarmGraphNode:
+      type: object
+      x-thorapi-nonCrud: true
+      properties:
+        type:
+          type: string
+        label:
+          type: string
+    SwarmGraphEdge:
+      type: object
+      x-thorapi-nonCrud: true
+      properties:
+        source:
+          type: string
+        target:
+          type: string
+        type:
+          type: string
+    SwarmGraphSnapshot:
+      type: object
+      x-thorapi-nonCrud: true
+      properties:
+        protocolVersion:
+          type: string
+        nodes:
+          type: array
+          items:
+            "$ref": "#/components/schemas/SwarmGraphNode"
+        edges:
+          type: array
+          items:
+            "$ref": "#/components/schemas/SwarmGraphEdge"
+    KnowledgePackSummary:
+      type: object
+      x-thorapi-nonCrud: true
+      properties:
+        sourcePackId:
+          type: string
+          format: uuid
+        name:
+          type: string
+        formatVersion:
+          type: string
+        contentDigest:
+          type: string
+        archiveSha256:
+          type: string
+        trustModel:
+          type: string
+        identityAssurance:
+          type: string
+        objectCount:
+          type: integer
+        edgeCount:
+          type: integer
+        blobCount:
+          type: integer
+        memoryEntryCount:
+          type: integer
+        importedAt:
+          type: string
+          format: date-time
+    KnowledgePackImportResult:
+      type: object
+      x-thorapi-nonCrud: true
+      properties:
+        knowledgePack:
+          "$ref": "#/components/schemas/KnowledgePackSummary"
+        alreadyImported:
+          type: boolean
+        verificationStatus:
+          type: string
+    KnowledgePackGraphResponse:
+      type: object
+      x-thorapi-nonCrud: true
+      properties:
+        knowledgePack:
+          "$ref": "#/components/schemas/KnowledgePackSummary"
+        objects:
+          type: array
+          items:
+            "$ref": "#/components/schemas/KnowledgePackGraphObject"
+        edges:
+          type: array
+          items:
+            "$ref": "#/components/schemas/KnowledgePackGraphEdge"
+    KnowledgePackGraphObject:
+      type: object
+      x-thorapi-nonCrud: true
+      description: Portable object projection used by the KnowledgePack graph view.
+      properties:
+        kind:
+          type: string
+        sourceId:
+          type: string
+          format: uuid
+        type:
+          type: string
+        title:
+          type: string
+        text:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string
+    KnowledgePackGraphEdge:
+      type: object
+      x-thorapi-nonCrud: true
+      description: Portable relation projection used by the KnowledgePack graph view.
+      properties:
+        sourceKind:
+          type: string
+        sourceId:
+          type: string
+          format: uuid
+        relation:
+          type: string
+        targetKind:
+          type: string
+        targetId:
+          type: string
+          format: uuid
+        external:
+          type: boolean
+  securitySchemes:
+    basicAuth:
+      type: http
+      scheme: basic
+  parameters:
+    id:
+      name: id
+      in: path
+      required: true
+      description: UUID of the requested object
+      schema:
+        type: string
+        format: uuid
+x-graymatter-mcp-contract:
+  version: graymatter-memory-tools/v1
+  mappings:
+    memory_put: POST /MemoryEntry/write
+    memory_get: GET /MemoryEntry/{id}
+    memory_query: POST /MemoryEntry/query
+    memory_health: GET /memory/status

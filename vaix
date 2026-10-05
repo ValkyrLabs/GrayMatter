@@ -9,6 +9,7 @@ thor_mcp_port="${GRAYMATTER_MCP_PORT:-3333}"
 thor_jdk_major="${VAIX_JAVA_MAJOR:-17}"
 thor_maven_version="${VAIX_MAVEN_VERSION:-3.9.11}"
 thor_node_line="${VAIX_NODE_LINE:-22}"
+thorapi_version="${THORAPI_VERSION:-1.0.3-SNAPSHOT}"
 thor_admin_env="${thor_bundle_dir}/admin.env"
 thor_backend_pid="${thor_state_dir}/graymatter-lite.pid"
 thor_mcp_pid="${thor_state_dir}/graymatter-mcp.pid"
@@ -22,7 +23,11 @@ Usage: ./vaix <command> [options]
 Commands:
   setup [--no-start]  Install missing private toolchains, generate, build, test,
                       configure one local profile, and start Lite plus HTTP MCP.
-  generate            Render the ThorAPI api.hbs.yaml application bundle.
+  generate [options]  Compose canonical YAML and generate OpenAPI JSON, Spring,
+                      JPA/repository/service/controller, and TypeScript surfaces.
+    --extension FILE  Compose an application-owned OpenAPI YAML bundle (repeatable).
+    --example-extension  Include the customer-support acceptance domain.
+  regenerate [options]  Generate, build, and test in one fail-fast workflow.
   build               Build the Spring/H2 local server from source.
   test                Run local-server, bootstrap, docs, and MCP contract tests.
   run                 Run the Lite backend in the foreground.
@@ -207,10 +212,109 @@ thor_ensure_node() {
 }
 
 thor_generate() {
+  local -a thor_extensions=()
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --extension)
+        [[ -n "${2:-}" ]] || thor_die "--extension requires a YAML file"
+        thor_extensions+=("$2")
+        shift 2
+        ;;
+      --example-extension)
+        thor_extensions+=("${thor_root}/openapi/extensions/customer-support.yaml")
+        shift
+        ;;
+      *) thor_die "unknown generate option: $1" ;;
+    esac
+  done
+
+  local thor_java="" thor_maven="" thor_jar="" thor_codegen_dir=""
+  local thor_exec_jar="" thor_regular_jar="" thor_openapi_dir=""
+  local -a thor_pipeline_args=()
+  thor_java="$(thor_ensure_java)"
+  thor_maven="$(thor_ensure_maven)"
+  thor_export_toolchain "$thor_java" "$thor_maven"
+
   "${thor_root}/scripts/gm-light-bootstrap" \
     --out-dir "$thor_bundle_dir" \
     --server-url "http://localhost:${thor_backend_port}" >/dev/null
-  printf 'Generated GrayMatter Lite from templates/graymatter-light-bootstrap/api.hbs.yaml at %s\n' "$thor_bundle_dir"
+
+  thor_openapi_dir="${thor_bundle_dir}/openapi"
+  rm -rf "$thor_openapi_dir" \
+    "${thor_bundle_dir}/local-server/generated/spring" \
+    "${thor_bundle_dir}/generated/typescript"
+  mkdir -p "$thor_openapi_dir"
+  thor_pipeline_args=(
+    --bundles-dir "${thor_root}/openapi/bundles"
+    --out-dir "$thor_openapi_dir"
+  )
+  local thor_extension=""
+  for thor_extension in "${thor_extensions[@]}"; do
+    [[ -f "$thor_extension" ]] || thor_die "extension bundle not found: $thor_extension"
+    thor_pipeline_args+=(--extension "$(cd "$(dirname "$thor_extension")" && pwd)/$(basename "$thor_extension")")
+  done
+  local thor_pipeline_args_joined=""
+  printf -v thor_pipeline_args_joined '%q ' "${thor_pipeline_args[@]}"
+  "$thor_maven" -q -f "${thor_root}/tools/schema-pipeline/pom.xml" \
+    -DskipTests compile exec:java -Dexec.args="$thor_pipeline_args_joined"
+
+  thor_codegen_dir="${thor_state_dir}/runtime/thorapi-${thorapi_version}"
+  mkdir -p "$thor_codegen_dir"
+  "$thor_maven" -q -f "${thor_root}/tools/schema-pipeline/pom.xml" dependency:copy \
+    -Dartifact="com.valkyrlabs:thorapi:${thorapi_version}:jar:exec" \
+    -DoutputDirectory="$thor_codegen_dir" -Dmdep.stripVersion=true
+  "$thor_maven" -q -f "${thor_root}/tools/schema-pipeline/pom.xml" dependency:copy \
+    -Dartifact="com.valkyrlabs:thorapi:${thorapi_version}:jar" \
+    -DoutputDirectory="$thor_codegen_dir" -Dmdep.stripVersion=true
+  thor_exec_jar="${thor_codegen_dir}/thorapi-exec.jar"
+  thor_regular_jar="${thor_codegen_dir}/thorapi.jar"
+  [[ -f "$thor_exec_jar" && -f "$thor_regular_jar" ]] \
+    || thor_die "ThorAPI ${thorapi_version} code-generation artifacts are unavailable"
+
+  rm -rf "${thor_codegen_dir}/templates"
+  (cd "$thor_codegen_dir" && "$(dirname "$thor_java")/jar" xf "$thor_regular_jar" \
+    templates/JavaSpring templates/typescript-redux-query)
+  local thor_template_patch=""
+  for thor_template_patch in "${thor_root}/openapi/generator/patches/"*.patch; do
+    patch -s -p0 -d "$thor_codegen_dir" <"$thor_template_patch"
+  done
+
+  "$thor_java" -Dloader.main=org.openapitools.codegen.OpenAPIGenerator \
+    -cp "$thor_exec_jar" org.springframework.boot.loader.launch.PropertiesLauncher generate \
+    -g com.valkyrlabs.thorapi.codegen.ThorApiSpringCodegen \
+    -i "${thor_openapi_dir}/api-out.yaml" \
+    -o "${thor_bundle_dir}/local-server/generated/spring" \
+    -t "${thor_codegen_dir}/templates/JavaSpring" \
+    -c "${thor_root}/openapi/generator/spring.yaml" \
+    --api-package com.valkyrlabs.graymatter.generated.api \
+    --model-package com.valkyrlabs.graymatter.generated.model \
+    --group-id com.valkyrlabs.graymatter \
+    --artifact-id graymatter-generated-api \
+    --artifact-version 0.4.0 \
+    --global-property modelTests=false,apiTests=false,modelDocs=false,apiDocs=false \
+    --additional-properties library=spring-boot,delegatePattern=true,useSpringBoot3=true,useJakartaEe=true,dateLibrary=java8,serializableModel=true,performBeanValidation=true,useBeanValidation=true,openApiNullable=false,swagger2AnnotationLibrary=true,hideGenerationTimestamp=true
+
+  "$thor_java" -Dloader.main=org.openapitools.codegen.OpenAPIGenerator \
+    -cp "$thor_exec_jar" org.springframework.boot.loader.launch.PropertiesLauncher generate \
+    -g com.valkyrlabs.thorapi.codegen.ThorApiTypeScriptReduxQueryCodegen \
+    -i "${thor_openapi_dir}/api-out.yaml" \
+    -o "${thor_bundle_dir}/generated/typescript" \
+    -t "${thor_codegen_dir}/templates/typescript-redux-query" \
+    -c "${thor_codegen_dir}/templates/typescript-redux-query/generator.config.yaml" \
+    --additional-properties npmName=@valkyrlabs/graymatter-generated,npmVersion=0.4.0,hideGenerationTimestamp=true
+
+  cp "${thor_openapi_dir}/api.hbs.yaml" "${thor_bundle_dir}/api.hbs.yaml"
+  cp "${thor_openapi_dir}/api-out.yaml" "${thor_bundle_dir}/api.yaml"
+  cp "${thor_openapi_dir}/api-out.json" "${thor_bundle_dir}/application-bundle/openapi.json"
+  cp "${thor_openapi_dir}/api-out.json" \
+    "${thor_bundle_dir}/local-server/src/main/resources/openapi.json"
+  printf 'Generated GrayMatter Lite from canonical YAML at %s\n' "$thor_bundle_dir"
+}
+
+thor_regenerate() {
+  thor_generate "$@"
+  thor_build
+  thor_test
 }
 
 thor_export_toolchain() {
@@ -226,7 +330,7 @@ thor_build() {
   thor_java="$(thor_ensure_java)"
   thor_maven="$(thor_ensure_maven)"
   thor_export_toolchain "$thor_java" "$thor_maven"
-  "$thor_maven" -q -f "${thor_bundle_dir}/local-server/pom.xml" -DskipTests package
+  "$thor_maven" -q -f "${thor_bundle_dir}/local-server/pom.xml" -DskipTests clean package
   thor_jar="$(find "${thor_bundle_dir}/local-server/target" -maxdepth 1 -type f \
     -name 'graymatter-local-server-*.jar' ! -name '*sources*' ! -name '*javadoc*' | sort | tail -n 1)"
   [[ -n "$thor_jar" ]] || thor_die "local-server build produced no runnable JAR"
@@ -377,6 +481,7 @@ thor_test() (
     "$thor_root/tests/gm_profile_test.sh"
     "$thor_root/tests/package_local_server_test.sh"
     "$thor_root/tests/docs_consistency_test.sh"
+    NODE_BIN="$thor_node" "$thor_root/tests/schema_regeneration_test.sh"
     "$thor_root/scripts/package-graymatter" >/dev/null
     "$thor_root/tests/release_surfaces_test.sh"
   fi
@@ -461,7 +566,8 @@ thor_command="${1:-help}"
 shift || true
 case "$thor_command" in
   setup) thor_setup "$@" ;;
-  generate) [[ $# -eq 0 ]] || thor_die "generate accepts no arguments"; thor_generate ;;
+  generate) thor_generate "$@" ;;
+  regenerate) thor_regenerate "$@" ;;
   build) [[ $# -eq 0 ]] || thor_die "build accepts no arguments"; thor_build ;;
   test) [[ $# -eq 0 ]] || thor_die "test accepts no arguments"; thor_test ;;
   run) [[ $# -eq 0 ]] || thor_die "run accepts no arguments"; thor_run ;;

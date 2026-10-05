@@ -11,6 +11,9 @@ It runs a minimum Spring Boot server on your machine with:
 - `Principal` identity records
 - `UserPreferences` for local user state
 - `MemoryEntry` create/query APIs through `/v1/MemoryEntry/*`
+- owner-scoped H2 vector and BM25 hybrid search through `/v1/memory/semantic-index/search`
+- Bifrost context compression and source-rechecked receipts through
+  `/v1/graymatter/retrieval-context` and `/v1/graymatter-retrieval-receipts`
 - signed `.gmkp` KnowledgePack import, graph inspection, and archive retrieval through `/v1/knowledge-packs/*`
 - whole-memory signed KnowledgePack export through `/v1/knowledge-packs/export`
 - a vetted GrayMatter/ValkyrSWARM/ValkyrAI/ThorAPI starter KnowledgePack loaded idempotently into H2
@@ -36,6 +39,14 @@ bin/graymatter-local-server
 From the repository root, prefer `./vaix setup`. For Docker, set
 `GRAYMATTER_ADMIN_PASSWORD` and run
 `docker compose -f deploy/docker-compose.lite.yml up --build`.
+
+Vector search defaults to an offline feature-hash projection. For semantic
+embeddings, set `GRAYMATTER_EMBEDDING_PROVIDER=ollama` and
+`GRAYMATTER_EMBEDDING_OLLAMA_MODEL` to an installed local embedding model, then
+call `POST /v1/memory/reindex`. Ollama is contacted only on loopback. If it is
+unavailable, query responses expose `semanticDegraded` and use the offline
+projection. Receipt context never overwrites a canonical memory; hydration
+and recompression recheck owner and source hash.
 
 ## Build from source
 

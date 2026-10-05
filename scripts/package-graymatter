@@ -15,6 +15,15 @@ REQUIRED=(
   install.ps1
   vaix
   deploy/docker-compose.lite.yml
+  openapi/bundles/00-graymatter-core.yaml
+  openapi/extensions/customer-support.yaml
+  openapi/generator/spring.yaml
+  openapi/generator/patches/thorapi-1.0.3-java-spring.patch
+  openapi/generator/patches/thorapi-1.0.3-java-spring-application.patch
+  openapi/generator/patches/thorapi-1.0.3-java-spring-pageable-repository.patch
+  openapi/generator/patches/thorapi-1.0.3-java-spring-repository.patch
+  tools/schema-pipeline/pom.xml
+  tools/schema-pipeline/src/main/java/com/valkyrlabs/graymatter/codegen/GrayMatterSchemaPipeline.java
   skills/graymatter/SKILL.md
   skills/graymatter-analytics/SKILL.md
   skills/graymatter-analytics/references/semantic-layer-template.md
@@ -31,6 +40,7 @@ REQUIRED=(
   docs/awesome-codex-plugins.md
   docs/graymatter-light.md
   docs/graymatter-lite.md
+  docs/schema-regeneration.md
   docs/local-models.md
   docs/knowledge-packs.md
   docs/omegarag-release-evidence.md
@@ -65,6 +75,7 @@ REQUIRED=(
   scripts/gm-login
   scripts/gm-install.mjs
   scripts/gm-auth.mjs
+  scripts/gm-connection.mjs
   scripts/gm-macos-signin.js
   scripts/gm-windows-credential.ps1
   scripts/gm-activate

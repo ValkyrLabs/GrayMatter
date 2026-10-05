@@ -3442,9 +3442,12 @@ function readTokenFromKeychain() {
     process.env.GRAYMATTER_USERNAME || process.env.VALKYR_USERNAME || '',
     'default'
   ].filter(Boolean);
-  const services = [...new Set([service, 'VALKYR_AUTH', 'openclaw-valkyrai-admin-jwtSession'])];
+  const thor_scoped = Boolean(process.env.GRAYMATTER_ACTIVE_PROFILE || process.env.GRAYMATTER_PROFILE)
+    || withoutTrailingSlash(process.env.VALKYR_API_BASE || DEFAULT_API_BASE) !== DEFAULT_API_BASE;
+  const services = thor_scoped ? [service] : [...new Set([service, 'VALKYR_AUTH', 'openclaw-valkyrai-admin-jwtSession'])];
 
   for (const account of accounts) {
+    if (thor_scoped && account === 'default') continue;
     for (const candidateService of services) {
       const commandBudget = executionCommandBudget(
         1000,

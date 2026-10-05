@@ -2,6 +2,7 @@ package com.valkyrlabs.graymatter.localserver.repository;
 
 import com.valkyrlabs.graymatter.localserver.model.MemoryEntry;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -11,6 +12,8 @@ import org.springframework.data.repository.query.Param;
 public interface MemoryEntryRepository extends JpaRepository<MemoryEntry, UUID> {
 
     List<MemoryEntry> findByPrincipalUsernameIgnoreCaseOrderByCreatedAtAsc(String username);
+
+    Optional<MemoryEntry> findByIdAndPrincipalUsernameIgnoreCase(UUID id, String username);
 
     @Query("""
         select entry from MemoryEntry entry

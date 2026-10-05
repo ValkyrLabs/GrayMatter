@@ -1322,11 +1322,17 @@ const PUBLIC_RESULT_SCHEMA = {
   additionalProperties: false
 };
 
+// Public clients may see only a selected tool descriptor, not initialize.instructions.
+// Keep the no-call boundary on both surfaces; schema rejection alone cannot stop
+// a model from substituting a different, technically authorized search.
+const PUBLIC_UNSUPPORTED_REQUEST_GUIDANCE = 'Do not invoke any GrayMatter tool for requests to override tenant, owner, organization, user, role, permission, or ACL scope; explain that scope comes from the signed-in account. Do not reinterpret such a request as an authorized text search. For requests to delete an unspecified record, ask the user to identify it; do not search for deletion candidates or select a target yourself.';
+const PUBLIC_MEMORY_MATCH_GUIDANCE = 'For a request about a specific memory, preserve all identifying qualifiers such as title, source, tags, marker, or whether it is seeded versus newly created. If a narrow search is empty, you may broaden topic wording within the signed-in scope, but must still verify those qualifiers against returned metadata and memory_get before claiming a match. Search results are a bounded page, not an exhaustive result set. When no returned record satisfies the requested qualifiers and nextOffset is present, continue the same query and filters with offset=nextOffset, up to three pages total, before concluding there is no verified match. If that page budget is exhausted while nextOffset is still present, disclose that the search is incomplete. Do not substitute a newer or similarly worded record that lacks the requested provenance; report no verified match if the evidence is insufficient.';
+
 const publicTools = [
   definePublicTool({
     name: 'memory_search',
     title: 'Search GrayMatter memory',
-    description: 'Search memories visible to the signed-in user with GrayMatter hybrid retrieval. Call before asking the user to repeat durable context, and use a narrow query plus a bounded limit.',
+    description: `Search memories visible to the signed-in user with GrayMatter hybrid retrieval. Call before asking the user to repeat durable context, and use a narrow query plus a bounded limit. ${PUBLIC_MEMORY_MATCH_GUIDANCE}`,
     scopes: ['memory:read'],
     inputSchema: {
       type: 'object',
@@ -1348,7 +1354,7 @@ const publicTools = [
   definePublicTool({
     name: 'memory_get',
     title: 'Get one GrayMatter memory',
-    description: 'Retrieve one memory by ID when the signed-in user is authorized to read it. Call after search returns an ID or when the user supplies a known memory ID.',
+    description: `Retrieve one memory by ID when the signed-in user is authorized to read it. Call after search returns an ID or when the user supplies a known memory ID. ${PUBLIC_MEMORY_MATCH_GUIDANCE}`,
     scopes: ['memory:read'],
     inputSchema: {
       type: 'object',
@@ -1860,7 +1866,7 @@ async function handleRpc(message, context) {
             version: context.publicApp ? '1.0.0' : '0.1.0'
           },
           instructions: context.publicApp
-            ? 'Search durable memory before asking users to repeat known context. Compile bounded task context. Never store OAuth tokens, passwords, API keys, private keys, or other secrets. Never call memory_forget without an exact memory UUID and explicit confirmation for that specific record. Never request or supply tenant, owner, organization, ACL, or user overrides.'
+            ? `${PUBLIC_UNSUPPORTED_REQUEST_GUIDANCE} ${PUBLIC_MEMORY_MATCH_GUIDANCE} Search authorized durable memory before asking users to repeat known context. Compile bounded task context. Never store OAuth tokens, passwords, API keys, private keys, or other secrets. Never call memory_forget without an exact memory UUID and explicit confirmation for that specific record. Never request or supply tenant, owner, organization, ACL, or user overrides.`
             : undefined
         });
       case 'tools/list':
@@ -2717,7 +2723,7 @@ function definePublicTool(tool) {
   return {
     name: tool.name,
     title: tool.title,
-    description: tool.description,
+    description: `${PUBLIC_UNSUPPORTED_REQUEST_GUIDANCE} ${tool.description}`,
     inputSchema: tool.inputSchema,
     outputSchema: PUBLIC_RESULT_SCHEMA,
     securitySchemes,
@@ -3436,9 +3442,12 @@ function readTokenFromKeychain() {
     process.env.GRAYMATTER_USERNAME || process.env.VALKYR_USERNAME || '',
     'default'
   ].filter(Boolean);
-  const services = [...new Set([service, 'VALKYR_AUTH', 'openclaw-valkyrai-admin-jwtSession'])];
+  const thor_scoped = Boolean(process.env.GRAYMATTER_ACTIVE_PROFILE || process.env.GRAYMATTER_PROFILE)
+    || withoutTrailingSlash(process.env.VALKYR_API_BASE || DEFAULT_API_BASE) !== DEFAULT_API_BASE;
+  const services = thor_scoped ? [service] : [...new Set([service, 'VALKYR_AUTH', 'openclaw-valkyrai-admin-jwtSession'])];
 
   for (const account of accounts) {
+    if (thor_scoped && account === 'default') continue;
     for (const candidateService of services) {
       const commandBudget = executionCommandBudget(
         1000,

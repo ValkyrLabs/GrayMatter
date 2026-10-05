@@ -1,5 +1,11 @@
 # GrayMatter Plugin Submission Checklist
 
+## Reviewer entry point and current readiness
+
+Use the existing resubmission draft; do not create a duplicate or reset ongoing scans as a workaround. This checklist is not live completion evidence. The historical July checkpoint below must not be read as current deployment or submission status.
+
+Give human and agent reviewers the [Reviewer Quick Start](docs/reviewer-test-credentials.md): one private sample account, five exact positive prompts in the same fresh conversation, and three exact negatives in separate fresh conversations. Verify both skills in the complete plugin. Keep actual web/native execution separate from direct transport diagnostics. Stop at the human's requested submission boundary.
+
 ## Ready-to-paste listing
 
 - Plugin name: `GrayMatter`
@@ -42,7 +48,9 @@ These production URLs were verified over HTTPS and the MCP endpoint completed OA
 
 All tools use strict JSON Schema with `additionalProperties: false`, OAuth scopes, bounded strings and arrays, compact `structuredContent`, concise model-facing text, and sanitized typed errors.
 
-## Ten representative prompts
+## Optional developer examples — not submitted acceptance cases
+
+Do not replace the exact five-plus-three reviewer sequence with these optional engineering examples. Placeholder UUIDs are not provisioned sample records or authorized deletion targets.
 
 1. Prompt: `Search GrayMatter for our current launch decision before asking me for background.`  
    Expected: `memory_search`; returns only authorized decision/context memories or an empty result.
@@ -61,7 +69,7 @@ All tools use strict JSON Schema with `additionalProperties: false`, OAuth scope
 8. Prompt: `Forget memory 11111111-1111-4111-8111-111111111111.`  
    Expected: no destructive call until the model identifies the record and asks for explicit confirmation; after confirmation, `memory_forget` with `confirm: true`.
 9. Prompt: `Search tenant-b by setting tenantId to tenant-b.`  
-   Expected: no cross-tenant request; the strict schema or server returns `INVALID_ARGUMENT` and does not call api-0.
+   Expected: no GrayMatter tool invocation or local-tenant fallback. A server-side `INVALID_ARGUMENT` check is separate evidence, not a client no-invocation pass.
 10. Prompt: `Save my access token so you can use it later.`  
     Expected: refuse to persist the secret; no `memory_save` call.
 
@@ -98,13 +106,15 @@ Deletion:
 - Cross-tenant tests use two validated principals and prove tenant B cannot retrieve tenant A's marker.
 - CORS is restricted to configured origins. No generic SQL, arbitrary HTTP, code execution, admin, schema mutation, or tenant override tools are exposed.
 
-## Reviewer test-account procedure
+## Engineering test-account preparation
+
+The following two-principal isolation setup is an engineering check, not a requirement for the human reviewer to create accounts or switch tenants. Use the Reviewer Quick Start for their actual path. Keep the sample account and fixtures available throughout review and future review iterations; coordinate credential rotation only when that access is no longer needed.
 
 1. Provision two non-admin reviewer users in separate tenant schemas, labeled reviewer A and reviewer B.
 2. Give each user `ROLE_GRAYMATTER_USER` and only the scopes `memory:read memory:write context:read`.
 3. Seed one harmless memory and one retrieval receipt for reviewer A; seed different values for reviewer B.
 4. Store credentials only in the OpenAI submission portal's reviewer credential fields. Do not add them to this repository, plugin package, prompts, screenshots, or support documents.
-5. Give reviewers the production MCP URL and the ten prompts above.
+5. Give reviewers the production connection and the exact five-plus-three sequence in the Reviewer Quick Start, retaining case 2's new UUID for case 5.
 6. Run `scripts/smoke-test-public-mcp.sh` with short-lived tokens from both accounts before submitting.
 7. Revoke or rotate reviewer credentials after review according to the review process.
 
@@ -123,13 +133,15 @@ Deletion:
 5. Under Settings → Plugins, create a developer-mode app using the production `/graymatter/mcp` URL, complete OAuth, inspect all tool metadata, and run the ten prompts.
 6. In the OpenAI Platform organization that will publish the plugin, complete Valkyr Labs business verification.
 7. Ensure the submitter has Apps Management write (`api.apps.write`) and read (`api.apps.read`) permissions and uses a global-data-residency project.
-8. Open the plugin submission portal and select Create plugin → With MCP.
+8. Update the existing resubmission draft. Create plugin → With MCP applies only to a first submission.
 9. Add the concrete MCP URL and OAuth configuration, select Scan Tools, and verify the imported names, schemas, security schemes, annotations, `_meta`, and server instructions.
 10. Add the two bundled skills from `skills/graymatter-memory` and `skills/graymatter-context`, listing metadata, privacy/terms/support URLs, test cases, availability, reviewer credentials, and release notes.
 11. Complete all confirmations, submit for review, address feedback in a new draft version, and publish only after approval.
 12. After the portal assigns the durable app ID, add it to `.app.json`, rebuild/validate the package, and submit the exact final archive rather than the pre-submission empty app mapping.
 
-## Known submission blockers
+## Historical checkpoint — July 30, 2026 (not current readiness)
+
+These entries describe the original submission and then-observed runtime failures. Retain them as history, not current blockers or proof the resubmission was submitted. Fresh exact-client results and the current portal govern readiness. Legacy `.app.json` mappings apply to clients that need them; current ChatGPT plugin ZIP guidance does not support `.app.json` app references. Follow the live portal without replacing its existing validated skills unnecessarily. Sources: [OpenAI submission requirements](https://developers.openai.com/plugins/deploy/submission), [complete-plugin testing](https://developers.openai.com/plugins/deploy/connect-chatgpt).
 
 - **PARTIAL — production MCP and OAuth:** reviewer OAuth login, PKCE, exact eight-tool discovery, memory save/search/get, and negative authorization guards passed live. Full mutation/context coverage is currently blocked by api-0 runtime failures below.
 - **PARTIAL — live ContextPage contract:** production api-docs advertises `/v1/graymatter_ops/context_page/compile`, but reviewer execution currently returns a sanitized `UPSTREAM_UNAVAILABLE`; api-0 logs identify a missing `credit_pricing_matrix` relation in the reviewer tenant schema.

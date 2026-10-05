@@ -1,0 +1,20 @@
+files:
+  ThorApplication.mustache:
+    templateType: SupportingFiles
+    folder: src/main/java/com/valkyrlabs/graymatter/generated/api/
+    destinationFilename: ThorApplication.java
+  service.mustache:
+    templateType: Model
+    destinationFilename: Service.java
+  pageableRepository.mustache:
+    templateType: Model
+    folder: src/main/java/com/valkyrlabs/graymatter/generated/api/
+    destinationFilename: PageableRepository.java
+  repository.mustache:
+    templateType: Model
+    folder: src/main/java/com/valkyrlabs/graymatter/generated/api/
+    destinationFilename: Repository.java
+  generatedAspects.mustache:
+    templateType: SupportingFiles
+    folder: src/main/resources
+    destinationFilename: generated-aspects.xml

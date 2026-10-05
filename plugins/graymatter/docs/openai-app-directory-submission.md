@@ -12,6 +12,8 @@ OpenAI now publishes Apps SDK apps as plugins. GrayMatter is an app-plus-skills 
 
 ## Public submission
 
+For this resubmission, update the existing draft rather than creating another. Use the exact five-positive/three-negative [Reviewer Quick Start](reviewer-test-credentials.md), not the optional engineering examples. Current [OpenAI submission requirements](https://developers.openai.com/plugins/deploy/submission) and [complete-plugin testing](https://developers.openai.com/plugins/deploy/connect-chatgpt) govern the actual portal format; legacy `.app.json` client mappings are not supported ChatGPT plugin ZIP app references. Respect the human's requested stopping point before submission and any action-time legal confirmation.
+
 1. Complete Valkyr Labs business verification in the OpenAI Platform organization and confirm the publisher identity is verified.
 2. Give the submitter Apps Management read/write access (`api.apps.write` and `api.apps.read`) and use a global-data-residency project.
 3. Open the plugin submission portal and create a `With MCP` plugin.
@@ -29,6 +31,6 @@ Do not submit until:
 - two isolated reviewer accounts pass the public MCP smoke test;
 - production api-docs exposes the ContextPage compile endpoint;
 - the public privacy policy covers all disclosed data handling; and
-- `.app.json` contains the durable app ID assigned by the developer/submission flow.
+- the actual ChatGPT tester path passes its required cases, including both bundled skills; legacy clients separately retain the assigned durable app ID in `.app.json`.
 
 See `SUBMISSION_CHECKLIST.md` for the ready-to-paste listing, tool explanations, prompts, data disclosure, reviewer procedure, security controls, and exact blockers.

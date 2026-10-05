@@ -1,9 +1,12 @@
 package com.valkyrlabs.graymatter.localserver.controller;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.valkyrlabs.graymatter.localserver.model.MemoryEntry;
 import com.valkyrlabs.graymatter.localserver.model.PrincipalRecord;
 import com.valkyrlabs.graymatter.localserver.repository.MemoryEntryRepository;
 import com.valkyrlabs.graymatter.localserver.repository.PrincipalRecordRepository;
+import com.valkyrlabs.graymatter.localserver.service.MemoryHybridSearchService;
+import com.valkyrlabs.graymatter.localserver.service.MemorySearchFilterParser;
 import jakarta.validation.Valid;
 import java.security.Principal;
 import java.time.Instant;
@@ -28,10 +31,13 @@ public class MemoryEntryController {
 
     private final PrincipalRecordRepository principals;
     private final MemoryEntryRepository memoryEntries;
+    private final MemoryHybridSearchService search;
 
-    public MemoryEntryController(PrincipalRecordRepository principals, MemoryEntryRepository memoryEntries) {
+    public MemoryEntryController(PrincipalRecordRepository principals, MemoryEntryRepository memoryEntries,
+                                 MemoryHybridSearchService search) {
         this.principals = principals;
         this.memoryEntries = memoryEntries;
+        this.search = search;
     }
 
     @GetMapping
@@ -46,30 +52,36 @@ public class MemoryEntryController {
 
     @GetMapping("/{id}")
     public MemoryEntryResponse read(Principal authenticated, @PathVariable UUID id) {
-        return memoryEntries.findById(id)
-            .filter(entry -> entry.getPrincipal().getUsername().equalsIgnoreCase(authenticated.getName()))
+        return memoryEntries.findByIdAndPrincipalUsernameIgnoreCase(id, authenticated.getName())
             .map(MemoryEntryResponse::from)
             .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "MemoryEntry not found"));
     }
 
     @PostMapping("/read")
     public List<MemoryEntryResponse> read(Principal authenticated, @RequestBody(required = false) MemoryQueryRequest request) {
-        return query(authenticated, request == null ? new MemoryQueryRequest(null, null, null, null, null, null, null) : request).results();
+        return query(authenticated, request).results();
     }
 
     @PostMapping("/query")
     public MemoryQueryResponse query(Principal authenticated, @RequestBody(required = false) MemoryQueryRequest request) {
         MemoryQueryRequest safeRequest = request == null
-            ? new MemoryQueryRequest(null, null, null, null, null, null, null)
+            ? new MemoryQueryRequest(null, null, null, null, null, null, null, null, null, null, null)
             : request;
         String query = firstNonBlank(safeRequest.query(), safeRequest.q(), safeRequest.keyword());
         Integer requestedLimit = safeRequest.limit() == null ? safeRequest.maxResults() : safeRequest.limit();
         int limit = Math.max(1, Math.min(requestedLimit == null ? 25 : requestedLimit, 100));
-        List<MemoryEntryResponse> results = memoryEntries.searchForPrincipal(authenticated.getName(), query, PageRequest.of(0, limit))
-            .stream()
-            .map(MemoryEntryResponse::from)
-            .toList();
-        return new MemoryQueryResponse(results);
+        try {
+            MemorySearchFilterParser.Filters filters = MemorySearchFilterParser.merge(
+                safeRequest.type(), firstNonBlank(safeRequest.sourceChannel(), safeRequest.source()),
+                safeRequest.tags(), safeRequest.filters());
+            MemoryHybridSearchService.SearchResponse ranked = search.search(authenticated.getName(),
+                new MemoryHybridSearchService.SearchRequest(query, limit, safeRequest.retrievalMode(),
+                    filters.type(), filters.source(), filters.tags()));
+            return new MemoryQueryResponse(ranked.hits().stream()
+                .map(hit -> MemoryEntryResponse.from(hit.entry())).toList());
+        } catch (IllegalArgumentException ex) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, ex.getMessage());
+        }
     }
 
     @PostMapping({"", "/write"})
@@ -90,7 +102,9 @@ public class MemoryEntryController {
                 ? "graymatter-local-server"
                 : firstNonBlank(request.sourceChannel(), request.source()),
             normalizeTags(request.tags()));
-        return MemoryEntryResponse.from(memoryEntries.save(entry));
+        MemoryEntry saved = memoryEntries.save(entry);
+        search.index(saved);
+        return MemoryEntryResponse.from(saved);
     }
 
     public record CreateMemoryEntryRequest(
@@ -110,7 +124,11 @@ public class MemoryEntryController {
         Integer limit,
         Integer maxResults,
         String type,
-        String source) {
+        String source,
+        String sourceChannel,
+        List<String> tags,
+        String retrievalMode,
+        JsonNode filters) {
     }
 
     public record MemoryQueryResponse(List<MemoryEntryResponse> results) {

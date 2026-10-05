@@ -472,6 +472,12 @@ run_login() {
 
   refresh_execution_budget
   eval "$("$login_cmd" env)"
+  BASE="${VALKYR_API_BASE:-$BASE}"
+  KEYCHAIN_SERVICE="${VALKYR_KEYCHAIN_SERVICE:-$KEYCHAIN_SERVICE}"
+  USERNAME="${GRAYMATTER_USERNAME:-${VALKYR_USERNAME:-$USERNAME}}"
+  LIGHT_MODE="${GRAYMATTER_LIGHT_MODE:-false}"
+  LIGHT_USERNAME="${GRAYMATTER_LIGHT_USERNAME:-$LIGHT_USERNAME}"
+  LIGHT_PASSWORD="${GRAYMATTER_LIGHT_PASSWORD:-}"
   TOKEN=${VALKYR_AUTH_TOKEN:-${VALKYR_JWT_SESSION:-}}
   XSRF_TOKEN=${GRAYMATTER_XSRF_TOKEN:-}
   if [[ -z "$USERNAME" ]] && command -v security >/dev/null 2>&1; then
@@ -499,7 +505,7 @@ if [[ -z "$TOKEN" && "$LIGHT_MODE" != "true" ]] && command -v security >/dev/nul
 fi
 
 if [[ -z "$TOKEN" && "$LIGHT_MODE" != "true" ]]; then
-  if ! run_login || [[ -z "$TOKEN" ]]; then
+  if ! run_login || [[ -z "$TOKEN" && "$LIGHT_MODE" != "true" ]]; then
     if [[ -n "${GRAYMATTER_ACTIVE_PROFILE:-}" ]]; then
       echo "GrayMatter profile '${GRAYMATTER_ACTIVE_PROFILE}' has not authenticated or could not refresh its session." >&2
       echo "Run 'scripts/gm-profile login ${GRAYMATTER_ACTIVE_PROFILE}' and verify its RBAC access." >&2

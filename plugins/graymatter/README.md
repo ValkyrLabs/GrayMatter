@@ -11,7 +11,7 @@ retrieve it through MCP, import or export portable KnowledgePacks, and connect
 local or hosted agent profiles.
 
 It is not a time-limited trial and it is not a hollow demo. The Lite boundary is
-the committed ThorAPI `api.hbs.yaml`, `./vaix` builder, Spring/H2 backend,
+the canonical ThorAPI YAML under `openapi/bundles`, `./vaix` builder, Spring/H2 backend,
 embedded dashboard, MCP server, starter KnowledgePack, Docker definition,
 tests, and public documentation in this repository.
 
@@ -61,13 +61,18 @@ Retrieve the generated local credentials only when you need them:
 Other source commands:
 
 ```bash
-./vaix generate     # render from templates/graymatter-light-bootstrap/api.hbs.yaml
+./vaix generate     # compose canonical YAML and generate Spring + TypeScript
+./vaix generate --extension ./application-domain.yaml
+./vaix regenerate   # generate, clean-build, and run the acceptance suite
 ./vaix build        # build the Spring/H2 backend
 ./vaix test         # backend, bootstrap, docs, release parity, and MCP contracts
 ./vaix run          # foreground backend
 ./vaix up           # background backend + HTTP MCP
 ./vaix stop
 ```
+
+See [Schema regeneration](docs/schema-regeneration.md) for the authoritative
+files, generated/handwritten boundary, extension contract, and failure rules.
 
 ## Docker
 
@@ -935,12 +940,12 @@ The doctor command continues through all checks and reports the exact required f
 
 ## Packaging
 
-## GrayMatter Light before/after
+## GrayMatter Lite generation and legacy compatibility
 
 Before this distribution sprint, Light mode was useful but not strict enough as a drop-in api-0 substitute:
 
 - local docs and bundles used unprefixed paths such as `/MemoryEntry` and `/SwarmOps/graph`
-- the hand-written Light OpenAPI could drift from the real ValkyrAI `api.hbs.yaml` / api-0 shape
+- the hand-written Light OpenAPI could drift from the intended GrayMatter domain
 - the packaged server expected a system Java runtime unless the operator provided one
 - there was no single command proving local write, query, health, and MCP readiness
 
@@ -948,7 +953,7 @@ After this sprint, Light mode is api-0-shaped:
 
 - `VALKYR_API_BASE=http://localhost:<port>/v1`
 - Light implements the MemoryEntry-first production path subset: `/v1/MemoryEntry/write`, `/v1/MemoryEntry/query`, `/v1/MemoryEntry/read`, `/v1/MemoryEntry/{id}`, `/v1/memory/status`, `/v1/graymatter/stats`, `/v1/graymatter/activation/bridge`, `/v1/swarm-ops/graph`, and `/v1/api-docs`
-- the Light OpenAPI is generated from the real authenticated api-0/ValkyrAI OpenAPI snapshot and carries the production component schemas
+- the Lite OpenAPI is composed from `openapi/bundles/*.yaml` plus optional application extensions, enhanced by ThorAPI, and emitted as deterministic YAML and derived JSON
 - the packaged local server uses H2 under the user-local app directory and supports bundled-runtime archives
 - `scripts/gm-light-smoke` proves the local write/query/health loop and prints MCP-ready instructions
 
@@ -958,7 +963,14 @@ Rebuild the packaged skill with:
 scripts/package-graymatter
 ```
 
-Run an actual local ThorAPI-backed Light instance with:
+Run the canonical generated Lite instance with:
+
+```bash
+./vaix setup
+./vaix doctor
+```
+
+The older compatibility launcher remains available for existing installations:
 
 ```bash
 scripts/gm-light-up
@@ -967,7 +979,12 @@ scripts/gm-write context "GrayMatter Light is running" local-light
 scripts/gm-query "GrayMatter Light"
 ```
 
-`gm-light-up` generates the api.hbs.yaml template at `.graymatter-light/api.hbs.yaml`, rendered api.yaml at `.graymatter-light/api.yaml`, the Docker Compose file, and the Light control panel, then starts the ThorAPI image with `THORAPI_TEMPLATE=/app/api.hbs.yaml` and `THORAPI_SPEC=/app/api.yaml`. The default image is `ghcr.io/valkyrlabs/thorapi:latest`; use `--image` or `THORAPI_IMAGE` when running a private, pinned, or locally built ThorAPI image. The rendered spec explicitly includes the production-shaped MCP backing paths for `memory_put`, `memory_get`, `memory_query`, `memory_health`, graph access, and schema summary. The env file sets `VALKYR_API_BASE=http://localhost:8080/v1` and `GRAYMATTER_LIGHT_MODE=true`, so the normal GrayMatter skill scripts and the standalone MCP server can connect to the running local instance without requiring hosted api-0 auth.
+`gm-light-up` copies the packaged compatibility snapshot to `.graymatter-light`
+and starts the ThorAPI container. That snapshot is not an authoring surface; schema
+changes belong in `openapi/bundles` and must be regenerated through `./vaix`.
+The compatibility environment still sets `VALKYR_API_BASE=http://localhost:8080/v1`
+and `GRAYMATTER_LIGHT_MODE=true`, so existing scripts and MCP clients continue to
+work.
 
 Run the full local loop smoke test with:
 

@@ -125,6 +125,6 @@ object graph to remain a complete and useful single-workspace product.
 Current repo direction:
 - keep the skill and shell helpers production-ready
 - keep the mode split clear: hosted api-0 for Cloud, local ThorAPI for Light
-- keep `gm-light-up` as the runnable GrayMatter Light local service
-- keep the generated `api.hbs.yaml` template, rendered `api.yaml`, and MCP contract mapping in sync
+- keep `./vaix setup` as the canonical runnable GrayMatter Lite local service
+- derive composed YAML, enhanced YAML, runtime JSON, and the MCP contract mapping from `openapi/bundles`
 - include query/create demos and migration notes from Light to Cloud

@@ -220,6 +220,9 @@ grep -q 'Normalized object writes' "$ROOT/plugins/graymatter/skills/graymatter/S
   echo "Codex marketplace cross-platform authentication helper missing" >&2
   exit 1
 }
+for runtime in gm-connection.mjs gm-auth.mjs gm-macos-signin.js gm-windows-credential.ps1 gm-mcp-launcher.mjs gm-install.mjs; do
+  require cmp -s "$ROOT/scripts/$runtime" "$ROOT/plugins/graymatter/scripts/$runtime"
+done
 [[ -f "$ROOT/plugins/graymatter/scripts/gm-install.mjs" ]] || {
   echo "Codex marketplace cross-platform installer missing" >&2
   exit 1
@@ -448,6 +451,23 @@ cmp -s "$ROOT/vaix" "$ROOT/plugins/graymatter/vaix" || {
   echo "Codex marketplace plugin VAIX builder is stale" >&2
   exit 1
 }
+for schema_path in \
+  openapi/bundles/00-graymatter-core.yaml \
+  openapi/extensions/customer-support.yaml \
+  openapi/generator/spring.yaml \
+  openapi/generator/patches/thorapi-1.0.3-java-spring.patch \
+  openapi/generator/patches/thorapi-1.0.3-java-spring-application.patch \
+  openapi/generator/patches/thorapi-1.0.3-java-spring-pageable-repository.patch \
+  openapi/generator/patches/thorapi-1.0.3-java-spring-repository.patch \
+  tools/schema-pipeline/pom.xml \
+  tools/schema-pipeline/src/main/java/com/valkyrlabs/graymatter/codegen/GrayMatterSchemaPipeline.java \
+  templates/graymatter-light-bootstrap/local-server/pom.xml \
+  templates/graymatter-light-bootstrap/local-server/src/main/resources/application.properties; do
+  cmp -s "$ROOT/$schema_path" "$ROOT/plugins/graymatter/$schema_path" || {
+    echo "Codex marketplace schema-generation surface is stale: $schema_path" >&2
+    exit 1
+  }
+done
 cmp -s "$ROOT/scripts/gm-client" "$ROOT/plugins/graymatter/scripts/gm-client" || {
   echo "Codex marketplace plugin generic REST client is stale; sync scripts/gm-client" >&2
   exit 1
@@ -718,6 +738,21 @@ grep -q "templates/graymatter-light-bootstrap" "$ROOT/plugins/graymatter/scripts
   echo "plugin package manifest missing GrayMatter Light templates" >&2
   exit 1
 }
+for manifest_path in \
+  docs/schema-regeneration.md \
+  openapi/bundles/00-graymatter-core.yaml \
+  openapi/extensions/customer-support.yaml \
+  tools/schema-pipeline/pom.xml \
+  tools/schema-pipeline/src/main/java/com/valkyrlabs/graymatter/codegen/GrayMatterSchemaPipeline.java; do
+  grep -q "$manifest_path" "$ROOT/scripts/package-graymatter" || {
+    echo "standalone package manifest missing $manifest_path" >&2
+    exit 1
+  }
+  grep -q "$manifest_path" "$ROOT/plugins/graymatter/scripts/package-graymatter" || {
+    echo "plugin package manifest missing $manifest_path" >&2
+    exit 1
+  }
+done
 grep -q "graymatter_invariant_preflight" "$ROOT/mcp-server/README.md" || {
   echo "MCP README missing invariant preflight tool" >&2
   exit 1
@@ -745,6 +780,7 @@ grep -q '^graymatter/docs/agent-discovery.md$' "$ZIP_LIST"
 grep -q '^graymatter/docs/awesome-codex-plugins.md$' "$ZIP_LIST"
 grep -q '^graymatter/docs/graymatter-light.md$' "$ZIP_LIST"
 grep -q '^graymatter/docs/graymatter-lite.md$' "$ZIP_LIST"
+grep -q '^graymatter/docs/schema-regeneration.md$' "$ZIP_LIST"
 grep -q '^graymatter/docs/local-models.md$' "$ZIP_LIST"
 grep -q '^graymatter/docs/omegarag-release-evidence.md$' "$ZIP_LIST"
 grep -q '^graymatter/docs/openai-app-directory-submission.md$' "$ZIP_LIST"
@@ -769,12 +805,18 @@ grep -q '^graymatter/scripts/gm-read$' "$ZIP_LIST"
 grep -q '^graymatter/scripts/gm-profile$' "$ZIP_LIST"
 grep -q '^graymatter/scripts/gm-profile-lib$' "$ZIP_LIST"
 grep -q '^graymatter/vaix$' "$ZIP_LIST"
+grep -q '^graymatter/openapi/bundles/00-graymatter-core.yaml$' "$ZIP_LIST"
+grep -q '^graymatter/openapi/extensions/customer-support.yaml$' "$ZIP_LIST"
+grep -q '^graymatter/openapi/generator/spring.yaml$' "$ZIP_LIST"
+grep -q '^graymatter/tools/schema-pipeline/pom.xml$' "$ZIP_LIST"
+grep -q '^graymatter/tools/schema-pipeline/src/main/java/com/valkyrlabs/graymatter/codegen/GrayMatterSchemaPipeline.java$' "$ZIP_LIST"
 grep -q '^graymatter/deploy/docker-compose.lite.yml$' "$ZIP_LIST"
 grep -q '^graymatter/scripts/gm-record$' "$ZIP_LIST"
 grep -q '^graymatter/scripts/package-graymatter$' "$ZIP_LIST"
 grep -q '^graymatter/scripts/package_graymatter.sh$' "$ZIP_LIST"
 grep -q '^graymatter/scripts/gm-login$' "$ZIP_LIST"
 grep -q '^graymatter/scripts/gm-auth.mjs$' "$ZIP_LIST"
+grep -q '^graymatter/scripts/gm-connection.mjs$' "$ZIP_LIST"
 grep -q '^graymatter/scripts/gm-install.mjs$' "$ZIP_LIST"
 grep -q '^graymatter/scripts/gm-macos-signin.js$' "$ZIP_LIST"
 grep -q '^graymatter/scripts/gm-windows-credential.ps1$' "$ZIP_LIST"
@@ -825,9 +867,15 @@ grep -q '^graymatter/docs/agent-discovery.md$' "$PLUGIN_ZIP_LIST"
 grep -q '^graymatter/docs/awesome-codex-plugins.md$' "$PLUGIN_ZIP_LIST"
 grep -q '^graymatter/docs/graymatter-light.md$' "$PLUGIN_ZIP_LIST"
 grep -q '^graymatter/docs/graymatter-lite.md$' "$PLUGIN_ZIP_LIST"
+grep -q '^graymatter/docs/schema-regeneration.md$' "$PLUGIN_ZIP_LIST"
 grep -q '^graymatter/docs/local-models.md$' "$PLUGIN_ZIP_LIST"
 grep -q '^graymatter/scripts/gm-profile$' "$PLUGIN_ZIP_LIST"
 grep -q '^graymatter/vaix$' "$PLUGIN_ZIP_LIST"
+grep -q '^graymatter/openapi/bundles/00-graymatter-core.yaml$' "$PLUGIN_ZIP_LIST"
+grep -q '^graymatter/openapi/extensions/customer-support.yaml$' "$PLUGIN_ZIP_LIST"
+grep -q '^graymatter/openapi/generator/spring.yaml$' "$PLUGIN_ZIP_LIST"
+grep -q '^graymatter/tools/schema-pipeline/pom.xml$' "$PLUGIN_ZIP_LIST"
+grep -q '^graymatter/tools/schema-pipeline/src/main/java/com/valkyrlabs/graymatter/codegen/GrayMatterSchemaPipeline.java$' "$PLUGIN_ZIP_LIST"
 grep -q '^graymatter/docs/omegarag-release-evidence.md$' "$PLUGIN_ZIP_LIST"
 grep -q '^graymatter/docs/openai-app-directory-submission.md$' "$PLUGIN_ZIP_LIST"
 grep -q '^graymatter/docs/privacy-policy.md$' "$PLUGIN_ZIP_LIST"

@@ -152,7 +152,7 @@ The resulting failure modes are unacceptable for agents that edit code, operate 
 ## 8. Product Principles
 
 1. **Authorization precedes retrieval.** Candidate generation, graph expansion, hydration, and reranking operate only on server-derived authorized scope.
-2. **Generated semantics are the source of truth.** New durable models and relationships originate in `api.hbs.yaml` or the relevant canonical OpenAPI/template source and are regenerated through `./vaix`.
+2. **Generated semantics are the source of truth.** New GrayMatter Lite durable models and relationships originate in `openapi/bundles/*.yaml`; application objects arrive through composed extension YAML and are regenerated through `./vaix`.
 3. **One memory plane, many scoped views.** User, project, organization, workflow, swarm, agent, session, and application scopes are views over GrayMatter, not independent stores.
 4. **Receipts are part of the result.** Every production retrieval returns or references a durable receipt, trajectory, policy decision, and evidence set.
 5. **Adaptive depth beats fixed depth.** The controller spends more only when expected evidence gain justifies latency, credits, and risk.
@@ -961,7 +961,7 @@ Exit gates:
 | Epic | Primary source-of-truth repository/area | Key outputs |
 | --- | --- | --- |
 | Signature recovery | ValkyrAI runtime and generated API delegates | Fixed receipt/context/graph/manifest live contracts, canaries |
-| Canonical models | ValkyrAI `api.hbs.yaml` and ThorAPI templates | Generated Omega/temporal/domain/evaluation objects and CRUD/ACL |
+| Canonical models | Product-owned canonical OpenAPI YAML and ThorAPI templates; GrayMatter Lite uses `openapi/bundles/*.yaml` | Generated Omega/temporal/domain/evaluation objects and CRUD/ACL |
 | Omega controller | ValkyrAI GrayMatter retrieval services | Planner state machine, budgets, tools, trajectories, provider SPI |
 | PostgreSQL search | ValkyrAI persistence/search infrastructure | FTS, pgvector manifests, temporal queries, index jobs |
 | Context engineering | ValkyrAI ContextPage/Bifrost/TurboVec integration | Compilers, redaction, token attribution, hydration/diff |

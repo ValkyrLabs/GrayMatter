@@ -67,11 +67,6 @@
       <scope>runtime</scope>
     </dependency>
     <dependency>
-      <groupId>com.valkyrlabs</groupId>
-      <artifactId>thorapi</artifactId>
-      <version>${thorapi.version}</version>
-    </dependency>
-    <dependency>
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-test</artifactId>
       <scope>test</scope>
@@ -113,6 +108,21 @@
   </build>
 
   <profiles>
+    <profile>
+      <id>thorapi-generated-sources</id>
+      <activation>
+        <file>
+          <exists>generated/spring/src/main/java</exists>
+        </file>
+      </activation>
+      <dependencies>
+        <dependency>
+          <groupId>com.valkyrlabs</groupId>
+          <artifactId>thorapi</artifactId>
+          <version>${thorapi.version}</version>
+        </dependency>
+      </dependencies>
+    </profile>
     <profile>
       <id>native</id>
       <build>

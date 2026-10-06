@@ -21,8 +21,8 @@ GrayMatter Lite source builder
 Usage: ./vaix <command> [options]
 
 Commands:
-  setup [--no-start]  Install missing private toolchains, generate, build, test,
-                      configure one local profile, and start Lite plus HTTP MCP.
+  setup [--no-start]  Install missing user-local toolchains, build standalone Lite,
+                      configure one local profile, start, and verify its connection.
   generate [options]  Compose canonical YAML and generate OpenAPI JSON, Spring,
                       JPA/repository/service/controller, and TypeScript surfaces.
     --extension FILE  Compose an application-owned OpenAPI YAML bundle (repeatable).
@@ -324,8 +324,15 @@ thor_export_toolchain() {
   export PATH="$(dirname "$thor_java"):$(dirname "$thor_maven"):${PATH}"
 }
 
+thor_bootstrap_local() {
+  [[ -f "${thor_bundle_dir}/local-server/pom.xml" ]] && return
+  "${thor_root}/scripts/gm-light-bootstrap" \
+    --out-dir "$thor_bundle_dir" \
+    --server-url "http://localhost:${thor_backend_port}" >/dev/null
+}
+
 thor_build() {
-  [[ -f "${thor_bundle_dir}/local-server/pom.xml" ]] || thor_generate
+  thor_bootstrap_local
   local thor_java="" thor_maven="" thor_jar=""
   thor_java="$(thor_ensure_java)"
   thor_maven="$(thor_ensure_maven)"
@@ -390,6 +397,14 @@ thor_wait_health() {
   done
 }
 
+thor_wait_mcp_health() {
+  local thor_deadline=$((SECONDS + 90))
+  until curl -fsS "http://127.0.0.1:${thor_mcp_port}/health" >/dev/null 2>&1; do
+    (( SECONDS < thor_deadline )) || thor_die "Local MCP did not become healthy; inspect ${thor_state_dir}/graymatter-mcp.log"
+    sleep 1
+  done
+}
+
 thor_up() {
   [[ -f "${thor_bundle_dir}/local-server/lib/graymatter-local-server.jar" ]] || thor_build
   thor_load_admin_env
@@ -412,11 +427,23 @@ thor_up() {
       GRAYMATTER_LIGHT_USERNAME="$GRAYMATTER_LIGHT_USERNAME" \
       GRAYMATTER_LIGHT_PASSWORD="$GRAYMATTER_LIGHT_PASSWORD" \
       GRAYMATTER_MCP_MODE=local-dev \
+      GRAYMATTER_LOCAL_ONLY=true \
+      GRAYMATTER_PROFILE_RESOLVED=true \
+      GRAYMATTER_PROFILE_MODE=single \
+      GRAYMATTER_ACTIVE_PROFILE=graymatter-lite-local \
+      GRAYMATTER_PROFILE= \
+      GRAYMATTER_PROFILES= \
+      GRAYMATTER_BLEND_PROFILES= \
+      VALKYR_AUTH_TOKEN= \
+      VALKYR_JWT_SESSION= \
+      VALKYR_AUTH= \
       PORT="$thor_mcp_port" \
       nohup "$thor_node" "${thor_root}/mcp-server/index.js" \
       >"${thor_state_dir}/graymatter-mcp.log" 2>&1 &
     printf '%s\n' "$!" >"$thor_mcp_pid"
   fi
+
+  thor_wait_mcp_health
 
   printf 'GrayMatter Lite is ready.\n'
   printf 'Dashboard: http://localhost:%s\n' "$thor_backend_port"
@@ -534,7 +561,7 @@ thor_setup() {
   thor_ensure_java >/dev/null
   thor_ensure_maven >/dev/null
   thor_ensure_node >/dev/null
-  thor_generate
+  thor_bootstrap_local
   thor_build
   thor_ensure_admin_env
   thor_load_admin_env
@@ -543,7 +570,6 @@ thor_setup() {
       --username "$GRAYMATTER_LIGHT_USERNAME" \
       --api-base "http://localhost:${thor_backend_port}/v1" \
       --password-stdin --replace >/dev/null
-  thor_test
   if [[ "$thor_start" == "true" ]]; then
     thor_up
     thor_doctor

@@ -52,9 +52,9 @@ run_maven_build() {
   esac
 
   if [[ -x "$source_dir/mvnw" ]]; then
-    (cd "$source_dir" && ./mvnw -q -DskipTests package)
+    (cd "$source_dir" && ./mvnw -q -DskipTests clean package)
   elif command -v mvn >/dev/null 2>&1; then
-    (cd "$source_dir" && mvn -q -DskipTests package)
+    (cd "$source_dir" && mvn -q -DskipTests clean package)
   else
     echo "Maven unavailable; packaging source-only GrayMatter Local Server." >&2
     return 0

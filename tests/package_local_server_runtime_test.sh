@@ -18,6 +18,7 @@ cleanup() {
   rm -rf "$TMP_DIR" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
+trap 'thor_failed_status=$?; printf "Packaged Lite acceptance failed at line %s (exit %s)\n" "$LINENO" "$thor_failed_status" >&2' ERR
 
 wait_for_health() {
   for _ in {1..60}; do
@@ -61,6 +62,12 @@ fi
 
 grep -q '^graymatter-local-server/lib/graymatter-local-server.jar$' "$TMP_DIR/contents.txt"
 grep -q '^graymatter-local-server/KNOWLEDGE_PACKS.md$' "$TMP_DIR/contents.txt"
+
+unzip -Z1 "$TMP_DIR/graymatter-local-server/lib/graymatter-local-server.jar" > "$TMP_DIR/jar-contents.txt"
+if grep -Eq '^BOOT-INF/lib/(thorapi|valkyrai|valhalla|workflow-ml-runner)-[0-9]' "$TMP_DIR/jar-contents.txt"; then
+  echo "Standalone Lite must build and run without a private platform or generator dependency" >&2
+  exit 1
+fi
 
 BUNDLED_JAVA="$TMP_DIR/graymatter-local-server/runtime/bin/java"
 if [[ -x "$BUNDLED_JAVA" ]]; then
@@ -107,10 +114,10 @@ jq -e 'any(.[]; .name == "GrayMatter Lite Starter KnowledgePack" and .memoryEntr
   "$TMP_DIR/starter-packs.json" >/dev/null
 
 curl -fsS -u "admin:$LOCAL_LOGIN_CODE" "http://localhost:$PORT/v1/swarm-ops/graph" \
-  | grep -q '"protocolVersion":"graymatter-swarm-v0.1"'
+  | grep '"protocolVersion":"graymatter-swarm-v0.1"' >/dev/null
 
 curl -fsS -u "admin:$LOCAL_LOGIN_CODE" "http://localhost:$PORT/v1/graymatter/activation/bridge" \
-  | grep -q '"target":"https://valkyrlabs.com"'
+  | grep '"target":"https://valkyrlabs.com"' >/dev/null
 
 curl -fsS -u "admin:$LOCAL_LOGIN_CODE" "http://localhost:$PORT/v1/memory/status" > "$TMP_DIR/telemetry.json"
 grep -q '"panel":"Live Telemetry"' "$TMP_DIR/telemetry.json"
@@ -144,16 +151,16 @@ curl -fsS -u "admin:$LOCAL_LOGIN_CODE" \
 MEMORY_ID="$(jq -r '.id' "$TMP_DIR/memory-create.json")"
 
 curl -fsS -u "admin:$LOCAL_LOGIN_CODE" "http://localhost:$PORT/v1/MemoryEntry/$MEMORY_ID" \
-  | grep -q "Runtime test memory"
+  | grep "Runtime test memory" >/dev/null
 
 curl -fsS -u "admin:$LOCAL_LOGIN_CODE" \
   -H 'Content-Type: application/json' \
   -d '{"query":"runtime","limit":5}' \
   "http://localhost:$PORT/v1/MemoryEntry/query" \
-  | grep -q "Runtime test memory"
+  | grep "Runtime test memory" >/dev/null
 
 curl -fsS -u "admin:$LOCAL_LOGIN_CODE" "http://localhost:$PORT/v1/MemoryEntry?q=runtime" \
-  | grep -q "Runtime test memory"
+  | grep "Runtime test memory" >/dev/null
 
 PACK_DIR="$TMP_DIR/pack"
 PACK_ARCHIVE="$TMP_DIR/runtime-knowledge.gmkp"
@@ -195,10 +202,10 @@ PACK_LOCAL_ID="$(jq -r '.knowledgePack.id' "$TMP_DIR/pack-import.json")"
 
 curl -fsS -u "admin:$LOCAL_LOGIN_CODE" \
   "http://localhost:$PORT/v1/MemoryEntry?q=packaged%20runtime" \
-  | grep -q "Packaged runtime knowledge"
+  | grep "Packaged runtime knowledge" >/dev/null
 curl -fsS -u "admin:$LOCAL_LOGIN_CODE" \
   "http://localhost:$PORT/v1/knowledge-packs/$PACK_LOCAL_ID/graph" \
-  | grep -q '"relation":"project"'
+  | grep '"relation":"project"' >/dev/null
 
 GRAYMATTER_LIGHT_PUBLIC_BASE="http://localhost:$PORT" \
 GRAYMATTER_LIGHT_PASSWORD="$LOCAL_LOGIN_CODE" \
@@ -210,7 +217,7 @@ curl -fsS -u "admin:$LOCAL_LOGIN_CODE" \
   -o "$TMP_DIR/graymatter-lite-export.gmkp"
 unzip -t "$TMP_DIR/graymatter-lite-export.gmkp" >/dev/null
 for thor_entry in manifest.json objects.jsonl edges.jsonl signature.json; do
-  unzip -Z1 "$TMP_DIR/graymatter-lite-export.gmkp" | grep -qx "$thor_entry"
+  unzip -Z1 "$TMP_DIR/graymatter-lite-export.gmkp" | grep -x "$thor_entry" >/dev/null
 done
 unzip -p "$TMP_DIR/graymatter-lite-export.gmkp" manifest.json \
   | jq -e '.format == "graymatter.knowledge-pack" and .counts.memoryEntries >= 14' >/dev/null
@@ -218,7 +225,7 @@ unzip -p "$TMP_DIR/graymatter-lite-export.gmkp" objects.jsonl > "$TMP_DIR/export
 grep -q "Runtime test memory" "$TMP_DIR/export-objects.jsonl"
 
 curl -fsS -u "admin:$LOCAL_LOGIN_CODE" "http://localhost:$PORT/v1/swarm-ops/graph" \
-  | grep -q '"protocolVersion":"graymatter-swarm-v0.1"'
+  | grep '"protocolVersion":"graymatter-swarm-v0.1"' >/dev/null
 
 curl -fsS -u "admin:$LOCAL_LOGIN_CODE" \
   -H 'Content-Type: application/json' \
@@ -226,6 +233,6 @@ curl -fsS -u "admin:$LOCAL_LOGIN_CODE" \
   "http://localhost:$PORT/v1/Workbook" >/dev/null
 
 curl -fsS -u "admin:$LOCAL_LOGIN_CODE" "http://localhost:$PORT/v1/Workbook" \
-  | grep -q "Runtime Workbook"
+  | grep "Runtime Workbook" >/dev/null
 
 echo "package_local_server_runtime_test: ok"

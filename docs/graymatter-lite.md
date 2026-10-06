@@ -9,7 +9,7 @@ Lite includes:
 
 - the canonical ThorAPI source contract at
   `openapi/bundles/00-graymatter-core.yaml`;
-- the `./vaix` source builder and private toolchain bootstrap;
+- the `./vaix` source builder and user-local toolchain bootstrap;
 - the Spring Boot/H2 local server and embedded sign-in dashboard;
 - one local principal and basic profile preferences;
 - MemoryEntry write, list, hybrid query, and read APIs;
@@ -39,9 +39,9 @@ Homebrew, apt, sudo, or a global installer.
 
 The setup command:
 
-1. composes canonical YAML, runs ThorAPI, and renders `.graymatter-lite` from
-   generated `api.hbs.yaml`/enhanced OpenAPI output and the bootstrap assets;
-2. builds and tests the Spring/H2 application;
+1. copies the standalone Lite bootstrap assets into `.graymatter-lite` when
+   the local application has not been created yet;
+2. builds the Spring/H2 application using public Maven dependencies;
 3. creates a mode-`0600` local credential file;
 4. registers the `graymatter-lite-local` profile without activating it over an
    existing hosted profile;
@@ -51,6 +51,14 @@ The setup command:
 
 Run `./vaix credentials` for the local sign-in and `./vaix doctor` for a live
 readiness proof.
+
+Setup verifies the running services without requiring a hosted account or the
+private ThorAPI generator. Run `./vaix test` for the full developer suite and
+`./vaix generate` for explicit schema generation; those generator operations
+require an available ThorAPI distribution. Generation composes the canonical
+YAML into `api.hbs.yaml` before producing the generated Spring and TypeScript
+surfaces. Existing local credentials, H2 data, and application sources are
+preserved when setup is repeated.
 
 ## Docker installation
 
@@ -217,9 +225,10 @@ tail -f .vaix/graymatter-mcp.log
 ./vaix stop
 ```
 
-If a source build fails, run `./vaix generate`, `./vaix build`, and `./vaix
-test` separately to isolate the stage. Do not delete the H2 data directory to
-fix a build failure.
+If setup fails, run `./vaix build` to isolate a dependency or compilation
+problem, then `./vaix up` and `./vaix doctor` to verify the services. For explicit
+schema generation, run `./vaix generate` and `./vaix test` separately. Do not
+delete the H2 data directory to fix a build failure.
 
 For help, see [SUPPORT.md](../SUPPORT.md). For vulnerabilities, follow
 [SECURITY.md](../SECURITY.md).

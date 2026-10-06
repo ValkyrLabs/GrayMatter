@@ -44,8 +44,11 @@ cd GrayMatter
 
 `./vaix setup` uses Java 17+, Maven, and Node 20+ already on the machine when
 possible. Missing toolchains are downloaded privately under `.vaix/runtime`;
-nothing is installed system-wide. The command renders the ThorAPI application
-bundle, builds and tests the backend, creates the one local profile, and starts:
+nothing is installed system-wide. The command builds standalone Lite using public
+Maven dependencies, creates one local profile, starts the services, and verifies
+the connection. A hosted account or private ThorAPI generator is not required.
+Explicit schema generation remains available through `./vaix generate`.
+Setup starts:
 
 - dashboard and sign-in: `http://localhost:8787`
 - HTTP MCP: `http://localhost:3333/mcp`

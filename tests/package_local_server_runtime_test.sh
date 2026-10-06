@@ -36,9 +36,13 @@ mkdir -p "$DIST_DIR"
 if [[ -n "${GRAYMATTER_RUNTIME_TEST_BUNDLE:-}" ]]; then
   [[ -f "$TARBALL" ]] || { echo "Release bundle not found: $TARBALL" >&2; exit 1; }
 else
-  "$ROOT/scripts/package-local-server" \
+  if ! "$ROOT/scripts/package-local-server" \
     --out-dir "$DIST_DIR" \
-    --work-dir "$TMP_DIR/work" > /dev/null 2>"$TMP_DIR/package.stderr"
+    --work-dir "$TMP_DIR/work" > "$TMP_DIR/package.stdout" 2>"$TMP_DIR/package.stderr"; then
+    echo "GrayMatter Local Server packaging failed" >&2
+    cat "$TMP_DIR/package.stdout" "$TMP_DIR/package.stderr" >&2
+    exit 1
+  fi
 fi
 
 if [[ -f "$TMP_DIR/package.stderr" ]] && grep -q "argument for --compress is deprecated" "$TMP_DIR/package.stderr"; then

@@ -181,8 +181,8 @@ switch ($Action) {
     $thor_form.Controls.Add($thor_localHint)
     function OpenGrayMatterInstance {
       $thor_uri = $null
-      if (-not [System.Uri]::TryCreate(($thor_server.Text.Trim() -replace '/v1/?$', ''), [System.UriKind]::Absolute, [ref]$thor_uri)
-        -or $thor_uri.Scheme -notin @('http', 'https') -or -not $thor_uri.Host -or $thor_uri.UserInfo -or $thor_uri.Query -or $thor_uri.Fragment) {
+      if (-not [System.Uri]::TryCreate(($thor_server.Text.Trim() -replace '/v1/?$', ''), [System.UriKind]::Absolute, [ref]$thor_uri) -or
+        $thor_uri.Scheme -notin @('http', 'https') -or -not $thor_uri.Host -or $thor_uri.UserInfo -or $thor_uri.Query -or $thor_uri.Fragment) {
         $thor_intro.Text = 'Enter a valid HTTP or HTTPS instance URL before opening account setup.'
         $thor_intro.ForeColor = [System.Drawing.Color]::Firebrick
         return

@@ -18,7 +18,7 @@ type Connection = { kind: string; apiBase: string; profileName?: string; usernam
 
 export async function activate(context: vscode.ExtensionContext) {
   const changes = new vscode.EventEmitter<void>();
-  const output = vscode.window.createOutputChannel("GrayMatter");
+  const output = vscode.window.createOutputChannel("Valkyr GrayMatter");
   context.subscriptions.push(changes, output);
   const runtime = context.asAbsolutePath("runtime");
   // Indirection keeps the canonical portable modules as shipped source rather than duplicating auth logic.
@@ -58,7 +58,7 @@ export async function activate(context: vscode.ExtensionContext) {
       const tools = await Promise.race([(async () => { await client.connect(transport); return client.listTools(); })(), new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error("MCP connection timed out. Verify the selected server is running, then retry.")), 25000); })]);
       if (!requiredTools.every(name => tools.tools.some(tool => tool.name === name))) throw new Error("The server connected but required GrayMatter memory tools are missing. Update GrayMatter, then verify again.");
       return tools.tools.map(tool => ({ name: tool.name }));
-    } catch (error) { throw new Error(`GrayMatter memory tools did not connect. ${error instanceof Error ? error.message : String(error)} Run GrayMatter: Verify Connection or inspect the server in MCP: List Servers.`); }
+    } catch (error) { throw new Error(`GrayMatter memory tools did not connect. ${error instanceof Error ? error.message : String(error)} Run Valkyr GrayMatter: Verify Connection or inspect the server in MCP: List Servers.`); }
     finally { if (timer) clearTimeout(timer); await client.close().catch(() => {}); }
   };
   const servers: Array<{ name: string; status: string; tools: Array<{ name: string }> }> = [];
@@ -120,8 +120,8 @@ export async function activate(context: vscode.ExtensionContext) {
   const resolveHosted = async (interactive: boolean) => {
     let connection = await identifyHostedAccount(savedHostedConnection());
     if (!await hostedAccountVerified(connection)) {
-      if (!interactive) throw new Error("Hosted GrayMatter is not authenticated for this account/server. Run GrayMatter: Connect Hosted Memory to sign in, then verify again.");
-      const username = await vscode.window.showInputBox({ title: "Connect hosted GrayMatter", prompt: `Username for ${cloudBase()}. Use GrayMatter: Open Setup Guide to create or recover an account.`, value: connection?.username || "", ignoreFocusOut: true, validateInput: value => value.trim() ? undefined : "Enter your account username." });
+      if (!interactive) throw new Error("Hosted GrayMatter is not authenticated for this account/server. Run Valkyr GrayMatter: Connect Hosted Memory to sign in, then verify again.");
+      const username = await vscode.window.showInputBox({ title: "Connect hosted GrayMatter", prompt: `Username for ${cloudBase()}. Use Valkyr GrayMatter: Open Setup Guide to create or recover an account.`, value: connection?.username || "", ignoreFocusOut: true, validateInput: value => value.trim() ? undefined : "Enter your account username." });
       if (username === undefined) throw new Error("Hosted sign-in was canceled. Retry Connect Hosted Memory when ready, or choose local Lite without signup.");
       const password = await vscode.window.showInputBox({ title: "Connect hosted GrayMatter", prompt: `Password for ${username.trim()} at ${cloudBase()}. It is used only to sign in and is not saved.`, password: true, ignoreFocusOut: true, validateInput: value => value ? undefined : "Enter your account password." });
       if (password === undefined) throw new Error("Hosted sign-in was canceled. Retry Connect Hosted Memory when ready, or choose local Lite without signup.");
@@ -165,7 +165,7 @@ export async function activate(context: vscode.ExtensionContext) {
   command("graymatter.connectHosted", async () => {
     const definition = await resolveHosted(true);
     await context.globalState.update("graymatter.mode", "hosted"); changes.fire();
-    void vscode.window.showInformationMessage("Hosted GrayMatter is verified. Enable GrayMatter tools in your agent's tool picker."); return definition;
+    void vscode.window.showInformationMessage("Hosted GrayMatter is verified. Enable Valkyr GrayMatter tools in your agent's tool picker."); return definition;
   });
   command("graymatter.verifyConnection", async () => {
     const definition = mode() === "local" ? await connectLocal() : await resolveHosted(false);
@@ -173,7 +173,7 @@ export async function activate(context: vscode.ExtensionContext) {
   });
   command("graymatter.openSetup", async () => vscode.env.openExternal(vscode.Uri.parse("https://valkyrlabs.com/graymatter/install")));
   command("graymatter.getStarted", async () => {
-    const choice = await vscode.window.showQuickPick([{ label: "Hosted GrayMatter (recommended)", description: "Connect your valkyrlabs.com account", value: "hosted" }, { label: "Local GrayMatter Lite", description: "Set up included Lite; no hosted signup or source checkout", value: "local" }], { title: "Choose your GrayMatter memory" });
+    const choice = await vscode.window.showQuickPick([{ label: "Hosted GrayMatter (recommended)", description: "Connect your valkyrlabs.com account", value: "hosted" }, { label: "Local GrayMatter Lite", description: "Set up included Lite; no hosted signup or source checkout", value: "local" }], { title: "Choose your Valkyr GrayMatter memory" });
     if (choice) return vscode.commands.executeCommand(choice.value === "local" ? "graymatter.connectLocal" : "graymatter.connectHosted");
   });
   return { provider };

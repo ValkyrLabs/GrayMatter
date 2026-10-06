@@ -1,4 +1,4 @@
-# GrayMatter memory
+# Valkyr GrayMatter
 
 **Hosted memory is recommended.** Connect your valkyrlabs.com account.
 
@@ -6,6 +6,6 @@
 
 Use a trusted macOS/Linux workspace, or a WSL/remote Linux extension host, with Bash, curl, tar, jq and zip installed. Missing Java, Maven and Node toolchains are installed privately. Setup reports missing prerequisites before starting a build.
 
-Enable GrayMatter in your agent's tool picker. Ask: “Remember that this project uses Java 21, then read the note back.”
+Enable Valkyr GrayMatter in your agent's tool picker. Ask: “Remember that this project uses Java 21, then read the note back.”
 
 [Setup guide](https://valkyrlabs.com/graymatter/install)

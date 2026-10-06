@@ -20,7 +20,7 @@ export async function verifyLocalSetupPrerequisites(env: NodeJS.ProcessEnv = pro
 export async function ensureBundledLiteSource(extensionRoot: string, storageRoot: string): Promise<string> {
   const descriptor = JSON.parse(await fs.readFile(path.join(extensionRoot, "lite-source.json"), "utf8")) as { version: number; sha256: string; sizeBytes: number };
   if (descriptor.version !== 1 || !/^[a-f0-9]{64}$/.test(descriptor.sha256) || !Number.isSafeInteger(descriptor.sizeBytes) || descriptor.sizeBytes < 1 || descriptor.sizeBytes > 32 * 1024 * 1024) {
-    throw new Error("The bundled Lite source is invalid. Reinstall GrayMatter Memory from the verified VSIX, then retry local setup.");
+    throw new Error("The bundled Lite source is invalid. Reinstall Valkyr GrayMatter from the verified VSIX, then retry local setup.");
   }
   const target = path.join(storageRoot, "lite", descriptor.sha256);
   const marker = path.join(target, ".graymatter-source-complete");
@@ -29,7 +29,7 @@ export async function ensureBundledLiteSource(extensionRoot: string, storageRoot
   const archive = path.join(extensionRoot, "lite-source.tar.gz");
   const bytes = await fs.readFile(archive);
   if (bytes.length !== descriptor.sizeBytes || createHash("sha256").update(bytes).digest("hex") !== descriptor.sha256) {
-    throw new Error("The bundled Lite source checksum did not match. Reinstall GrayMatter Memory from the verified VSIX, then retry local setup.");
+    throw new Error("The bundled Lite source checksum did not match. Reinstall Valkyr GrayMatter from the verified VSIX, then retry local setup.");
   }
   const parent = path.dirname(target); await fs.mkdir(parent, { recursive: true, mode: 0o700 });
   const stage = await fs.mkdtemp(path.join(parent, ".staging-")); await fs.chmod(stage, 0o700);

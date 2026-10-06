@@ -1,8 +1,8 @@
 {
   "name": "graymatter-memory",
-  "displayName": "GrayMatter Memory",
+  "displayName": "Valkyr GrayMatter",
   "description": "Durable memory and context for VS Code agents. Hosted GrayMatter by default, or local Lite without signup.",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "publisher": "ValkyrLabsInc",
   "author": "Valkyr Labs Inc.",
   "license": "AGPL-3.0-only",
@@ -52,33 +52,33 @@
     "mcpServerDefinitionProviders": [
       {
         "id": "graymatter.memory",
-        "label": "GrayMatter Memory"
+        "label": "Valkyr GrayMatter"
       }
     ],
     "commands": [
       {
         "command": "graymatter.getStarted",
-        "title": "GrayMatter: Get Started"
+        "title": "Valkyr GrayMatter: Get Started"
       },
       {
         "command": "graymatter.connectHosted",
-        "title": "GrayMatter: Connect Hosted Memory (Recommended)"
+        "title": "Valkyr GrayMatter: Connect Hosted Memory (Recommended)"
       },
       {
         "command": "graymatter.connectLocal",
-        "title": "GrayMatter: Connect Local GrayMatter Lite"
+        "title": "Valkyr GrayMatter: Connect Local GrayMatter Lite"
       },
       {
         "command": "graymatter.verifyConnection",
-        "title": "GrayMatter: Verify Connection"
+        "title": "Valkyr GrayMatter: Verify Connection"
       },
       {
         "command": "graymatter.openSetup",
-        "title": "GrayMatter: Open Setup Guide"
+        "title": "Valkyr GrayMatter: Open Setup Guide"
       }
     ],
     "configuration": {
-      "title": "GrayMatter",
+      "title": "Valkyr GrayMatter",
       "properties": {
         "graymatter.hostedApiBase": {
           "type": "string",
@@ -91,7 +91,7 @@
     "walkthroughs": [
       {
         "id": "graymatter.setup",
-        "title": "Set up GrayMatter memory",
+        "title": "Set up Valkyr GrayMatter",
         "description": "Connect hosted memory or local Lite without signup.",
         "steps": [
           {
@@ -109,7 +109,7 @@
           {
             "id": "verify",
             "title": "Verify and use memory",
-            "description": "[Verify the connection](command:graymatter.verifyConnection), then enable GrayMatter tools in your agent's tool picker. Ask it to save a harmless note and read it back.",
+            "description": "[Verify the connection](command:graymatter.verifyConnection), then enable Valkyr GrayMatter tools in your agent's tool picker. Ask it to save a harmless note and read it back.",
             "media": {
               "markdown": "media/setup.md"
             },

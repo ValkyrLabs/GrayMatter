@@ -107,7 +107,7 @@ bundle_runtime() {
 
   rm -rf "$package_dir/runtime"
   if ! "$jlink_bin" \
-    --add-modules java.base,java.compiler,java.desktop,java.instrument,java.logging,java.management,java.naming,java.net.http,java.security.jgss,java.sql,jdk.crypto.ec,jdk.unsupported \
+    --add-modules java.base,java.compiler,java.desktop,java.instrument,java.logging,java.management,java.naming,java.net.http,java.rmi,java.security.jgss,java.sql,jdk.crypto.ec,jdk.unsupported \
     --strip-debug \
     --no-header-files \
     --no-man-pages \

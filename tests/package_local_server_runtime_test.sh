@@ -58,6 +58,15 @@ fi
 grep -q '^graymatter-local-server/lib/graymatter-local-server.jar$' "$TMP_DIR/contents.txt"
 grep -q '^graymatter-local-server/KNOWLEDGE_PACKS.md$' "$TMP_DIR/contents.txt"
 
+BUNDLED_JAVA="$TMP_DIR/graymatter-local-server/runtime/bin/java"
+if [[ -x "$BUNDLED_JAVA" ]]; then
+  "$BUNDLED_JAVA" --list-modules > "$TMP_DIR/runtime-modules.txt"
+  if ! grep -Eq '^java\.rmi(@|$)' "$TMP_DIR/runtime-modules.txt"; then
+    echo "Bundled Java runtime is missing java.rmi, required by the Quartz scheduler" >&2
+    exit 1
+  fi
+fi
+
 (
   cd "$TMP_DIR/graymatter-local-server"
   env \

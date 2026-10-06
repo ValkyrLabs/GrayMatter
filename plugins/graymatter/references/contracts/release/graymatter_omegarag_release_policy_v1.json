@@ -16,9 +16,9 @@
     "inventorySchemaVersion": "omegarag-prd-inventory/v1",
     "attestationSchemaVersion": "omegarag-prd-resolution-attestation/v1",
     "sourceRef": "docs/prd-graymatter-omegarag.md",
-    "sourceSha256": "7fecddd1b4da6b7c492b7ab6101cf97811ff0fd46be18435816edfb0b53e2848",
+    "sourceSha256": "15b1f70f4bf6b7d0eb4493cb5dafea01cc2e24c8ab1fce21c1eb123520692fc6",
     "requirementSetHash": "a6ff1cc837e07a6be22669bc93fbdca2de1d010a22c98ce68d97c10a839b6e2b",
-    "inventoryHash": "b870fbed097388a322e0f7d9fc235a7cd46b254110d8a1d01d3331d7d07f3f8b",
+    "inventoryHash": "f4750601e13f219903e14fe713a4a9b8286dfd5e892156cd4b73e1a3e6d024d1",
     "requirementCount": 128,
     "p0P1RequirementCount": 114,
     "priorityCounts": {

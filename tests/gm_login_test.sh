@@ -15,9 +15,18 @@ for thor_stage in 'downloading plugin' 'performing signup/login' 'authenticating
   }
 done
 
-if rg -n 'writeCredential\([^,]*PASSWORD|VALKYR_AUTH_PASSWORD.*writeCredential' "${thor_root}/scripts/gm-auth.mjs" >/dev/null; then
-  echo 'FAIL: authentication must not persist a GrayMatter password' >&2
-  exit 1
-fi
+thor_password_check_status=0
+rg -n 'writeCredential\([^,]*PASSWORD|VALKYR_AUTH_PASSWORD.*writeCredential' "${thor_root}/scripts/gm-auth.mjs" >/dev/null || thor_password_check_status=$?
+case "$thor_password_check_status" in
+  1) ;;
+  0)
+    echo 'FAIL: authentication must not persist a GrayMatter password' >&2
+    exit 1
+    ;;
+  *)
+    echo "FAIL: password-persistence check could not run (ripgrep exit $thor_password_check_status)" >&2
+    exit 1
+    ;;
+esac
 
 echo 'gm login cross-platform tests passed'

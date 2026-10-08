@@ -61,13 +61,17 @@ jq -e '.errors.AUTH_REQUIRED and .errors.UPSTREAM_UNAVAILABLE' < <("${ROOT}/scri
 cmp -s "$PORTABLE_CONTRACT" "$PLUGIN_PORTABLE_CONTRACT"
 cmp -s "$OMEGA_AGENT_ABI_CONTRACT" "$PLUGIN_OMEGA_AGENT_ABI_CONTRACT"
 cmp -s "$LEGACY_CONTRACT" "$PLUGIN_LEGACY_CONTRACT"
-cmp -s "$ROOT/mcp-server/index.js" <(unzip -p "$ROOT/graymatter.skill" graymatter/mcp-server/index.js)
-cmp -s "$PORTABLE_CONTRACT" <(unzip -p "$ROOT/graymatter.skill" graymatter/references/contracts/mcp/graymatter_mcp_tools_v1.json)
+CONTRACT_PACKAGE_TMP="$(mktemp -d "${TMPDIR:-/tmp}/graymatter-mcp-contract.XXXXXX")"
+trap 'rm -rf "$CONTRACT_PACKAGE_TMP"' EXIT
+CONTRACT_PACKAGE="$CONTRACT_PACKAGE_TMP/graymatter.skill"
+GRAYMATTER_PACKAGE_OUT="$CONTRACT_PACKAGE" "$ROOT/scripts/package-graymatter" >/dev/null
+cmp -s "$ROOT/mcp-server/index.js" <(unzip -p "$CONTRACT_PACKAGE" graymatter/mcp-server/index.js)
+cmp -s "$PORTABLE_CONTRACT" <(unzip -p "$CONTRACT_PACKAGE" graymatter/references/contracts/mcp/graymatter_mcp_tools_v1.json)
 jq -e '
   .tools[] | select(.name == "omega_index_job")
   | (.inputSchema.properties.operation.enum | index("activate") != null and index("rollback") != null)
     and (.inputSchema.properties.mode.enum | index("dimension_migration") != null)
-' < <(unzip -p "$ROOT/graymatter.skill" graymatter/references/contracts/mcp/graymatter_mcp_tools_v1.json) >/dev/null
+' < <(unzip -p "$CONTRACT_PACKAGE" graymatter/references/contracts/mcp/graymatter_mcp_tools_v1.json) >/dev/null
 jq -e '.tools[] | select(.name == "memory_retrieve_with_receipt") | .outputSchema.required | index("graymatterPolicy")' < <("${ROOT}/plugins/graymatter/scripts/gm-mcp-contract") >/dev/null
 jq -e '.tools | length > 0' < <("${ROOT}/plugins/graymatter/scripts/gm-mcp-contract" --mode=portable --validate) >/dev/null
 jq -e '.name == "graymatter_omegarag_agent_abi" and (.tools | length == 20)' < <("${ROOT}/plugins/graymatter/scripts/gm-mcp-contract" --mode=omega --validate) >/dev/null

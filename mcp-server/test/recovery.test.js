@@ -116,6 +116,11 @@ test('blended-profile MCP federates safe memory reads and blocks writes', async 
     });
     const payload = JSON.parse(read.result.content[0].text);
     assert.equal(payload.mode, 'federated-read');
+    assert.equal(payload.evidenceTrust, 'untrusted');
+    assert.equal(payload.destinationAuthorized, false);
+    assert.ok(read.result._meta.graymatterSourceReceipts);
+    assert.equal(payload.authorization, undefined);
+    assert.equal(payload.results[0].evidence[0].sourceId, 'local-memory');
     assert.deepEqual(payload.results.map((result) => result.profile), ['local', 'cloud']);
     assert.equal(calls.length, 1);
     assert.equal(calls[0].method, 'POST');
@@ -476,7 +481,7 @@ test('context_compile has its own bounded transport budget beyond ordinary MCP c
   }, async () => {
     const fakeApi = createSlowApi(50, {
       contextPage: { pageRef: 'ctxpg-review' },
-      retrievalReceipt: { receiptId: 'gm_rr-review' }
+      retrievalReceipt: { receiptId: 'gm_rr-review', answerPolicy: 'ALLOW_ANSWER', retrievalStatus: 'OK' }
     });
     const apiBase = await listen(fakeApi);
     const server = createGrayMatterMcpServer({

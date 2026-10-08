@@ -275,12 +275,13 @@ tenant_id_from_token() {
 resolve_tenant_id() {
   local explicit="${GRAYMATTER_TENANT_ID:-${VALKYR_TENANT_ID:-}}"
 
-  if [[ -n "$explicit" ]]; then
-    printf '%s\n' "$explicit"
-    return 0
+  local signed_tenant=""
+  signed_tenant="$(tenant_id_from_token "$TOKEN")"
+  if [[ -n "$explicit" && "$explicit" != "$signed_tenant" ]]; then
+    echo "GrayMatter tenant override does not match the authenticated session; scope is server-derived." >&2
+    return 64
   fi
-
-  tenant_id_from_token "$TOKEN"
+  printf '%s\n' "$signed_tenant"
 }
 
 token_expires_soon() {
@@ -760,81 +761,41 @@ request_is_transient_retry_safe() {
 create_deferred_operation() {
   local response_file="${1:-}"
   local operation_kind="${2:-api_write}"
-  local op_id=""
-  local target_file=""
-  local body_file=""
-  local trace_id=""
-  local required_credits=""
-  local current_balance=""
+  local op_id target_file trace_id="" required_credits="" current_balance="" source_authority='null'
 
   [[ "$GRAYMATTER_SKIP_DEFERRED" == "true" ]] && return 0
   request_is_replay_safe || return 0
-
-  if [[ -n "$response_file" ]] && command -v jq >/dev/null 2>&1; then
+  command -v jq >/dev/null 2>&1 || {
+    echo "GrayMatter cannot safely queue a replay operation without jq." >&2
+    return 0
+  }
+  if [[ -n "$response_file" ]]; then
     trace_id="$(jq -r '.traceId // .trace_id // .details.traceId // empty' "$response_file" 2>/dev/null || true)"
     required_credits="$(jq -r '.requiredCredits // .required_credits // .required // .details.requiredCredits // empty' "$response_file" 2>/dev/null || true)"
     current_balance="$(jq -r '.currentBalance // .balance // .details.currentBalance // empty' "$response_file" 2>/dev/null || true)"
   fi
-
-  op_id="$(date +%Y%m%dT%H%M%SZ)-$$-$(od -An -N4 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n')"
-  mkdir -p "$GRAYMATTER_DEFERRED_DIR"
-  target_file="${GRAYMATTER_DEFERRED_DIR%/}/${op_id}.json"
-  body_file="$(portable_mktemp graymatter-deferred-body.XXXXXX)"
-  printf '%s' "$BODY" >"$body_file"
-
-  if command -v jq >/dev/null 2>&1; then
-    jq -n \
-      --arg id "$op_id" \
-      --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-      --arg method "$METHOD_UPPER" \
-      --arg path "$PATH_PART" \
-      --arg body "$BODY" \
-      --arg operation "$operation_kind" \
-      --arg api_base "$BASE" \
-      --arg install_id "$GRAYMATTER_INSTALL_ID" \
-      --arg source "$GRAYMATTER_ACTIVATION_SOURCE" \
-      --arg trace_id "$trace_id" \
-      --arg required_credits "$required_credits" \
-      --arg current_balance "$current_balance" \
-      --arg body_sha "$(shasum -a 256 "$body_file" | awk '{print $1}')" \
-      '{
-        id:$id,
-        createdAt:$ts,
-        method:$method,
-        path:$path,
-        body:$body,
-        operation:$operation,
-        apiBase:$api_base,
-        installId:$install_id,
-        source:$source,
-        traceId:$trace_id,
-        requiredCredits:$required_credits,
-        currentBalance:$current_balance,
-        bodySha256:$body_sha
-      }' >"$target_file"
-    rm -f "$body_file"
-    printf '%s\n' "$target_file"
-    return 0
+  if [[ -x "${SCRIPT_DIR}/gm-source-authority" ]]; then
+    source_authority="$(VALKYR_API_BASE="$BASE" VALKYR_AUTH_TOKEN="$TOKEN" \
+      GRAYMATTER_API_SCRIPT="$0" "${SCRIPT_DIR}/gm-source-authority" 2>/dev/null)" || source_authority='null'
   fi
-
-  {
-    printf '{'
-    printf '"id":"%s",' "$op_id"
-    printf '"createdAt":"%s",' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-    printf '"method":"%s",' "$METHOD_UPPER"
-    printf '"path":"%s",' "$PATH_PART"
-    printf '"body":"%s",' "$(printf '%s' "$BODY" | sed 's/\\/\\\\/g; s/"/\\"/g')"
-    printf '"operation":"%s",' "$operation_kind"
-    printf '"apiBase":"%s",' "$BASE"
-    printf '"installId":"%s",' "$GRAYMATTER_INSTALL_ID"
-    printf '"source":"%s",' "$GRAYMATTER_ACTIVATION_SOURCE"
-    printf '"traceId":"%s",' "$trace_id"
-    printf '"requiredCredits":"%s",' "$required_credits"
-    printf '"currentBalance":"%s",' "$current_balance"
-    printf '"bodySha256":"%s"' "$(shasum -a 256 "$body_file" | awk '{print $1}')"
-    printf '}'
-  } >"$target_file"
-  rm -f "$body_file"
+  if [[ "$source_authority" == 'null' ]]; then
+    echo "GrayMatter source authority could not be verified; this local record cannot be automatically replayed." >&2
+  fi
+  op_id="$(date +%Y%m%dT%H%M%SZ)-$$-$(od -An -N4 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n')"
+  (umask 077; mkdir -p "$GRAYMATTER_DEFERRED_DIR")
+  target_file="${GRAYMATTER_DEFERRED_DIR%/}/${op_id}.json"
+  (umask 077; jq -n \
+    --arg id "$op_id" --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    --arg method "$METHOD_UPPER" --arg path "$PATH_PART" --arg body "$BODY" \
+    --arg operation "$operation_kind" --arg api_base "${BASE%/}" \
+    --arg install_id "$GRAYMATTER_INSTALL_ID" --arg source "$GRAYMATTER_ACTIVATION_SOURCE" \
+    --arg trace_id "$trace_id" --arg required_credits "$required_credits" \
+    --arg current_balance "$current_balance" --argjson source_authority "$source_authority" \
+    --arg body_sha "$(printf '%s' "$BODY" | shasum -a 256 | awk '{print $1}')" \
+    '{id:$id,createdAt:$ts,method:$method,path:$path,body:$body,operation:$operation,
+      apiBase:$api_base,installId:$install_id,source:$source,traceId:$trace_id,
+      requiredCredits:$required_credits,currentBalance:$current_balance,
+      bodySha256:$body_sha,sourceAuthority:$source_authority}' >"$target_file")
   printf '%s\n' "$target_file"
 }
 
@@ -1139,6 +1100,7 @@ if method_requires_write_access; then
   prepare_stateful_auth_for_write || true
 fi
 
+resolve_tenant_id >/dev/null
 perform_request
 
 if [[ "$HTTP_STATUS" == "401" || "$HTTP_STATUS" == "403" ]]; then

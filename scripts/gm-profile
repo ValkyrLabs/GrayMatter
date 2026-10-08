@@ -51,8 +51,8 @@ Commands:
       flow. Switching to a profile requires a username-scoped Keychain token.
 
   blend
-      Persist an explicit federated read selection. Supported reads run once
-      per account and return profile-labeled results. CLI and MCP memory
+      Persist an explicit read selection. Before assembly, the API must confirm
+      one authenticated actor and organization plus each source's composition policy. CLI and MCP memory
       query/read/health use this selection; writes and unsupported MCP tools
       fail closed.
       Return to one account with gm-profile use <name>.
@@ -520,10 +520,6 @@ validate_blend_names() {
     require_profile "$thor_name"
     if ! jq -e --arg name "$thor_name" 'index($name) != null' <<<"$thor_json" >/dev/null; then
       thor_fingerprint="$(profile_record "$thor_name" | jq -r '.accountFingerprint')"
-      if jq -e --arg fingerprint "$thor_fingerprint" 'index($fingerprint) != null' <<<"$thor_fingerprints" >/dev/null; then
-        echo "Blended GrayMatter mode requires distinct authenticated accounts; '${thor_name}' duplicates another selected account." >&2
-        exit 65
-      fi
       thor_json="$(jq -c --arg name "$thor_name" '. + [$name]' <<<"$thor_json")"
       thor_fingerprints="$(jq -c --arg fingerprint "$thor_fingerprint" '. + [$fingerprint]' <<<"$thor_fingerprints")"
       thor_count=$((thor_count + 1))

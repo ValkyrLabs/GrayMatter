@@ -84,6 +84,7 @@ REQUIRED=(
   scripts/gm-record
   scripts/gm-profile
   scripts/gm-profile-lib
+  scripts/gm-source-authority
   scripts/gm-light-smoke
   scripts/gm-knowledge-pack-import
   scripts/package-graymatter

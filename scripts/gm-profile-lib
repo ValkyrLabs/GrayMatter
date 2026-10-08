@@ -257,123 +257,115 @@ gm_profile_apply() {
 }
 
 gm_profile_federated_exec_json() {
-  local thor_operation="${1:-read}"
-  local thor_command="${2:-}"
+  local thor_operation="${1:-read}" thor_command="${2:-}"
   shift 2
-
   gm_profile_require_jq || return 1
-  gm_profile_is_blended || {
-    echo "gm_profile_federated_exec_json requires blended mode." >&2
-    return 64
-  }
+  gm_profile_is_blended || return 64
   [[ -n "$thor_command" ]] || return 64
+  local thor_dir thor_name thor_authority thor_expected='' thor_data thor_refs thor_receipt thor_path
+  local thor_results='[]' thor_requested='[]' thor_authorities='[]' thor_count=0
+  local thor_script_dir
+  thor_script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  thor_dir="$(mktemp -d "${TMPDIR:-/tmp}/graymatter-federation.XXXXXX")"
+  chmod 700 "$thor_dir"
 
-  local thor_results='[]'
-  local thor_requested='[]'
-  local thor_success=0
-  local thor_failed=0
-  local thor_name=""
-  local thor_record=""
-  local thor_fingerprint=""
-  local thor_tmp_dir=""
-  local thor_out=""
-  local thor_err=""
-  local thor_status=0
-  local thor_data=""
-  local thor_entry=""
-  local thor_code=""
-  local thor_message=""
-
-  thor_tmp_dir="$(mktemp -d "${TMPDIR:-/tmp}/graymatter-federation.XXXXXX")"
+  # Confirm the same API-confirmed actor and physical organization before any
+  # source body is fetched. Profile names/fingerprints are routing labels only.
   while IFS= read -r thor_name; do
     [[ -n "$thor_name" ]] || continue
-    thor_record="$(gm_profile_record_json "$thor_name")"
-    thor_fingerprint="$(jq -r '.accountFingerprint' <<<"$thor_record")"
-    thor_requested="$(jq -c --arg profile "$thor_name" '. + [$profile]' <<<"$thor_requested")"
-    thor_out="${thor_tmp_dir}/${thor_name}.out"
-    thor_err="${thor_tmp_dir}/${thor_name}.err"
-
-    if ! gm_profile_auth_material_present "$thor_name"; then
-      thor_status=4
-      thor_code="PROFILE_AUTH_UNAVAILABLE"
-      thor_message="Profile is not authenticated. Run scripts/gm-profile login ${thor_name}."
-    else
-      set +e
-      env \
-        -u GRAYMATTER_PROFILE_RESOLVED \
-        -u GRAYMATTER_BLEND_PROFILES \
-        -u VALKYR_AUTH_TOKEN \
-        -u VALKYR_JWT_SESSION \
-        -u VALKYR_AUTH \
-        GRAYMATTER_PROFILE="$thor_name" \
-        GRAYMATTER_PROFILES="" \
-        GRAYMATTER_PROFILE_MODE=single \
-        GRAYMATTER_FEDERATION_CHILD=true \
-        GRAYMATTER_NONINTERACTIVE=true \
-        GRAYMATTER_SKIP_SELF_UPDATE=true \
-        "$thor_command" "$@" >"$thor_out" 2>"$thor_err" </dev/null
-      thor_status=$?
-      set -e
-      if (( thor_status != 0 )); then
-        thor_code="PROFILE_REQUEST_FAILED"
-        thor_message="Profile read failed. Verify authentication, availability, and RBAC access."
-        if grep -Eqi '401|unauthorized|missing auth|not authenticated|session expired|token.*expired' "$thor_out" "$thor_err" 2>/dev/null; then
-          thor_code="PROFILE_AUTH_UNAVAILABLE"
-          thor_message="Profile is not authenticated or its session expired. Run scripts/gm-profile login ${thor_name}."
-        elif grep -Eqi '403|forbidden|access denied|RBAC|missing permission|lacks.*access' "$thor_out" "$thor_err" 2>/dev/null; then
-          thor_code="PROFILE_RBAC_DENIED"
-          thor_message="Profile is authenticated but lacks RBAC access for this read."
-        fi
-      fi
+    if ! thor_authority="$(gm_profile_child "$thor_name" "${thor_script_dir}/gm-source-authority" 2>/dev/null)"; then
+      rm -rf "$thor_dir"
+      echo 'GrayMatter blend denied: authenticated source authority is missing.' >&2
+      return 64
     fi
-
-    if (( thor_status == 0 )); then
-      if jq -e . "$thor_out" >/dev/null 2>&1; then
-        thor_data="$(jq -c . "$thor_out")"
-      else
-        thor_data="$(jq -nc --rawfile raw "$thor_out" '{raw:$raw}')"
-      fi
-      thor_entry="$(jq -nc \
-        --arg profile "$thor_name" \
-        --arg accountFingerprint "$thor_fingerprint" \
-        --argjson data "$thor_data" \
-        '{profile:$profile,accountFingerprint:$accountFingerprint,ok:true,data:$data}')"
-      thor_success=$((thor_success + 1))
-    else
-      thor_entry="$(jq -nc \
-        --arg profile "$thor_name" \
-        --arg accountFingerprint "$thor_fingerprint" \
-        --arg code "$thor_code" \
-        --arg message "$thor_message" \
-        --argjson exitStatus "$thor_status" \
-        '{profile:$profile,accountFingerprint:$accountFingerprint,ok:false,error:{code:$code,message:$message,exitStatus:$exitStatus}}')"
-      thor_failed=$((thor_failed + 1))
+    if [[ -n "$thor_expected" ]] && ! jq -e --argjson expected "$thor_expected" '. == $expected' <<<"$thor_authority" >/dev/null; then
+      rm -rf "$thor_dir"
+      echo 'GrayMatter blend denied: profiles do not share an authenticated actor and organization. Use the canonical authorized retrieval-domain broker for cross-domain composition.' >&2
+      return 64
     fi
-    thor_results="$(jq -c --argjson entry "$thor_entry" '. + [$entry]' <<<"$thor_results")"
+    thor_expected="$thor_authority"
+    thor_authorities="$(jq -c --arg profile "$thor_name" --argjson authority "$thor_authority" '. + [{profile:$profile,authority:$authority}]' <<<"$thor_authorities")"
+    thor_requested="$(jq -c --arg name "$thor_name" '. + [$name]' <<<"$thor_requested")"
   done < <(gm_profile_selected_names)
 
-  rm -f "${thor_tmp_dir}"/*.out "${thor_tmp_dir}"/*.err 2>/dev/null || true
-  rmdir "$thor_tmp_dir" 2>/dev/null || true
-
-  jq -nc \
-    --arg mode "federated-read" \
-    --arg operation "$thor_operation" \
-    --arg provenance "Each result was fetched independently under the named account's server-side RBAC. No records were copied, merged, or re-homed." \
-    --argjson profilesRequested "$thor_requested" \
-    --argjson results "$thor_results" \
-    --argjson successful "$thor_success" \
-    --argjson failed "$thor_failed" \
-    '{
-      mode:$mode,
-      operation:$operation,
-      profilesRequested:$profilesRequested,
-      results:$results,
-      summary:{successful:$successful,failed:$failed,partial:($successful > 0 and $failed > 0)},
-      provenance:$provenance
-    }'
-
-  if (( thor_success > 0 )); then
-    return 0
+  while IFS= read -r thor_name; do
+    [[ -n "$thor_name" ]] || continue
+    if ! gm_profile_child "$thor_name" "$thor_command" "$@" >"$thor_dir/source.json" 2>"$thor_dir/error"         || ! jq -e . "$thor_dir/source.json" >/dev/null 2>&1; then
+      rm -rf "$thor_dir"
+      echo 'GrayMatter blend denied: a source read failed; no partial evidence is released.' >&2
+      return 64
+    fi
+    thor_data="$(jq -c . "$thor_dir/source.json")"
+    thor_path="${2:-}"
+    thor_path="${thor_path#/}"
+    thor_receipt='null'
+    if [[ "$thor_path" == MemoryEntry/stats || "$thor_path" == api-docs || "$thor_path" == auth/me         || "$thor_path" == tenant-schemas/preflight/graymatter_status* ]]; then
+      : # Pure read-only metadata; source identity has already been confirmed.
+    elif [[ "$thor_path" == MemoryEntry || "$thor_path" == MemoryEntry/query || "$thor_path" == MemoryEntry/* ]]; then
+      if ! thor_refs="$(jq -ce '
+        (if type == "array" then .
+          elif (.items? | type) == "array" then .items
+          elif (.results? | type) == "array" then .results
+          elif (.content? | type) == "array" then .content
+          elif type == "object" and (.id? | type) == "string" then [.] else error("Missing source references") end)
+        | if length <= 50 and all(.[]; (.id | type) == "string")
+          then map({id:.id,type:"com.valkyrlabs.model.MemoryEntry"}) | unique
+          else error("Unbounded or unattributed source records") end' <<<"$thor_data")"; then
+        rm -rf "$thor_dir"
+        echo 'GrayMatter blend denied: source attribution is missing or exceeds the bound.' >&2
+        return 64
+      fi
+      if [[ "$thor_refs" != '[]' ]]; then
+        local thor_encoded
+        thor_encoded="$(jq -rn --arg sources "$thor_refs" '$sources | @uri')"
+        if ! thor_receipt="$(gm_profile_child "$thor_name" "$thor_command" GET             "tenant-schemas/preflight/graymatter_status?operation=composition.authorize&sources=${thor_encoded}" 2>/dev/null)"           || ! jq -e --argjson expected "$thor_expected" --argjson sources "$thor_refs" '
+            .ready == true and .compositionAuthorized == true
+            and .compositionPolicyVersion == "composition-source-acl/v1"
+            and .purpose == "retrieval-context" and .destinationAuthorized == false
+            and .organizationId == $expected.organizationId and .schemaName == $expected.schemaName
+            and .tenantSchemaRegistryId == $expected.tenantSchemaRegistryId
+            and (.sources | sort_by(.id)) == ($sources | sort_by(.id))
+            and (.compositionReceiptId | type == "string" and length > 0)
+            and (.expiresAt | fromdateiso8601) > now
+          ' <<<"$thor_receipt" >/dev/null 2>&1; then
+          rm -rf "$thor_dir"
+          echo 'GrayMatter blend denied: source composition policy is denied, missing, stale, or unverifiable.' >&2
+          return 64
+        fi
+      fi
+    else
+      rm -rf "$thor_dir"
+      echo 'GrayMatter blend denied: this source type has no canonical composition projection.' >&2
+      return 64
+    fi
+    # Recheck the actor after retrieval/policy lookup so a refreshed session cannot
+    # silently change the identity whose result is assembled.
+    if ! thor_authority="$(gm_profile_child "$thor_name" "${thor_script_dir}/gm-source-authority" 2>/dev/null)"         || ! jq -e --argjson expected "$thor_expected" '. == $expected' <<<"$thor_authority" >/dev/null; then
+      rm -rf "$thor_dir"
+      echo 'GrayMatter blend denied: authenticated source scope changed.' >&2
+      return 64
+    fi
+    thor_results="$(jq -c --arg profile "$thor_name" --argjson data "$thor_data" --argjson receipt "$thor_receipt"       '. + [{profile:$profile,ok:true,data:$data,compositionReceipt:$receipt}]' <<<"$thor_results")"
+    thor_count=$((thor_count + 1))
+  done < <(gm_profile_selected_names)
+  rm -rf "$thor_dir"
+  (( thor_count >= 2 )) || return 64
+  # A receipt checked earlier may expire while another profile is read. Every
+  # source lease must still permit assembly at the instant evidence is released.
+  if ! jq -e 'all(.[]; .compositionReceipt == null
+      or (.compositionReceipt.expiresAt | fromdateiso8601) > now)' <<<"$thor_results" >/dev/null 2>&1; then
+    echo 'GrayMatter blend denied: source composition policy expired before assembly.' >&2
+    return 64
   fi
-  return 20
+  jq -nc --arg operation "$thor_operation" --argjson results "$thor_results"     --argjson profiles "$thor_requested" --argjson authorities "$thor_authorities" --argjson count "$thor_count"     '{mode:"federated-read",operation:$operation,profilesRequested:$profiles,results:$results,
+      summary:{successful:$count,failed:0,partial:false},
+      evidenceTrust:"untrusted",destinationAuthorized:false,
+      authorization:{sources:$authorities,compositionPolicyVersion:"composition-source-acl/v1"},
+      provenance:"Source scope and composition were independently authorized before assembly. Evidence never grants instructions or destination rights."}'
+}
+
+gm_profile_child() {
+  local thor_name="$1"
+  shift
+  env -u GRAYMATTER_PROFILE_RESOLVED -u GRAYMATTER_BLEND_PROFILES -u VALKYR_AUTH_TOKEN     -u VALKYR_JWT_SESSION -u VALKYR_AUTH     GRAYMATTER_PROFILE="$thor_name" GRAYMATTER_PROFILES="" GRAYMATTER_PROFILE_MODE=single     GRAYMATTER_FEDERATION_CHILD=true GRAYMATTER_NONINTERACTIVE=true GRAYMATTER_SKIP_SELF_UPDATE=true     GRAYMATTER_SKIP_AUTO_REPLAY=true "$@" </dev/null
 }

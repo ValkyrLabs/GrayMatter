@@ -411,6 +411,10 @@ cmp -s "$ROOT/scripts/graymatter_api.sh" "$ROOT/plugins/graymatter/scripts/graym
   echo "Codex marketplace plugin API transport is stale; sync scripts/graymatter_api.sh" >&2
   exit 1
 }
+cmp -s "$ROOT/scripts/gm-source-authority" "$ROOT/plugins/graymatter/scripts/gm-source-authority" || {
+  echo "Codex marketplace plugin source authority helper is stale" >&2
+  exit 1
+}
 cmp -s "$ROOT/scripts/gm-replay-deferred" "$ROOT/plugins/graymatter/scripts/gm-replay-deferred" || {
   echo "Codex marketplace plugin deferred replay helper is stale; sync scripts/gm-replay-deferred" >&2
   exit 1
@@ -765,12 +769,14 @@ grep -q "graymatter_invariant_preflight" "$ROOT/plugins/graymatter/mcp-server/RE
 
 RELEASE_TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/graymatter-release-surfaces.XXXXXX")"
 trap 'rm -rf "$RELEASE_TMP_DIR"' EXIT
+STANDALONE_PACKAGE="$RELEASE_TMP_DIR/graymatter-standalone.skill"
+GRAYMATTER_PACKAGE_OUT="$STANDALONE_PACKAGE" "$ROOT/scripts/package-graymatter" >/dev/null
 ZIP_LIST="$RELEASE_TMP_DIR/graymatter-skill-list.txt"
-unzip -Z1 "$ROOT/graymatter.skill" >"$ZIP_LIST"
+unzip -Z1 "$STANDALONE_PACKAGE" >"$ZIP_LIST"
 for thor_path in mcp-server/Dockerfile mcp-server/lib/memory-scan.cjs mcp-server/lib/contribution-report.cjs scripts/gm-contribution-report docs/contribution-evidence.md; do
   grep -Fxq "graymatter/$thor_path" "$ZIP_LIST" || { echo "Standalone archive missing $thor_path" >&2; exit 1; }
 done
-unzip -q "$ROOT/graymatter.skill" 'graymatter/mcp-server/*' -d "$RELEASE_TMP_DIR/standalone-load"
+unzip -q "$STANDALONE_PACKAGE" 'graymatter/mcp-server/*' -d "$RELEASE_TMP_DIR/standalone-load"
 node -e 'const assert=require("node:assert/strict"); const server=require(process.argv[1]); assert(server.tools.some(tool=>tool.name==="memory_contribution_report"));' \
   "$RELEASE_TMP_DIR/standalone-load/graymatter/mcp-server/index.js"
 grep -q '^graymatter/SUBMISSION_CHECKLIST.md$' "$ZIP_LIST"
@@ -805,6 +811,7 @@ grep -q '^graymatter/scripts/gm-client$' "$ZIP_LIST"
 grep -q '^graymatter/scripts/gm-read$' "$ZIP_LIST"
 grep -q '^graymatter/scripts/gm-profile$' "$ZIP_LIST"
 grep -q '^graymatter/scripts/gm-profile-lib$' "$ZIP_LIST"
+grep -q '^graymatter/scripts/gm-source-authority$' "$ZIP_LIST"
 grep -q '^graymatter/vaix$' "$ZIP_LIST"
 grep -q '^graymatter/openapi/bundles/00-graymatter-core.yaml$' "$ZIP_LIST"
 grep -q '^graymatter/openapi/extensions/customer-support.yaml$' "$ZIP_LIST"
@@ -871,6 +878,7 @@ grep -q '^graymatter/docs/graymatter-lite.md$' "$PLUGIN_ZIP_LIST"
 grep -q '^graymatter/docs/schema-regeneration.md$' "$PLUGIN_ZIP_LIST"
 grep -q '^graymatter/docs/local-models.md$' "$PLUGIN_ZIP_LIST"
 grep -q '^graymatter/scripts/gm-profile$' "$PLUGIN_ZIP_LIST"
+grep -q '^graymatter/scripts/gm-source-authority$' "$PLUGIN_ZIP_LIST"
 grep -q '^graymatter/vaix$' "$PLUGIN_ZIP_LIST"
 grep -q '^graymatter/openapi/bundles/00-graymatter-core.yaml$' "$PLUGIN_ZIP_LIST"
 grep -q '^graymatter/openapi/extensions/customer-support.yaml$' "$PLUGIN_ZIP_LIST"

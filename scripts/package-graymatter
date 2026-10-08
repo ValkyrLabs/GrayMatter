@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-OUT="$ROOT/graymatter.skill"
+OUT="${GRAYMATTER_PACKAGE_OUT:-$ROOT/graymatter.skill}"
 
 REQUIRED=(
   .codex-plugin/plugin.json
@@ -103,6 +103,7 @@ REQUIRED=(
   scripts/gm-register-agent
   scripts/gm-fallback-append
   scripts/gm-replay-deferred
+  scripts/gm-source-authority
   scripts/gm-hook-event
   scripts/gm-light-bootstrap
   scripts/gm-light-up

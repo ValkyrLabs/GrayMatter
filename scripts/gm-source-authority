@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+set -euo pipefail
+umask 077
+
+# Routing labels and JWT claims are not grants. Bind local deferred operations
+# only to an identity and tenant context confirmed by the authenticated API.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+API_SCRIPT="${GRAYMATTER_API_SCRIPT:-${SCRIPT_DIR}/graymatter_api.sh}"
+if [[ -f "${SCRIPT_DIR}/gm-profile-lib" ]]; then
+  source "${SCRIPT_DIR}/gm-profile-lib"
+  gm_profile_apply
+  gm_profile_assert_single 'Source authority validation'
+fi
+command -v jq >/dev/null 2>&1 || { echo 'GrayMatter source authority validation requires jq.' >&2; exit 64; }
+PROBE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/graymatter-authority.XXXXXX")"
+trap 'rm -f "$PROBE_DIR/auth.json" "$PROBE_DIR/tenant.json"; rmdir "$PROBE_DIR"' EXIT
+
+if ! GRAYMATTER_SKIP_AUTO_REPLAY=true GRAYMATTER_SKIP_DEFERRED=true GRAYMATTER_SKIP_SELF_UPDATE=true \
+    "$API_SCRIPT" GET auth/me >"$PROBE_DIR/auth.json" 2>/dev/null \
+  || ! GRAYMATTER_SKIP_AUTO_REPLAY=true GRAYMATTER_SKIP_DEFERRED=true GRAYMATTER_SKIP_SELF_UPDATE=true \
+    "$API_SCRIPT" GET 'tenant-schemas/preflight/graymatter_status?operation=memory.write' >"$PROBE_DIR/tenant.json" 2>/dev/null; then
+  echo 'GrayMatter authenticated source authority is unavailable.' >&2
+  exit 64
+fi
+
+if ! jq -en --slurpfile auth "$PROBE_DIR/auth.json" --slurpfile tenant "$PROBE_DIR/tenant.json" \
+    --arg base "${VALKYR_API_BASE:-https://api-0.valkyrlabs.com/v1}" '
+  ($auth[0]) as $a | ($tenant[0]) as $t
+  | ($a.authenticatedPrincipalObject // ($a.authenticatedPrincipal | fromjson?)) as $p
+  | ($p.principalId // $p.id) as $id
+  | if $a.authenticated == true and ($id | type == "string" and length > 0)
+      and $t.ready == true and $t.tenantSchemaContext == "ready"
+      and ($t.schemaName | type == "string" and length > 0)
+      and ($t.organizationId | type == "string" and length > 0)
+      and ($t.tenantSchemaRegistryId | type == "string" and length > 0)
+    then {version:1,apiBase:($base | sub("/+$";"")),principalId:$id,
+      organizationId:$t.organizationId,tenantSchemaRegistryId:$t.tenantSchemaRegistryId,
+      schemaName:$t.schemaName}
+    else error("Authenticated source authority was not confirmed") end
+' 2>/dev/null; then
+  echo 'GrayMatter authenticated source authority was not confirmed.' >&2
+  exit 64
+fi

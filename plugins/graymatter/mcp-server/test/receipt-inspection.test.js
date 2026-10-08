@@ -40,7 +40,7 @@ async function thor_inspect(thor_apiBase, thor_receipt) {
 
 test('cloud receipts link to exact authenticated evidence without copying payload or identity fields', async () => {
   const thor_result = await thor_inspect('https://api-0.valkyrlabs.com/v1', {
-    receiptId: 'retrieval:123', traceId: 'trace-456', answerPolicy: 'ALLOW_ANSWER',
+    receiptId: 'retrieval:123', traceId: 'trace-456', answerPolicy: 'ALLOW_ANSWER', retrievalStatus: 'OK',
     query: 'Private customer question', principalId: 'private-principal', token: 'private-token',
   });
   const thor_link = new URL(thor_result.graymatterInspection.url);

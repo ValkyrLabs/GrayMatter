@@ -1609,8 +1609,12 @@ test('retrieval receipt tools route to the ThorAPI receipt surface', async () =>
     assert.equal(createPayload.graymatterPolicy.answerAllowed, true);
     assert.equal(createPayload.graymatterPolicy.disposition, 'answer_from_memory_allowed');
     assert.equal(createPayload.receipt.graymatterPolicy.answerAllowed, true);
-    assert.deepEqual(JSON.parse(getResult.body.result.content[0].text), { receipt: { receiptId: 'gm_rr_123' } });
-    assert.deepEqual(JSON.parse(queryResult.body.result.content[0].text), [{ receiptId: 'gm_rr_low' }]);
+    const missingPolicy = JSON.parse(getResult.body.result.content[0].text);
+    assert.equal(missingPolicy.receipt.receiptId, 'gm_rr_123');
+    assert.equal(missingPolicy.graymatterPolicy.answerAllowed, false);
+    const listed = JSON.parse(queryResult.body.result.content[0].text);
+    assert.equal(listed[0].receiptId, 'gm_rr_low');
+    assert.equal(listed[0].graymatterPolicy.answerAllowed, false);
     assert.equal(fakeApi.requests.length, 3);
   } finally {
     server.close();
@@ -1985,47 +1989,19 @@ test('memory_write rejects the memory_update operation name before api-0', async
   }
 });
 
-test('memory_query forwards explicit tenant context ahead of JWT fallback', async () => {
-  const credential = unsignedJwt({
-    sub: 'agent-1',
-    roles: ['VALKYR_AGENT']
-  });
-  const fakeApi = createFakeApi(async (_req, res, record) => {
-    assert.equal(record.method, 'POST');
-    assert.equal(record.path, '/v1/MemoryEntry/query');
-    assert.equal(record.headers['x-tenant-id'], 'tenant-abc');
-    assert.equal(record.body.query, 'tenant scoped');
-    res.writeHead(200, { 'content-type': 'application/json' });
-    res.end(JSON.stringify({ results: [{ id: 'tenant-result' }] }));
-  });
-
+test('memory_query rejects process tenant context that differs from request identity', async () => {
+  const credential = unsignedJwt({ sub: 'agent-1', roles: ['VALKYR_AGENT'] });
+  const fakeApi = createFakeApi(async () => { throw Error('tenant override must not reach API'); });
   const apiBase = await listen(fakeApi.server);
   const server = createGrayMatterMcpServer({ apiBase: `${apiBase}/v1`, tenantId: 'tenant-abc' });
   const baseUrl = await listen(server);
-
   try {
-    const result = await postRpc(
-      baseUrl,
-      {
-        jsonrpc: '2.0',
-        id: 'tenant-query',
-        method: 'tools/call',
-        params: {
-          name: 'memory_query',
-          arguments: {
-            query: 'tenant scoped'
-          }
-        }
-      },
-      { Authorization: `Bearer ${credential}` }
-    );
-
-    assert.equal(result.status, 200);
-    assert.equal(fakeApi.requests.length, 1);
-  } finally {
-    server.close();
-    fakeApi.server.close();
-  }
+    const result = await postRpc(baseUrl, { jsonrpc: '2.0', id: 'tenant-query', method: 'tools/call',
+      params: { name: 'memory_query', arguments: { query: 'tenant scoped' } }
+    }, { Authorization: `Bearer ${credential}` });
+    assert.match(result.body.error.message, /tenant overrides/);
+    assert.equal(fakeApi.requests.length, 0);
+  } finally { server.close(); fakeApi.server.close(); }
 });
 
 test('memory_write sends scope as metadata instead of inline text headers', async () => {
@@ -2066,7 +2042,7 @@ test('memory_write sends scope as metadata instead of inline text headers', asyn
           type: 'context',
           text: 'handoff state',
           scopePath: '/Users/john/.codex/automations/mcp-and-skill-hunter/memory.md',
-          metadata: { priority: 'high', ownerId: 'client-owner', createdDate: '2026-06-05T00:00:00Z' }
+          metadata: { priority: 'high' }
         }
       }
     });

@@ -1,157 +1,84 @@
 #!/usr/bin/env bash
 set -euo pipefail
-
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SCRIPT="${ROOT}/scripts/gm-replay-deferred"
-
-fail() {
-  printf 'FAIL: %s\n' "$1" >&2
-  exit 1
-}
-
+SCRIPT="$ROOT/scripts/gm-replay-deferred"
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
-
-deferred_dir="${tmp}/deferred"
-mkdir -p "$deferred_dir"
-fallback_spool="${tmp}/graymatter-fallback.json"
-printf '{"status":"synced","items":[]}\n' >"$fallback_spool"
-
-cat >"${deferred_dir}/op.json" <<'JSON'
-{"id":"op-1","method":"POST","path":"/MemoryEntry","body":"{\"type\":\"context\",\"text\":\"hello\"}"}
-JSON
-
-api_stub="${tmp}/graymatter_api_stub.sh"
-cat >"$api_stub" <<'EOF'
+fail() { echo "FAIL: $*" >&2; exit 1; }
+mkdir -p "$tmp/deferred"
+export GRAYMATTER_DEFERRED_DIR="$tmp/deferred" GRAYMATTER_FALLBACK_SPOOL="$tmp/fallback.json"
+export GRAYMATTER_REPLAY_LOCK_DIR="$tmp/lock" GRAYMATTER_CREDIT_EVENTS_PATH="$tmp/events.jsonl"
+export VALKYR_API_BASE='https://authorized.test/v1' TEST_REPLAY_LOG="$tmp/calls"
+export GRAYMATTER_SKIP_REPLAY_PREFLIGHT=true # Former bypass must not skip source binding.
+export TEST_ACTOR='actor-1' TEST_ORG='org-1' TEST_REGISTRY='registry-1' TEST_READY=true TEST_AUTH=true
+export GRAYMATTER_API_SCRIPT="$tmp/api"
+cat > "$GRAYMATTER_API_SCRIPT" <<'API'
 #!/usr/bin/env bash
 set -euo pipefail
-printf '%s %s %s\n' "$1" "$2" "${3:-}" >>"${TEST_REPLAY_LOG}"
-EOF
-chmod +x "$api_stub"
-
-export TEST_REPLAY_LOG="${tmp}/replay.log"
-output="$(
-  GRAYMATTER_DEFERRED_DIR="$deferred_dir" \
-  GRAYMATTER_FALLBACK_SPOOL="$fallback_spool" \
-  GRAYMATTER_REPLAY_LOCK_DIR="${tmp}/replay.lock" \
-  GRAYMATTER_CREDIT_EVENTS_PATH="${tmp}/credit-events.jsonl" \
-  GRAYMATTER_API_SCRIPT="$api_stub" \
-  GRAYMATTER_SKIP_REPLAY_PREFLIGHT=true \
-  "$SCRIPT"
-)"
-
-[[ "$output" == *"Replayed deferred operation op-1"* ]] || fail "gm-replay-deferred should report replayed operation id"
-[[ -f "${tmp}/replay.log" ]] || fail "gm-replay-deferred should invoke API script"
-[[ ! -f "${deferred_dir}/op.json" ]] || fail "gm-replay-deferred should remove successfully replayed record"
-jq -e 'select(.event == "replay_started" and .deferredId == "op-1")' "${tmp}/credit-events.jsonl" >/dev/null || fail "gm-replay-deferred should emit replay_started telemetry"
-jq -e 'select(.event == "replay_succeeded" and .deferredId == "op-1")' "${tmp}/credit-events.jsonl" >/dev/null || fail "gm-replay-deferred should emit replay_succeeded telemetry"
-
-cat >"$fallback_spool" <<'JSON'
-{
-  "timestamp": "2026-07-29T00:00:00Z",
-  "source": "chat",
-  "status": "pending_replay",
-  "items": [
-    {"type":"artifact","text":"legacy artifact","owner":"codex:workspace:ValkyrAI","reason":"offline"},
-    {"type":"context","text":"legacy context","owner":"codex:workspace:ValkyrAI","reason":"tenant unknown"}
-  ]
+printf '%s %s\n' "$1" "$2" >> "$TEST_REPLAY_LOG"
+if [[ "$1 $2" == 'GET auth/me' ]]; then
+  jq -nc --arg id "$TEST_ACTOR" --arg org "$TEST_ORG" --argjson auth "$TEST_AUTH" \
+    '{authenticated:$auth,authenticatedPrincipalObject:{principalId:$id,organizationId:$org}}'
+elif [[ "$1" == GET && "$2" == tenant-schemas/preflight/* ]]; then
+  jq -nc --arg org "$TEST_ORG" --arg registry "$TEST_REGISTRY" --argjson ready "$TEST_READY" \
+    '{ready:$ready,tenantSchemaContext:"ready",organizationId:$org,schemaName:"org_1",tenantSchemaRegistryId:$registry}'
+else
+  [[ "${TEST_WRITE_FAIL:-false}" == false ]] || exit 1
+  printf '{"id":"memory-1"}\n'
+fi
+API
+chmod +x "$GRAYMATTER_API_SCRIPT"
+new_record() {
+  printf '{"items":[],"status":"synced"}\n' > "$GRAYMATTER_FALLBACK_SPOOL"
+  local authority body='{"type":"context","text":"PRIVATE CANARY"}'
+  authority="$("$ROOT/scripts/gm-source-authority")"
+  jq -nc --argjson authority "$authority" --arg body "$body" --arg base "$VALKYR_API_BASE" \
+    --arg sha "$(printf '%s' "$body" | shasum -a 256 | awk '{print $1}')" \
+    '{id:"op-1",method:"POST",path:"/MemoryEntry/write",apiBase:$base,body:$body,bodySha256:$sha,sourceAuthority:$authority}' \
+    > "$tmp/deferred/op.json"
+  : > "$TEST_REPLAY_LOG"
 }
-JSON
-rm -f "${tmp}/replay.log"
-legacy_output="$(
-  GRAYMATTER_DEFERRED_DIR="$deferred_dir" \
-  GRAYMATTER_FALLBACK_SPOOL="$fallback_spool" \
-  GRAYMATTER_REPLAY_LOCK_DIR="${tmp}/replay.lock" \
-  GRAYMATTER_CREDIT_EVENTS_PATH="${tmp}/credit-events-legacy.jsonl" \
-  GRAYMATTER_API_SCRIPT="$api_stub" \
-  GRAYMATTER_SKIP_REPLAY_PREFLIGHT=true \
-  "$SCRIPT"
-)"
-
-[[ "$(grep -c '^POST /MemoryEntry/write ' "${tmp}/replay.log")" -eq 2 ]] \
-  || fail "gm-replay-deferred should migrate every legacy gm-write fallback record"
-[[ "$legacy_output" == *"Replayed fallback record fallback-"* ]] \
-  || fail "gm-replay-deferred should report legacy fallback replay"
-jq -e '.status == "synced" and (.items | length) == 0' "$fallback_spool" >/dev/null \
-  || fail "gm-replay-deferred should mark the legacy fallback spool synced only after all writes succeed"
-
-cat >"${deferred_dir}/op-fail.json" <<'JSON'
-{"id":"op-fail","method":"POST","path":"/MemoryEntry","body":"{\"type\":\"context\",\"text\":\"retry\"}"}
-JSON
-
-api_fail_stub="${tmp}/graymatter_api_fail_stub.sh"
-cat >"$api_fail_stub" <<'EOF'
-#!/usr/bin/env bash
-set -euo pipefail
-exit 1
-EOF
-chmod +x "$api_fail_stub"
-
-set +e
-fail_output="$(
-  GRAYMATTER_DEFERRED_DIR="$deferred_dir" \
-  GRAYMATTER_FALLBACK_SPOOL="$fallback_spool" \
-  GRAYMATTER_REPLAY_LOCK_DIR="${tmp}/replay.lock" \
-  GRAYMATTER_CREDIT_EVENTS_PATH="${tmp}/credit-events-fail.jsonl" \
-  GRAYMATTER_API_SCRIPT="$api_fail_stub" \
-  GRAYMATTER_SKIP_REPLAY_PREFLIGHT=true \
-  "$SCRIPT" 2>&1
-)"
-fail_status=$?
-set -e
-
-[[ "$fail_status" == "1" ]] || fail "gm-replay-deferred should stop with exit 1 when replay fails"
-[[ "$fail_output" == *"Replay failed for op-fail; stopping."* ]] || fail "gm-replay-deferred should print a deterministic replay failure message"
-[[ -f "${deferred_dir}/op-fail.json" ]] || fail "gm-replay-deferred should preserve failed deferred records for later retry"
-
-rm -f "${deferred_dir}/op-fail.json"
-cat >"$fallback_spool" <<'JSON'
-{"status":"pending_replay","items":[{"type":"context","text":"preserve me","owner":"codex:workspace:test"}]}
-JSON
-set +e
-legacy_fail_output="$(
-  GRAYMATTER_DEFERRED_DIR="$deferred_dir" \
-  GRAYMATTER_FALLBACK_SPOOL="$fallback_spool" \
-  GRAYMATTER_REPLAY_LOCK_DIR="${tmp}/replay.lock" \
-  GRAYMATTER_CREDIT_EVENTS_PATH="${tmp}/credit-events-legacy-fail.jsonl" \
-  GRAYMATTER_API_SCRIPT="$api_fail_stub" \
-  GRAYMATTER_SKIP_REPLAY_PREFLIGHT=true \
-  "$SCRIPT" 2>&1
-)"
-legacy_fail_status=$?
-set -e
-
-[[ "$legacy_fail_status" == "1" ]] || fail "gm-replay-deferred should fail when a legacy fallback replay fails"
-[[ "$legacy_fail_output" == *"Replay failed for fallback-"* ]] || fail "legacy replay failure should name its content-derived id"
-jq -e '.status == "pending_replay" and (.items | length) == 1' "$fallback_spool" >/dev/null \
-  || fail "failed legacy fallback records must remain queued"
-
-# Hook spools must migrate to the server's context type without losing event identity.
-cat >"$fallback_spool" <<'JSON'
-{"status":"pending_replay","items":[
-  {"type":"hookEvent","text":"legacy hook","owner":"codex:workspace:test","event":"post_tool","session":"session-old"},
-  {"type":"context","text":"current hook","owner":"codex:workspace:test","event":"pre_tool","session":"session-new"}
-]}
-JSON
-cat >"$api_stub" <<'EOF'
-#!/usr/bin/env bash
-set -euo pipefail
-[[ "$1" == "POST" && "$2" == "/MemoryEntry/write" ]]
-jq -e '.type == "context" and (.text | contains("Hook event:")) and (.text | contains("Session:"))' <<<"$3" >/dev/null
-printf '%s\n' "$3" >>"${TEST_REPLAY_LOG}"
-printf '{"id":"hook-memory-id"}\n'
-EOF
-rm -f "${tmp}/replay.log"
-GRAYMATTER_DEFERRED_DIR="$deferred_dir" \
-  GRAYMATTER_FALLBACK_SPOOL="$fallback_spool" \
-  GRAYMATTER_REPLAY_LOCK_DIR="${tmp}/replay.lock" \
-  GRAYMATTER_CREDIT_EVENTS_PATH="${tmp}/credit-events-hooks.jsonl" \
-  GRAYMATTER_API_SCRIPT="$api_stub" \
-  GRAYMATTER_SKIP_REPLAY_PREFLIGHT=true \
-  "$SCRIPT" >"${tmp}/hook-replay.out"
-jq -s -e 'length == 2 and (.[0].text | contains("post_tool") and contains("session-old") and contains("legacy hook")) and (.[1].text | contains("pre_tool") and contains("session-new") and contains("current hook"))' "${tmp}/replay.log" >/dev/null \
-  || fail "hook replay must retain each event, session and text in durable context"
-jq -e '.status == "synced" and (.items | length) == 0' "$fallback_spool" >/dev/null \
-  || fail "successfully migrated hook records must be removed using their original queue identity"
-
-echo "gm_replay_deferred_test.sh: PASS"
+expect_denied() {
+  local status=0
+  "$SCRIPT" > "$tmp/out" 2> "$tmp/err" || status=$?
+  [[ "$status" == 64 ]] || fail "expected authority denial, received $status: $(cat "$tmp/err")"
+  [[ -f "$tmp/deferred/op.json" ]] || fail 'denied record was removed'
+  if rg -q '^POST ' "$TEST_REPLAY_LOG"; then fail 'denied replay sent a body'; fi
+  if rg -q 'PRIVATE CANARY' "$tmp/out" "$tmp/err"; then fail 'denial disclosed body'; fi
+}
+new_record
+"$SCRIPT" > "$tmp/out"
+[[ ! -f "$tmp/deferred/op.json" ]] || fail 'authorized record was not drained'
+rg -q '^POST /MemoryEntry/write$' "$TEST_REPLAY_LOG" || fail 'same authority replay did not write'
+jq -e 'select(.event=="replay_succeeded")' "$GRAYMATTER_CREDIT_EVENTS_PATH" >/dev/null
+# A ready schema cannot establish an incomplete source/destination identity.
+for binding_key in TEST_ORG TEST_REGISTRY; do
+  original_binding="${!binding_key}"
+  export "$binding_key="
+  : > "$TEST_REPLAY_LOG"
+  status=0
+  "$ROOT/scripts/gm-source-authority" > "$tmp/authority.out" 2> "$tmp/authority.err" || status=$?
+  [[ "$status" == 64 ]] || fail "incomplete $binding_key source identity was accepted"
+  [[ ! -s "$tmp/authority.out" ]] || fail 'incomplete source identity was released'
+  if rg -q '^POST ' "$TEST_REPLAY_LOG"; then fail 'authority probe sent a write'; fi
+  export "$binding_key=$original_binding"
+done
+new_record; export TEST_ORG='org-2'; expect_denied; export TEST_ORG='org-1'
+new_record; export TEST_ACTOR='actor-2'; expect_denied; export TEST_ACTOR='actor-1'
+new_record; export VALKYR_API_BASE='https://other.test/v1'; expect_denied; export VALKYR_API_BASE='https://authorized.test/v1'
+new_record; export TEST_READY=false; expect_denied; export TEST_READY=true
+new_record; export TEST_AUTH=false; expect_denied; export TEST_AUTH=true
+new_record; jq 'del(.sourceAuthority)' "$tmp/deferred/op.json" > "$tmp/edit"; mv "$tmp/edit" "$tmp/deferred/op.json"; expect_denied
+new_record; jq '.body="tampered private content"' "$tmp/deferred/op.json" > "$tmp/edit"; mv "$tmp/edit" "$tmp/deferred/op.json"; expect_denied
+new_record; export TEST_WRITE_FAIL=true
+status=0; "$SCRIPT" > "$tmp/out" 2> "$tmp/err" || status=$?
+[[ "$status" == 1 && -f "$tmp/deferred/op.json" ]] || fail 'failed destination write did not preserve queue'
+export TEST_WRITE_FAIL=false
+rm "$tmp/deferred/op.json"
+printf '{"items":[{"type":"context","text":"legacy private","owner":"old-workspace"}],"status":"pending_replay"}\n' > "$GRAYMATTER_FALLBACK_SPOOL"
+: > "$TEST_REPLAY_LOG"
+status=0; "$SCRIPT" > "$tmp/out" 2> "$tmp/err" || status=$?
+[[ "$status" == 64 ]] || fail 'legacy unbound fallback was adopted by current identity'
+jq -e '.items|length==1' "$GRAYMATTER_FALLBACK_SPOOL" >/dev/null
+if rg -q '^POST ' "$TEST_REPLAY_LOG"; then fail 'legacy private body was exported'; fi
+echo 'gm_replay_deferred_test.sh: PASS (12 source/destination cases)'

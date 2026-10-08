@@ -1074,26 +1074,21 @@ test_valkyr_agent_token_sends_main_tenant_header() {
   assert_contains "$(cat "${temp_root}/curl.log")" "X-Tenant-Id: main" "Valkyr agent tokens should default GrayMatter requests to the main schema tenant header"
 }
 
-test_explicit_tenant_header_overrides_valkyr_agent_fallback() {
+test_explicit_tenant_override_is_denied() {
   local temp_root="$1"
   local fake_bin="$2"
   local script_copy="$3"
-
-  export TEST_CURL_SCENARIO="success"
-  local agent_token="eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.eyJzdWIiOiJhZ2VudC0xIiwicm9sZXMiOlsiVkFMS1lSX0FHRU5UIl0sImF1dGhvcml0aWVzIjpbIk1FTU9SWUVOVFJZX1dSSVRFIl0sInVzZXJuYW1lIjoidmFsb3IifQ."
-
-  PATH="${fake_bin}:/usr/local/bin:/usr/bin:/bin" \
-  TMPDIR="${temp_root}" \
-  GRAYMATTER_TENANT_ID="tenant-abc" \
-  VALKYR_AUTH_TOKEN="${agent_token}" \
-  "${script_copy}" GET /MemoryEntry/stats >/dev/null 2>&1
-
-  local curl_log
-  curl_log="$(cat "${temp_root}/curl.log")"
-  assert_contains "${curl_log}" "X-Tenant-Id: tenant-abc" "Explicit GrayMatter tenant should override the Valkyr agent main-schema fallback"
-  if [[ "${curl_log}" == *"X-Tenant-Id: main"* ]]; then
-    fail "explicit tenant override should not also send the main fallback tenant header"
-  fi
+  local token="eyJhbGciOiJub25lIn0.eyJzdWIiOiJhZ2VudCIsInJvbGVzIjpbIlZBTEtZUlJfQUdFTlQiXX0."
+  set +e
+  PATH="${fake_bin}:/usr/local/bin:/usr/bin:/bin" TMPDIR="${temp_root}" \
+    GRAYMATTER_TENANT_ID="tenant-abc" VALKYR_AUTH_TOKEN="$token" \
+    TEST_CURL_LOG="${temp_root}/curl.log" "$script_copy" GET /MemoryEntry/stats \
+    >"${temp_root}/tenant.out" 2>"${temp_root}/tenant.err"
+  local status=$?
+  set -e
+  [[ "$status" -eq 64 ]] || fail "tenant mismatch should fail closed"
+  assert_contains "$(cat "${temp_root}/tenant.err")" "scope is server-derived" "tenant override rejection should explain its source"
+  assert_file_missing "${temp_root}/curl.log" "tenant mismatch must not send a request"
 }
 
 test_token_tenant_claim_sends_tenant_header() {
@@ -1128,7 +1123,7 @@ with_fixture test_write_uses_stateful_cookie_and_xsrf_after_login
 with_fixture test_memory_write_access_denied_names_missing_permission
 with_fixture test_api_docs_access_denied_names_schema_permission
 with_fixture test_valkyr_agent_token_sends_main_tenant_header
-with_fixture test_explicit_tenant_header_overrides_valkyr_agent_fallback
+with_fixture test_explicit_tenant_override_is_denied
 with_fixture test_token_tenant_claim_sends_tenant_header
 test_write_rejects_read_only_token_before_network_request
 test_light_mode_allows_local_request_without_token

@@ -47,6 +47,8 @@ Never paste credentials or tokens into a ChatGPT conversation, memory, test prom
 
    Pass: bounded, usable release-review context and an authorized receipt explain selected memories, provenance, coverage, freshness, and policy. A disabled evaluator must be disclosed; absent confidence is not zero and must not be invented. Empty or policy-withheld context does not pass this positive case. Respect a retry or clarification requirement rather than bypassing it with another client or a direct compile.
 
+   Recovery: a verified security or authorization denial stops that operation and must not be evaded. A missing tool, transient error, or model-reported block without a surfaced denial is not a permanent testing ban. Inspect actual outcomes and existing authorized receipts; repair the implicated layer, then allow at most two controlled validation attempts through the same native client/account/scopes with the unchanged task. A user-authorized diagnostic may inspect an unverified failure through that same path. Do not blindly replay an uncertain write. Retain failed attempts; a later pass needs its own useful ContextPage and new authorized receipt, never a manual summary.
+
 4. `Is there an existing procedure for production release review?`
 
    Pass: a bounded search returns the seeded procedure above, including security/privacy review, regression evidence, checksum, readiness, and rollback. Explain that zero evidence or an unbound workflow is not proof the procedure was executed or approved.

@@ -42,7 +42,8 @@ cleanup() {
     kill "$GENERATED_SERVER_PID" 2>/dev/null || true
   fi
   if [[ "$status" -ne 0 ]]; then
-    for log in "$TEST_ROOT/server.log" "$TEST_ROOT/generated-server.log"; do
+    for log in "$TEST_ROOT/generate.log" "$TEST_ROOT/build.log" \
+      "$TEST_ROOT/server.log" "$TEST_ROOT/generated-server.log"; do
       if [[ -s "$log" ]]; then
         echo "--- ${log##*/} ---" >&2
         tail -80 "$log" >&2
@@ -56,7 +57,7 @@ trap cleanup EXIT
 
 run_generate() {
   VAIX_STATE_DIR="$STATE_DIR" GRAYMATTER_LITE_BUNDLE_DIR="$BUNDLE_DIR" \
-    "$ROOT/vaix" generate --example-extension >/dev/null
+    "$ROOT/vaix" generate --example-extension >"$TEST_ROOT/generate.log" 2>&1
 }
 
 run_generate
@@ -142,7 +143,7 @@ fi
 grep -q "Conflicting schema 'MemoryEntry'" "$TEST_ROOT/conflict.out"
 
 VAIX_STATE_DIR="$STATE_DIR" GRAYMATTER_LITE_BUNDLE_DIR="$BUNDLE_DIR" \
-  "$ROOT/vaix" build >/dev/null
+  "$ROOT/vaix" build >"$TEST_ROOT/build.log" 2>&1
 
 JAVA_BIN=""
 if [[ -n "${JAVA_HOME:-}" && -x "${JAVA_HOME}/bin/java" ]]; then

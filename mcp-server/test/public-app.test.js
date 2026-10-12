@@ -212,7 +212,7 @@ test('public endpoint publishes protected-resource metadata and challenges unaut
 
   const metadata = await request(port, 'GET', '/.well-known/oauth-protected-resource');
   assert.equal(metadata.status, 200);
-  assert.equal(metadata.body.resource, 'https://graymatter.example.test');
+  assert.equal(metadata.body.resource, 'https://graymatter.example.test/graymatter/mcp');
   assert.deepEqual(metadata.body.authorization_servers, ['https://identity.example.test']);
   assert.deepEqual(metadata.body.scopes_supported, ['memory:read', 'memory:write', 'context:read']);
 

@@ -1511,6 +1511,9 @@ function createGrayMatterMcpServer(options = {}) {
   const publicApp = parseBoolean(options.publicApp ?? process.env.GRAYMATTER_PUBLIC_APP);
   const publicResource = withoutTrailingSlash(options.publicResource || process.env.GRAYMATTER_PUBLIC_RESOURCE || DEFAULT_PUBLIC_RESOURCE);
   const publicMcpPath = normalizeHttpPath(options.publicMcpPath || process.env.GRAYMATTER_PUBLIC_MCP_PATH || DEFAULT_PUBLIC_MCP_PATH);
+  // Discovery names the actual endpoint; already-issued token audiences retain
+  // the existing publicResource verifier contract.
+  const protectedResource = publicApp ? new URL(publicMcpPath, publicResource).toString() : publicResource;
   const oauthIssuer = withoutTrailingSlash(options.oauthIssuer || process.env.GRAYMATTER_OAUTH_ISSUER || '');
   const oauthJwksUri = options.oauthJwksUri || process.env.GRAYMATTER_OAUTH_JWKS_URI || '';
   const tokenVerifier = options.tokenVerifier || verifyPublicAccessToken;
@@ -1544,7 +1547,7 @@ function createGrayMatterMcpServer(options = {}) {
       }
 
       if (req.method === 'GET' && isProtectedResourceMetadataPath(requestUrl.pathname, publicMcpPath)) {
-        sendJson(req, res, 200, protectedResourceMetadata(publicResource, oauthIssuer), security);
+        sendJson(req, res, 200, protectedResourceMetadata(protectedResource, oauthIssuer), security);
         return;
       }
 
@@ -1646,7 +1649,7 @@ function createGrayMatterMcpServer(options = {}) {
             publicApp,
             principal,
             toolSet: selectedTools,
-            publicResource
+            publicResource: protectedResource
           });
         }, configuredMcpEnvelopeTimeoutMs());
 
@@ -1664,7 +1667,7 @@ function createGrayMatterMcpServer(options = {}) {
         : { error: 'Not found' }, security);
     } catch (error) {
       if (publicApp) {
-        const mapped = publicHttpError(error, publicResource);
+        const mapped = publicHttpError(error, protectedResource);
         sendJson(req, res, mapped.status, mapped.body, security,
           closeAfterResponseHeaders(req, res, error, mapped.headers));
         return;
@@ -5287,7 +5290,11 @@ function publicAuthError(code, message) {
 }
 
 function publicAuthChallenge(publicResource, oauthError, description) {
-  const metadataUrl = `${withoutTrailingSlash(publicResource)}/.well-known/oauth-protected-resource`;
+  const metadata = new URL(publicResource);
+  metadata.pathname = `/.well-known/oauth-protected-resource${metadata.pathname === '/' ? '' : metadata.pathname}`;
+  metadata.search = '';
+  metadata.hash = '';
+  const metadataUrl = metadata.toString();
   const safeError = oauthError || 'invalid_token';
   const safeDescription = String(description || 'OAuth authorization is required.').replace(/["\\\r\n]/g, ' ');
   return `Bearer resource_metadata="${metadataUrl}", scope="${PUBLIC_OAUTH_SCOPES.join(' ')}", error="${safeError}", error_description="${safeDescription}"`;

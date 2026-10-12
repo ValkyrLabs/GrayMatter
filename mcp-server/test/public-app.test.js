@@ -143,6 +143,7 @@ test('public tool surface is exact, strict, OAuth-scoped, and correctly annotate
     assert.equal(typeof tool.annotations.destructiveHint, 'boolean');
   }
   assert.equal(publicTools.find((tool) => tool.name === 'memory_forget').annotations.destructiveHint, true);
+  assert.equal(publicTools.find((tool) => tool.name === 'memory_update').annotations.destructiveHint, true);
   assert.equal(publicTools.find((tool) => tool.name === 'memory_search').annotations.readOnlyHint, true);
   assert.equal(publicTools.find((tool) => tool.name === 'memory_save').annotations.readOnlyHint, false);
 
@@ -550,4 +551,148 @@ test('public credit exhaustion returns a neutral usage-limit error without comme
   assert.match(result.structuredContent.error.message, /try again later/i);
   assert.doesNotMatch(serialized, /buy|purchase|payment|recharge|credits|upgrade|checkout|account outside ChatGPT|valkyrlabs\.com\/graymatter\/credits/i);
   assert.doesNotMatch(serialized, /currentBalance|requiredCredits|0\.00/);
+});
+
+
+test('public receipts minimize internal metadata while preserving selection and evaluator semantics', async (t) => {
+  const internal = {
+    id: 'unneeded-generated-row', createdDate: 'unneeded-audit-date', trashed: false,
+    authContextHash: 'must-not-leak', schemaManifestVersion: 'must-not-leak',
+    requestFingerprint: 'must-not-leak', providerRouteHash: 'must-not-leak',
+    agentId: 'must-not-leak', workflowId: 'must-not-leak',
+    policyDecisions: ['must-not-leak'], unexpectedInternalField: 'must-not-leak'
+  };
+  const receipt = {
+    ...internal, receiptId: 'review-minimized', query: 'marketplace release review',
+    retrievalStatus: 'OK', answerPolicy: 'ALLOW_ANSWER', recommendedAction: 'ANSWER',
+    quality: { ...internal, overallScore: 0.8, resultCount: 2, freshnessScore: 0 },
+    coverage: { ...internal, coverageStatus: 'COMPLETE', requestedEntities: ['MemoryEntry'],
+      matchedEntities: ['MemoryEntry'], missingEntities: [] },
+    provenance: { ...internal, sourceCount: 2, oldestSourceAt: '2026-07-31',
+      newestSourceAt: '2026-10-03', sourceTypes: ['MemoryEntry'] },
+    policy: { ...internal, rbacDecision: 'ALLOW', tenantScopeVerified: true,
+      restrictedRecordsExcluded: true, secureFieldRedactions: 0, policyNotes: ['must-not-leak'] },
+    evaluator: { ...internal, enabled: false, sufficient: null, missing: null,
+      confidence: null, explanation: 'Evaluator disabled; confidence unavailable.' },
+    items: [{ ...internal, memoryId: 'memory-source-1', sourceId: 'source-1',
+      sourceType: 'MemoryEntry', sourceTitle: 'Release review decision',
+      similarityScore: 0.9, freshnessScore: 0.7, finalScore: 0.8, redacted: false,
+      createdAt: '2026-07-31', updatedAt: '2026-10-03', selectionReason: 'Matches release review.' }]
+  };
+  const api = http.createServer((req, res) => {
+    res.setHeader('content-type', 'application/json');
+    if (req.method === 'POST') req.resume();
+    res.end(JSON.stringify(req.method === 'POST'
+      ? { ...internal, contextPage: { pageRef: 'ctxpg-review', summary: 'Useful review context.',
+          auth_context_hash: 'must-not-leak', request_fingerprint: 'must-not-leak' },
+          retrievalReceipt: receipt, tokenBudget: 1200 }
+      : { ...internal, receipt }));
+  });
+  t.after(() => close(api));
+  const apiPort = await listen(api);
+  const server = publicServer(`http://127.0.0.1:${apiPort}/v1`);
+  t.after(() => close(server));
+  const port = await listen(server);
+  const tool = (name, args) => request(port, 'POST', '/graymatter/mcp', rpc('tools/call', {
+    name, arguments: args
+  }), { authorization: 'Bearer token-a' });
+
+  for (const name of ['retrieval_receipt_get', 'context_compile']) {
+    const response = await tool(name, name === 'context_compile'
+      ? { task: 'Prepare the release review.', tokenBudget: 1200 }
+      : { receiptId: 'review-minimized' });
+    const result = response.body.result;
+    assert.equal(result.structuredContent.ok, true);
+    const data = result.structuredContent.data;
+    const actual = data.receipt || data.retrievalReceipt;
+    assert.equal(actual.receiptId, 'review-minimized');
+    assert.deepEqual(actual.quality, { overallScore: 0.8, resultCount: 2, freshnessScore: 0 });
+    assert.equal(actual.coverage.coverageStatus, 'COMPLETE');
+    assert.deepEqual(actual.coverage.missingEntities, []);
+    assert.equal(actual.provenance.oldestSourceAt, '2026-07-31');
+    assert.equal(actual.provenance.newestSourceAt, '2026-10-03');
+    assert.equal(actual.policy.rbacDecision, 'ALLOW');
+    assert.equal(actual.policy.tenantScopeVerified, true);
+    assert.equal(actual.evaluator.enabled, false);
+    assert.equal(actual.evaluator.confidence, null);
+    assert.equal(actual.evaluator.sufficient, null);
+    assert.equal(actual.items[0].memoryId, 'memory-source-1');
+    assert.equal(actual.items[0].sourceTitle, 'Release review decision');
+    assert.equal(actual.items[0].selectionReason, 'Matches release review.');
+    assert.equal(actual.graymatterPolicy.answerAllowed, true);
+    assert.equal(data.graymatterPolicy.answerAllowed, true);
+    assert.equal(data.graymatterInspection, undefined);
+    assert.doesNotMatch(JSON.stringify(result), /must-not-leak|unneeded-|unexpectedInternalField|policyNotes/);
+    if (name === 'context_compile') {
+      assert.equal(data.contextPage.pageRef, 'ctxpg-review');
+      assert.equal(data.contextPage.summary, 'Useful review context.');
+      assert.equal(data.tokenBudget, 1200);
+    }
+  }
+});
+
+test('public minimization preserves policy refusal and never restores withheld context', async (t) => {
+  let policy = {};
+  const api = http.createServer((req, res) => {
+    req.resume();
+    res.setHeader('content-type', 'application/json');
+    res.end(JSON.stringify({ contextPage: { summary: 'POLICY-WITHHELD' }, retrievalReceipt: {
+      receiptId: 'denied-review', ...policy,
+      items: [{ text: 'POLICY-WITHHELD', sourceTitle: 'POLICY-WITHHELD' }],
+      authContextHash: 'must-not-leak'
+    } }));
+  });
+  t.after(() => close(api));
+  const apiPort = await listen(api);
+  const server = publicServer(`http://127.0.0.1:${apiPort}/v1`);
+  t.after(() => close(server));
+  const port = await listen(server);
+  for (policy of [
+    { retrievalStatus: 'ACCESS_DENIED', answerPolicy: 'DENY', recommendedAction: 'REQUIRE_CLARIFICATION' },
+    { retrievalStatus: 'PARTIAL_COVERAGE', answerPolicy: 'DENY', recommendedAction: 'ANSWER_WITH_CAVEAT' },
+    { retrievalStatus: 'OK', answerPolicy: 'ALLOW_ANSWER', recommendedAction: 'REQUIRE_RETRY' },
+    { retrievalStatus: 'OK', recommendedAction: 'ANSWER' }
+  ]) {
+    const response = await request(port, 'POST', '/graymatter/mcp', rpc('tools/call', {
+      name: 'context_compile', arguments: { task: 'Prepare release review.' }
+    }), { authorization: 'Bearer token-a' });
+    const data = response.body.result.structuredContent.data;
+    assert.equal(data.contextPage, undefined);
+    assert.equal(data.retrievalReceipt.items, undefined);
+    assert.equal(data.retrievalReceipt.answerPolicy, policy.answerPolicy);
+    assert.equal(data.graymatterPolicy.answerAllowed, false);
+    assert.equal(data.graymatterPolicy.caveatRequired, false);
+    assert.equal(data.graymatterPolicy.disposition, 'do_not_answer_from_memory');
+    if (policy.answerPolicy === 'DENY') assert.ok(data.graymatterPolicy.requiredActions.includes('deny'));
+    assert.doesNotMatch(JSON.stringify(data), /POLICY-WITHHELD|must-not-leak/);
+  }
+});
+
+test('all public results omit normalized identity and operational keys without removing memory facts', async (t) => {
+  const id = '11111111-1111-4111-8111-111111111111';
+  const api = http.createServer((_req, res) => {
+    res.setHeader('content-type', 'application/json');
+    res.end(JSON.stringify({ id, title: 'Release decision', text: 'Require security and privacy review.',
+      sourceChannel: 'openai-review', tags: ['release-review'], metadata: {
+        owner_id: 'must-not-leak', organization_id: 'must-not-leak', user_id: 'must-not-leak',
+        session_id: 'must-not-leak', auth_context_hash: 'must-not-leak',
+        schema_manifest_version: 'must-not-leak', request_fingerprint: 'must-not-leak',
+        provider_routing: 'must-not-leak', policy_decisions: ['must-not-leak'],
+        access_token: 'must-not-leak', note: 'Public memory annotation'
+      } }));
+  });
+  t.after(() => close(api));
+  const apiPort = await listen(api);
+  const server = publicServer(`http://127.0.0.1:${apiPort}/v1`);
+  t.after(() => close(server));
+  const port = await listen(server);
+  const response = await request(port, 'POST', '/graymatter/mcp', rpc('tools/call', {
+    name: 'memory_get', arguments: { id }
+  }), { authorization: 'Bearer token-a' });
+  const data = response.body.result.structuredContent.data;
+  assert.equal(data.id, id);
+  assert.equal(data.text, 'Require security and privacy review.');
+  assert.deepEqual(data.tags, ['release-review']);
+  assert.deepEqual(data.metadata, { note: 'Public memory annotation' });
+  assert.doesNotMatch(JSON.stringify(response.body), /must-not-leak/);
 });

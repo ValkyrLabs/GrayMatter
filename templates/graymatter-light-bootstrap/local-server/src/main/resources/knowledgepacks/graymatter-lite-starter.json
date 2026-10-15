@@ -11,7 +11,7 @@
     {
       "sourceId": "8ade1225-ab91-5328-8b59-b01330dc0679",
       "type": "context",
-      "text": "Install GrayMatter Lite from a source checkout with ./vaix setup. The builder verifies or installs a private Java 17 toolchain, prepares the ThorAPI api.hbs.yaml application bundle, builds the Spring/H2 backend, starts it, and reports the local sign-in dashboard and MCP endpoints. Use ./vaix doctor for readiness, ./vaix stop to stop local services, and ./vaix docker for the containerized path.",
+      "text": "Install GrayMatter Lite from a source checkout with ./vaix setup. The builder verifies or installs private Java, Maven, and Node toolchains, composes canonical OpenAPI YAML, runs ThorAPI generation, builds the Spring/H2 backend, starts it, and reports the local sign-in dashboard and MCP endpoints. Use ./vaix doctor for readiness, ./vaix stop to stop local services, and ./vaix docker for the containerized path.",
       "tags": ["graymatter", "lite", "setup", "vaix", "jdk"]
     },
     {
@@ -59,7 +59,7 @@
     {
       "sourceId": "c38e910f-9f5b-55b1-9af5-910ff2ac09b4",
       "type": "decision",
-      "text": "ThorAPI api.hbs.yaml is the canonical schema and generation input for GrayMatter Lite. Change generated API behavior at the ThorAPI input or shared generator layer, then run ./vaix generate, ./vaix build, and ./vaix test. Never hand-edit generated clients to bypass generated RBAC or ACL behavior.",
+      "text": "openapi/bundles/00-graymatter-core.yaml is the canonical GrayMatter Lite domain. Add application objects through standalone extension YAML, then run ./vaix generate, ./vaix build, and ./vaix test. Treat composed OpenAPI, generated Spring code, and TypeScript clients as disposable; never hand-edit generated output to bypass RBAC or ACL behavior.",
       "tags": ["thorapi", "vaix", "generated-code", "rbac", "acl", "invariant"]
     },
     {
@@ -71,7 +71,7 @@
     {
       "sourceId": "66b9285f-850a-5e5f-bc70-05f4e8b27ea4",
       "type": "artifact",
-      "text": "The GrayMatter Lite open-source build boundary is the committed ThorAPI api.hbs.yaml, ./vaix builder, local-server source, embedded sign-in dashboard, MCP server, starter KnowledgePack source, Docker definition, tests, and public documentation. A release is not complete until source build, H2 write/query/read, starter data, KnowledgePack import/export, dashboard auth, MCP tools, and packaging are verified together.",
+      "text": "The GrayMatter Lite open-source build boundary is canonical OpenAPI YAML under openapi/bundles, the ./vaix builder, local-server source, embedded sign-in dashboard, MCP server, starter KnowledgePack source, Docker definition, tests, and public documentation. A release is not complete until deterministic ThorAPI regeneration, source build, H2 write/query/read, starter data, KnowledgePack import/export, dashboard auth, MCP tools, and packaging are verified together.",
       "tags": ["graymatter", "lite", "open-source", "release", "testing", "invariant"]
     }
   ]

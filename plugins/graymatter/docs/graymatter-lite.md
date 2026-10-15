@@ -7,8 +7,8 @@ of GrayMatter. It is designed for useful daily memory, not just evaluation.
 
 Lite includes:
 
-- the ThorAPI source contract at
-  `templates/graymatter-light-bootstrap/api.hbs.yaml`;
+- the canonical ThorAPI source contract at
+  `openapi/bundles/00-graymatter-core.yaml`;
 - the `./vaix` source builder and private toolchain bootstrap;
 - the Spring Boot/H2 local server and embedded sign-in dashboard;
 - one local principal and basic profile preferences;
@@ -37,7 +37,8 @@ Homebrew, apt, sudo, or a global installer.
 
 The setup command:
 
-1. renders `.graymatter-lite` from `api.hbs.yaml` and the canonical templates;
+1. composes canonical YAML, runs ThorAPI, and renders `.graymatter-lite` from
+   generated `api.hbs.yaml`/enhanced OpenAPI output and the bootstrap assets;
 2. builds and tests the Spring/H2 application;
 3. creates a mode-`0600` local credential file;
 4. registers the `graymatter-lite-local` profile without activating it over an

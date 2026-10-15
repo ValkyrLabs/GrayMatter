@@ -1,0 +1,19 @@
+--- templates/JavaSpring/pageableRepository.mustache
++++ templates/JavaSpring/pageableRepository.mustache
+@@ -5,7 +5,6 @@
+ 
+ import {{javaxPackage}}.validation.constraints.*;
+ import {{javaxPackage}}.validation.Valid;
+-import java.io.Serializable;
+ import java.time.OffsetDateTime;
+ import java.util.UUID;
+ import java.util.List;
+@@ -41,7 +40,7 @@
+ 
+     CRUD is Create, Read, Update, Delete
+ */
+-public interface {{classname}}PageableRepository extends Serializable,
++public interface {{classname}}PageableRepository extends
+         CrudRepository<{{classname}}, UUID>,
+         PagingAndSortingRepository<{{classname}}, UUID> {
+ 

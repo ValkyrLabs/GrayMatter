@@ -1,0 +1,19 @@
+--- templates/JavaSpring/repository.mustache
++++ templates/JavaSpring/repository.mustache
+@@ -17,7 +17,6 @@
+ 
+ import {{javaxPackage}}.validation.constraints.*;
+ import {{javaxPackage}}.validation.Valid;
+-import java.io.Serializable;
+ import java.util.UUID;
+ import java.util.List;
+ import org.springframework.data.jpa.repository.Query;
+@@ -51,7 +50,7 @@
+     CRUD is Create, Read, Update, Delete
+ */
+ // @Transactional(readOnly=false)
+-public interface {{classname}}Repository extends Serializable, JpaRepository<{{classname}}, UUID> {
++public interface {{classname}}Repository extends JpaRepository<{{classname}}, UUID> {
+ 
+     // ThorAPI Generated search methods for each property on {{classname}}
+     {{#models}}

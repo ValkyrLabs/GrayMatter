@@ -1,0 +1,29 @@
+--- templates/JavaSpring/ThorApplication.mustache
++++ templates/JavaSpring/ThorApplication.mustache
+@@ -45,13 +45,13 @@
+ @SpringBootApplication(exclude = OAuth2ClientAutoConfiguration.class)
+ @EnableTransactionManagement
+ @ComponentScan(
+-        basePackages = { "{{apiPackage}}", "{{modelPackage}}", "com.valkyrlabs.thorapi", "org.openapitools", "org.openapitools.configuration" },
++        basePackages = { "{{apiPackage}}", "{{modelPackage}}", "com.valkyrlabs.thorapi" },
+         excludeFilters = {
+                 @ComponentScan.Filter(type = FilterType.CUSTOM, classes = ThorApplication.LegacyValkyrAliasFilter.class)
+         })
+-@EntityScan(basePackages = { "{{modelPackage}}", "org.openapitools", "org.openapitools.configuration" })
++@EntityScan(basePackages = { "{{modelPackage}}" })
+ @EnableJpaRepositories(
+-        basePackages = { "{{apiPackage}}", "org.openapitools", "org.openapitools.configuration" },
++        basePackages = { "{{apiPackage}}" },
+         excludeFilters = {
+                 @ComponentScan.Filter(type = FilterType.CUSTOM, classes = ThorApplication.LegacyValkyrAliasFilter.class)
+         })
+@@ -89,7 +89,9 @@
+             return "com.valkyrlabs.model.DeploymentsService".equals(className)
+                     || "com.valkyrlabs.api.DeploymentsPageableRepository".equals(className)
+                     || "com.valkyrlabs.api.GrayMatterApiController".equals(className)
+-                    || "com.valkyrlabs.api.GrayMatterApiDelegate".equals(className);
++                    || "com.valkyrlabs.api.GrayMatterApiDelegate".equals(className)
++                    || "{{apiPackage}}.LocalRuntimeOperationsApiController".equals(className)
++                    || "{{apiPackage}}.LocalRuntimeOperationsApiDelegate".equals(className);
+         }
+     }

@@ -1,0 +1,16 @@
+--- templates/JavaSpring/apiDelegate.mustache
++++ templates/JavaSpring/apiDelegate.mustache
+@@ -701,8 +701,14 @@
+     {{/vendorExtensions.x-thorapi-crud-list}}
+     {{^vendorExtensions.x-thorapi-crud-read}}
+     {{^vendorExtensions.x-thorapi-crud-list}}
++    {{^vendorExtensions.x-thorapi-crud-update}}
++    {{^vendorExtensions.x-thorapi-crud-create}}
++    {{^vendorExtensions.x-thorapi-crud-delete}}
+     @Transactional
++    {{/vendorExtensions.x-thorapi-crud-delete}}
++    {{/vendorExtensions.x-thorapi-crud-create}}
++    {{/vendorExtensions.x-thorapi-crud-update}}
+     {{/vendorExtensions.x-thorapi-crud-list}}
+     {{/vendorExtensions.x-thorapi-crud-read}}
+     {{/vendorExtensions.x-thorapi-nonCrud}}

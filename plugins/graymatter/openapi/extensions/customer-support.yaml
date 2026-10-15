@@ -1,0 +1,41 @@
+openapi: 3.0.3
+info:
+  title: GrayMatter Customer Support Extension
+  version: 0.1.0
+  description: Representative application-owned domain composed with GrayMatter.
+tags:
+  - name: CustomerCase
+    description: Application-owned customer support cases
+paths: {}
+components:
+  schemas:
+    CustomerCase:
+      type: object
+      x-thorapi-table-name: customer_case
+      description: Example application entity composed with GrayMatter without editing generated source.
+      required: [subject, status, priority]
+      properties:
+        subject: {type: string, minLength: 1, maxLength: 255}
+        description: {type: string, maxLength: 16000}
+        status:
+          type: string
+          enum: [OPEN, IN_PROGRESS, RESOLVED, CLOSED]
+          default: OPEN
+        priority:
+          type: string
+          enum: [LOW, NORMAL, HIGH, URGENT]
+          default: NORMAL
+        relatedMemory:
+          $ref: "#/components/schemas/MemoryEntry"
+    CustomerCaseEvent:
+      type: object
+      x-thorapi-table-name: customer_case_event
+      description: Append-only example event linked to a CustomerCase.
+      x-thorapi-appendOnly: true
+      required: [eventType, occurredAt, customerCase]
+      properties:
+        eventType: {type: string, maxLength: 80}
+        details: {type: string, maxLength: 4000}
+        occurredAt: {type: string, format: date-time}
+        customerCase:
+          $ref: "#/components/schemas/CustomerCase"

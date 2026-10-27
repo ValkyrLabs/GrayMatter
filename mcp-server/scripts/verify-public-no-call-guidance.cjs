@@ -27,7 +27,13 @@ const checkMatchGuidance = (value) => {
   assert.match(value, /up to three pages total/);
   assert.match(value, /disclose that the search is incomplete/);
 };
-const withoutDescriptions = (items) => items.map(({ description, ...rest }) => rest);
+const withoutDescriptions = (items) => items.map(({ description, ...rest }) => {
+  const metadata = structuredClone(rest);
+  // Only the context task property's client-facing description is newly allowed.
+  // Validation constraints, required keys, OAuth scopes and annotations remain compared.
+  if (metadata.name === 'context_compile') delete metadata.inputSchema.properties.task.description;
+  return metadata;
+});
 const listen = (server) => new Promise((resolve) => server.listen(0, '127.0.0.1', () => resolve(server.address().port)));
 const close = (server) => new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
 

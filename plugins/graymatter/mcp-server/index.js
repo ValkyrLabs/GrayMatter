@@ -41,6 +41,7 @@ const PUBLIC_SENSITIVE_MEMORY_PATTERNS = Object.freeze([
   /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/,
   /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/
 ]);
+const PUBLIC_CONTEXT_TASK_GUIDANCE = 'For an authorized context request, pass the original user task text unchanged in task, including all explicit constraints. Do not expand, paraphrase, or add invented evidence checklists, conditions, or exclusions. Use tokenBudget, includeProcedures, and includeRatings for those separate controls. Scope and secret restrictions take precedence over this guidance.';
 const APP_UI_RESOURCE_URI = 'ui://graymatter/overview.html';
 const APP_CONNECT_DOMAINS = ['https://api-0.valkyrlabs.com'];
 const APP_SECURITY_SCHEMES = [
@@ -1392,7 +1393,7 @@ const publicTools = [
   definePublicTool({
     name: 'memory_update',
     title: 'Update GrayMatter memory',
-    description: 'Update the content or classification of one authorized memory. Call only when the user intends to revise an existing durable memory; ownership and tenant reassignment are never accepted.',
+    description: 'Overwrite the supplied content or classification fields of one authorized memory. Call only when the user intends to revise that exact durable memory; ownership and tenant reassignment are never accepted.',
     scopes: ['memory:write'],
     inputSchema: {
       type: 'object',
@@ -1410,7 +1411,7 @@ const publicTools = [
       additionalProperties: false,
       minProperties: 2
     },
-    annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false, idempotentHint: true },
+    annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: false, idempotentHint: true },
     invoking: 'Updating GrayMatter memory',
     invoked: 'Memory updated'
   }),
@@ -1436,12 +1437,12 @@ const publicTools = [
   definePublicTool({
     name: 'context_compile',
     title: 'Compile task context',
-    description: 'Compile bounded task-specific context from authorized memory, ContextPage items, graph and recency signals, semantic retrieval, and reusable procedures. Prefer this over dumping broad memory search results into the conversation.',
+    description: `Compile bounded task-specific context from authorized memory, ContextPage items, graph and recency signals, semantic retrieval, and reusable procedures. Prefer this over dumping broad memory search results into the conversation. ${PUBLIC_CONTEXT_TASK_GUIDANCE}`,
     scopes: ['context:read', 'memory:read'],
     inputSchema: {
       type: 'object',
       properties: {
-        task: { type: 'string', minLength: 1, maxLength: 12000 },
+        task: { type: 'string', minLength: 1, maxLength: 12000, description: PUBLIC_CONTEXT_TASK_GUIDANCE },
         tokenBudget: { type: 'integer', minimum: 256, maximum: 16000, default: 4000 },
         includeProcedures: { type: 'boolean', default: true },
         includeRatings: { type: 'boolean', default: true }
@@ -1511,6 +1512,9 @@ function createGrayMatterMcpServer(options = {}) {
   const publicApp = parseBoolean(options.publicApp ?? process.env.GRAYMATTER_PUBLIC_APP);
   const publicResource = withoutTrailingSlash(options.publicResource || process.env.GRAYMATTER_PUBLIC_RESOURCE || DEFAULT_PUBLIC_RESOURCE);
   const publicMcpPath = normalizeHttpPath(options.publicMcpPath || process.env.GRAYMATTER_PUBLIC_MCP_PATH || DEFAULT_PUBLIC_MCP_PATH);
+  // Discovery names the actual endpoint; already-issued token audiences retain
+  // the existing publicResource verifier contract.
+  const protectedResource = publicApp ? new URL(publicMcpPath, publicResource).toString() : publicResource;
   const oauthIssuer = withoutTrailingSlash(options.oauthIssuer || process.env.GRAYMATTER_OAUTH_ISSUER || '');
   const oauthJwksUri = options.oauthJwksUri || process.env.GRAYMATTER_OAUTH_JWKS_URI || '';
   const tokenVerifier = options.tokenVerifier || verifyPublicAccessToken;
@@ -1544,7 +1548,7 @@ function createGrayMatterMcpServer(options = {}) {
       }
 
       if (req.method === 'GET' && isProtectedResourceMetadataPath(requestUrl.pathname, publicMcpPath)) {
-        sendJson(req, res, 200, protectedResourceMetadata(publicResource, oauthIssuer), security);
+        sendJson(req, res, 200, protectedResourceMetadata(protectedResource, oauthIssuer), security);
         return;
       }
 
@@ -1646,7 +1650,7 @@ function createGrayMatterMcpServer(options = {}) {
             publicApp,
             principal,
             toolSet: selectedTools,
-            publicResource
+            publicResource: protectedResource
           });
         }, configuredMcpEnvelopeTimeoutMs());
 
@@ -1664,7 +1668,7 @@ function createGrayMatterMcpServer(options = {}) {
         : { error: 'Not found' }, security);
     } catch (error) {
       if (publicApp) {
-        const mapped = publicHttpError(error, publicResource);
+        const mapped = publicHttpError(error, protectedResource);
         sendJson(req, res, mapped.status, mapped.body, security,
           closeAfterResponseHeaders(req, res, error, mapped.headers));
         return;
@@ -1867,7 +1871,7 @@ async function handleRpc(message, context) {
             version: context.publicApp ? '1.0.0' : '0.1.0'
           },
           instructions: context.publicApp
-            ? `${PUBLIC_UNSUPPORTED_REQUEST_GUIDANCE} ${PUBLIC_MEMORY_MATCH_GUIDANCE} Search authorized durable memory before asking users to repeat known context. Compile bounded task context. Never store OAuth tokens, passwords, API keys, private keys, or other secrets. Never call memory_forget without an exact memory UUID and explicit confirmation for that specific record. Never request or supply tenant, owner, organization, ACL, or user overrides.`
+            ? `${PUBLIC_UNSUPPORTED_REQUEST_GUIDANCE} ${PUBLIC_MEMORY_MATCH_GUIDANCE} ${PUBLIC_CONTEXT_TASK_GUIDANCE} Search authorized durable memory before asking users to repeat known context. Compile bounded task context. Never store OAuth tokens, passwords, API keys, private keys, or other secrets. Never call memory_forget without an exact memory UUID and explicit confirmation for that specific record. Never request or supply tenant, owner, organization, ACL, or user overrides.`
             : undefined
         });
       case 'tools/list':
@@ -2523,7 +2527,7 @@ async function callPublicTool(params, context) {
           includeRatings: args.includeRatings !== false
         });
         return publicToolSuccess(
-          decorateRetrievalReceiptResult(response),
+          minimizePublicReceiptResult(decorateRetrievalReceiptResult(response), true),
           'Task-specific GrayMatter context compiled.'
         );
       }
@@ -2546,7 +2550,7 @@ async function callPublicTool(params, context) {
         const response = decorateRetrievalReceiptResult(
           await apiRequest(context, 'GET', `graymatter-retrieval-receipts/${encodeURIComponent(receiptId)}`), context.apiBase
         );
-        return publicToolSuccess(response, 'Authorized retrieval receipt retrieved.');
+        return publicToolSuccess(minimizePublicReceiptResult(response), 'Authorized retrieval receipt retrieved.');
       }
       default:
         return publicToolError('TOOL_NOT_FOUND', 'This tool is not available on the public GrayMatter app surface.', false);
@@ -5287,7 +5291,11 @@ function publicAuthError(code, message) {
 }
 
 function publicAuthChallenge(publicResource, oauthError, description) {
-  const metadataUrl = `${withoutTrailingSlash(publicResource)}/.well-known/oauth-protected-resource`;
+  const metadata = new URL(publicResource);
+  metadata.pathname = `/.well-known/oauth-protected-resource${metadata.pathname === '/' ? '' : metadata.pathname}`;
+  metadata.search = '';
+  metadata.hash = '';
+  const metadataUrl = metadata.toString();
   const safeError = oauthError || 'invalid_token';
   const safeDescription = String(description || 'OAuth authorization is required.').replace(/["\\\r\n]/g, ' ');
   return `Bearer resource_metadata="${metadataUrl}", scope="${PUBLIC_OAUTH_SCOPES.join(' ')}", error="${safeError}", error_description="${safeDescription}"`;
@@ -5420,6 +5428,120 @@ function publicErrorEnvelope(code, message, retryable) {
   return { ok: false, error: { code, message, retryable: Boolean(retryable) } };
 }
 
+// Public tools return user-facing facts, not transport, authentication, billing,
+// provider routing, or generated audit internals. Normalize keys before checking
+// so alternate spellings cannot evade the same privacy boundary.
+const PUBLIC_INTERNAL_RESULT_KEYS = new Set([
+  'user', 'account', 'accountid', 'sessionid', 'requestid', 'correlationid',
+  'auth', 'authentication', 'authcontexthash', 'authcontextversion',
+  'schemamanifestversion', 'runtimeversion', 'policyversion', 'bindinghash',
+  'idempotencykey', 'trajectoryref', 'planref', 'agentid', 'workflowid',
+  'creditreservationref', 'creditdebitreceiptref', 'providerroute',
+  'providerroutes', 'providerrouting', 'providerroutehash', 'providerbudgets',
+  'policydecisions', 'policytraces', 'policydecisiontrace',
+  'embeddingmodel', 'embeddingversion', 'evidencedescriptorhash', 'sourceurihash',
+  'texthash', 'retentionredactioncommitment', 'retentionredactionpolicyversion'
+]);
+
+const PUBLIC_RECEIPT_SECTIONS = Object.freeze({
+  quality: ['overallScore', 'topSimilarityScore', 'meanSimilarityScore',
+    'minSimilarityScore', 'resultCount', 'sourceDiversityScore', 'freshnessScore',
+    'schemaCoverageScore', 'authorityScore', 'contradictionScore', 'completenessScore'],
+  coverage: ['coverageStatus', 'requestedEntities', 'matchedEntities', 'missingEntities'],
+  provenance: ['sourceCount', 'oldestSourceAt', 'newestSourceAt', 'sourceTypes'],
+  policy: ['rbacDecision', 'secureFieldRedactions', 'tenantScopeVerified', 'restrictedRecordsExcluded'],
+  evaluator: ['enabled', 'sufficient', 'missing', 'confidence', 'explanation'],
+  graymatterPolicy: ['receiptId', 'retrievalStatus', 'answerPolicy', 'recommendedAction',
+    'answerAllowed', 'caveatRequired', 'disposition', 'requiredActions', 'warning']
+});
+
+function publicFields(value, fields) {
+  const result = {};
+  for (const field of fields) {
+    if (Object.prototype.hasOwnProperty.call(value, field)) result[field] = value[field];
+  }
+  return result;
+}
+
+function minimizePublicReceipt(receipt) {
+  if (!isPlainObject(receipt)) return receipt;
+  const result = publicFields(receipt, [
+    'receiptId', 'receipt_id', 'query', 'retrievalMode', 'qualityProfile',
+    'retrievalStatus', 'retrieval_status', 'recommendedAction', 'recommended_action',
+    'answerPolicy', 'answer_policy', 'confidence', 'freshness', 'resultCount'
+  ]);
+  // The receipt reference is needed for the exact authorized follow-up read.
+  // Generated row IDs inside quality, evaluator, and other sections are not.
+  if (!result.receiptId && !result.receipt_id && typeof receipt.id === 'string') {
+    result.receiptId = receipt.id;
+  }
+  for (const [section, fields] of Object.entries(PUBLIC_RECEIPT_SECTIONS)) {
+    if (!Object.prototype.hasOwnProperty.call(receipt, section)) continue;
+    const value = receipt[section];
+    result[section] = isPlainObject(value) ? publicFields(value, fields) : value;
+  }
+  if (Array.isArray(receipt.items)) {
+    result.items = receipt.items.slice(0, PUBLIC_MAX_RESPONSE_ITEMS).map((item) =>
+      isPlainObject(item) ? publicFields(item, [
+        'memoryId', 'sourceId', 'sourceType', 'entityType', 'entityId', 'fieldName',
+        'sourceTitle', 'rank', 'similarityScore', 'freshnessScore', 'authorityScore',
+        'finalScore', 'redacted', 'createdAt', 'updatedAt', 'selectionReason', 'selectionReasons'
+      ]) : item);
+  }
+  return result;
+}
+
+function minimizePublicReceiptResult(value, preserveContext = false) {
+  if (Array.isArray(value)) return value.map((item) => minimizePublicReceiptResult(item, preserveContext));
+  if (!isPlainObject(value)) return value;
+  const receiptKey = ['receipt', 'retrievalReceipt'].find((key) => isPlainObject(value[key]));
+  const receipt = receiptKey ? value[receiptKey] : value;
+  const result = receiptKey
+    ? { [receiptKey]: minimizePublicReceipt(receipt) }
+    : minimizePublicReceipt(receipt);
+  // Project both supported receipt containers, including older deployed wrappers.
+  // A response formatter must honor every policy dimension before exposing context.
+  // Upstream authorization, the stored receipt, and private tool behavior stay intact.
+  const derived = retrievalReceiptPolicy(receipt) || {};
+  const policy = publicFields(derived, PUBLIC_RECEIPT_SECTIONS.graymatterPolicy);
+  const statusAllows = policy.retrievalStatus === 'OK'
+    || (policy.answerPolicy === 'ALLOW_WITH_CAVEAT' && policy.retrievalStatus === 'PARTIAL_COVERAGE');
+  const actionAllows = !policy.recommendedAction || policy.recommendedAction === 'ANSWER'
+    || (policy.answerPolicy === 'ALLOW_WITH_CAVEAT' && policy.recommendedAction === 'ANSWER_WITH_CAVEAT');
+  policy.answerAllowed = statusAllows && actionAllows && policy.answerPolicy === 'ALLOW_ANSWER';
+  policy.caveatRequired = statusAllows && actionAllows && policy.answerPolicy === 'ALLOW_WITH_CAVEAT';
+  const useAllowed = policy.answerAllowed || policy.caveatRequired;
+  policy.disposition = policy.answerAllowed ? 'answer_from_memory_allowed'
+    : policy.caveatRequired ? 'answer_with_caveat' : 'do_not_answer_from_memory';
+  policy.requiredActions = Array.isArray(policy.requiredActions)
+    ? policy.requiredActions.filter((action) => policy.caveatRequired || action !== 'answer_with_caveat_and_provenance')
+    : [];
+  if (!policy.answerPolicy && !policy.requiredActions.includes('inspect_missing_answer_policy')) {
+    policy.requiredActions.push('inspect_missing_answer_policy');
+  }
+  if (!policy.retrievalStatus && !policy.requiredActions.includes('inspect_missing_retrieval_status')) {
+    policy.requiredActions.push('inspect_missing_retrieval_status');
+  }
+  if (!useAllowed && policy.requiredActions.length === 0) {
+    policy.requiredActions.push('retry_or_clarify_before_answering');
+  }
+  if (!useAllowed) {
+    policy.warning = policy.warning || 'GrayMatter retrieval receipt policy does not authorize a confident memory-grounded answer.';
+    delete (receiptKey ? result[receiptKey] : result).items;
+  }
+  (receiptKey ? result[receiptKey] : result).graymatterPolicy = policy;
+  if (receiptKey) result.graymatterPolicy = policy;
+  // Never restore policy-withheld context; older wrappers are checked here too.
+  if (preserveContext && useAllowed) Object.assign(result, publicFields(value, [
+    'contextPage', 'contextPageRef', 'contextSummary', 'summary', 'compiledContext',
+    'selectedItems', 'selectedMemories', 'hydrationPointers', 'tokenBudget',
+    'estimatedTokens', 'tokenEstimate', 'task', 'taskIntent', 'compilationStatus'
+  ]));
+  // Omit the inspection URL on this public surface: it may embed a trace ID.
+  // Private/local receipt inspection and its navigation contract are unchanged.
+  return result;
+}
+
 function compactPublicValue(value, depth = 0) {
   if (value === null || value === undefined) return value;
   if (depth > 7) return '[truncated]';
@@ -5432,11 +5554,12 @@ function compactPublicValue(value, depth = 0) {
   }
   const sanitized = {};
   for (const [key, nested] of Object.entries(value)) {
-    const normalizedKey = key.replace(/[-_\s]/g, '');
+    const normalizedKey = key.replace(/[-_\s]/g, '').toLowerCase();
     const secretTokenKey = /^(?:access|refresh|auth|oauth|bearer|id|api)?token(?:value)?$/i
       .test(normalizedKey);
-    if (secretTokenKey
-        || /secret|password|credential|decrypted|ownerId|lastModifiedById|tenantId|organizationId|principal|debug|trace/i.test(key)) {
+    if (secretTokenKey || PUBLIC_INTERNAL_RESULT_KEYS.has(normalizedKey)
+        || PUBLIC_IDENTITY_KEYS.has(normalizedKey)
+        || /secret|password|credential|decrypted|ownerid|lastmodifiedbyid|tenantid|organizationid|principal|debug|trace|fingerprint/i.test(normalizedKey)) {
       continue;
     }
     sanitized[key] = compactPublicValue(nested, depth + 1);

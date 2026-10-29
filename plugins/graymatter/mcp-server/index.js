@@ -2526,10 +2526,10 @@ async function callPublicTool(params, context) {
           includeProcedures: args.includeProcedures !== false,
           includeRatings: args.includeRatings !== false
         });
-        return publicToolSuccess(
-          minimizePublicReceiptResult(decorateRetrievalReceiptResult(response), true),
-          'Task-specific GrayMatter context compiled.'
-        );
+        const result = minimizePublicReceiptResult(decorateRetrievalReceiptResult(response), true);
+        return publicToolSuccess(result, result?.graymatterPolicy?.answerAllowed === false
+          ? 'GrayMatter withheld task context under the retrieval policy. Inspect the authorized receipt for diagnostics.'
+          : 'Task-specific GrayMatter context compiled.');
       }
       case 'procedure_search': {
         const query = boundedRequiredString(args.query, 'query', 2000).toLowerCase();

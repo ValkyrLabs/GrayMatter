@@ -706,6 +706,34 @@ test('public conflict diagnostics expose authorized references without releasing
   assert.equal(limited.graymatterPolicy.answerAllowed, false);
 });
 
+test('public compilation reports withholding instead of claiming successful context', async (t) => {
+  let blocked = true;
+  const api = http.createServer((req, res) => {
+    req.resume();
+    res.setHeader('content-type', 'application/json');
+    res.end(JSON.stringify({ retrievalReceipt: {
+      receiptId: 'policy-message-check',
+      retrievalStatus: blocked ? 'CONFLICTING_CONTEXT' : 'OK',
+      answerPolicy: blocked ? 'DO_NOT_ANSWER_CONFIDENTLY' : 'ALLOW_ANSWER',
+      recommendedAction: blocked ? 'ESCALATE_TO_USER' : 'ANSWER'
+    } }));
+  });
+  t.after(() => close(api));
+  const apiPort = await listen(api);
+  const server = publicServer(`http://127.0.0.1:${apiPort}/v1`);
+  t.after(() => close(server));
+  const port = await listen(server);
+  const compile = () => request(port, 'POST', '/graymatter/mcp', rpc('tools/call', {
+    name: 'context_compile', arguments: { task: 'Prepare release review.' }
+  }), { authorization: 'Bearer token-a' });
+  const denied = (await compile()).body.result;
+  assert.match(denied.content[0].text, /withheld task context/);
+  assert.doesNotMatch(denied.content[0].text, /context compiled/);
+  assert.equal(denied.structuredContent.data.graymatterPolicy.answerAllowed, false);
+  blocked = false;
+  assert.match((await compile()).body.result.content[0].text, /context compiled/);
+});
+
 test('public minimization preserves policy refusal and never restores withheld context', async (t) => {
   let policy = {};
   const api = http.createServer((req, res) => {

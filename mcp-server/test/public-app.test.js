@@ -631,6 +631,81 @@ test('public receipts minimize internal metadata while preserving selection and 
   }
 });
 
+test('public conflict diagnostics expose authorized references without releasing answer context', async (t) => {
+  let receipt = {};
+  const api = http.createServer((req, res) => {
+    req.resume();
+    res.setHeader('content-type', 'application/json');
+    res.end(JSON.stringify({ retrievalReceipt: receipt, contextPage: { summary: 'POLICY-WITHHELD' } }));
+  });
+  t.after(() => close(api));
+  const server = publicServer(`http://127.0.0.1:${await listen(api)}/v1`);
+  t.after(() => close(server));
+  const port = await listen(server);
+  const sourceId = '11111111-1111-4111-8111-111111111111';
+  const inspect = async () => (await request(port, 'POST', '/graymatter/mcp', rpc('tools/call', {
+    name: 'retrieval_receipt_get', arguments: { receiptId: 'conflict-diagnostic' }
+  }), { authorization: 'Bearer token-a' })).body.result.structuredContent.data.retrievalReceipt;
+  receipt = {
+    receiptId: 'conflict-diagnostic', retrievalStatus: 'CONFLICTING_CONTEXT',
+    answerPolicy: 'DO_NOT_ANSWER_CONFIDENTLY', recommendedAction: 'ESCALATE_TO_USER',
+    query: 'POLICY-WITHHELD', quality: { contradictionScore: 1, resultCount: 1 },
+    policy: { rbacDecision: 'ALLOW', tenantScopeVerified: true, ownerId: 'PRIVATE-IDENTITY' },
+    provenance: { sourceCount: 1, oldestSourceAt: '2026-10-27T10:00:00Z' },
+    items: [{ memoryId: sourceId, sourceType: 'MemoryEntry', createdAt: '2026-10-27T10:00:00Z',
+      updatedAt: '2026-10-28T10:00:00Z', text: 'POLICY-WITHHELD', sourceTitle: 'POLICY-WITHHELD',
+      selectionReason: 'POLICY-WITHHELD', ownerId: 'PRIVATE-IDENTITY' }],
+    conflictDiagnostics: { classification: 'UPSTREAM-INJECTION', text: 'POLICY-WITHHELD' }
+  };
+  const actual = await inspect();
+  assert.equal(actual.graymatterPolicy.answerAllowed, false);
+  assert.equal(actual.items, undefined);
+  assert.equal(actual.query, undefined);
+  assert.equal(actual.quality.contradictionScore, 1);
+  assert.equal(actual.policy.tenantScopeVerified, true);
+  assert.equal(actual.conflictDiagnostics.classification, 'NOT_RECORDED');
+  assert.equal(actual.conflictDiagnostics.conflictPairsAvailable, false);
+  assert.deepEqual(actual.conflictDiagnostics.candidateSources, [{
+    memoryId: sourceId, createdAt: '2026-10-27T10:00:00Z', updatedAt: '2026-10-28T10:00:00Z'
+  }]);
+  assert.match(actual.conflictDiagnostics.explanation, /not.*conflict pair/i);
+  assert.doesNotMatch(JSON.stringify(actual), /POLICY-WITHHELD|PRIVATE-IDENTITY|UPSTREAM-INJECTION/);
+
+  for (const restriction of [
+    { answerPolicy: 'DENY' }, { policy: {} },
+    { policy: { rbacDecision: 'DENY', tenantScopeVerified: true } },
+    { policy: { rbacDecision: 'ALLOW', tenantScopeVerified: false } },
+    { retrievalStatus: 'ACCESS_DENIED' }, { retrievalStatus: 'POLICY_REDACTED' }
+  ]) {
+    const original = receipt;
+    receipt = { ...original, ...restriction };
+    const withheld = await inspect();
+    assert.equal(withheld.graymatterPolicy.answerAllowed, false);
+    assert.equal(withheld.conflictDiagnostics, undefined);
+    assert.equal(withheld.items, undefined);
+    assert.doesNotMatch(JSON.stringify(withheld), new RegExp(sourceId + '|POLICY-WITHHELD|PRIVATE-IDENTITY'));
+    receipt = original;
+  }
+
+  receipt.items = [null, { memoryId: 'not-a-memory-PRIVATE-IDENTITY', createdAt: 'PRIVATE-IDENTITY' },
+    { memoryId: sourceId, createdAt: 'PRIVATE-IDENTITY', updatedAt: 'not-a-date' },
+    { memoryId: sourceId, text: 'POLICY-WITHHELD' }];
+  const bounded = await inspect();
+  assert.deepEqual(bounded.conflictDiagnostics.candidateSources, [{ memoryId: sourceId }]);
+  assert.doesNotMatch(JSON.stringify(bounded), /PRIVATE-IDENTITY|POLICY-WITHHELD/);
+
+  receipt.items = Array.from({ length: 1000 }, (_, n) => ({
+    memoryId: `11111111-1111-4111-8111-${String(n).padStart(12, '0')}`
+  }));
+  const limited = await inspect();
+  assert.equal(limited.conflictDiagnostics.candidateSources.length, 25);
+  assert.equal(limited.conflictDiagnostics.receiptItemCount, 1000);
+  assert.equal(limited.conflictDiagnostics.sourceReferencesComplete, false);
+  assert.equal(limited.conflictDiagnostics.additionalCandidateSourcePages.length, 3);
+  assert.ok(limited.conflictDiagnostics.additionalCandidateSourcePages.every(page => page.sources.length === 25));
+  assert.equal(limited.graymatterPolicy.answerAllowed, false);
+});
+
 test('public minimization preserves policy refusal and never restores withheld context', async (t) => {
   let policy = {};
   const api = http.createServer((req, res) => {

@@ -4122,6 +4122,46 @@ function decorateRetrievalReceiptResult(value, thor_apiBase) {
   return decorateRetrievalReceiptContainer(value, thor_apiBase);
 }
 
+function conflictReceiptDiagnostics(receipt) {
+  // Answer permission and permission to inspect an authorized receipt are distinct.
+  // Source ACLs are rechecked by api-0 on receipt GET. Never infer that grant from
+  // a conflict status, and never turn a DENY/redaction into an inspection grant.
+  if (receipt.retrievalStatus !== 'CONFLICTING_CONTEXT'
+      || receipt.answerPolicy !== 'DO_NOT_ANSWER_CONFIDENTLY'
+      || receipt.policy?.rbacDecision !== 'ALLOW'
+      || receipt.policy?.tenantScopeVerified !== true) return null;
+  const candidateSources = [];
+  const receiptItems = Array.isArray(receipt.items) ? receipt.items : [];
+  const seen = new Set();
+  const isUuid = (value) => typeof value === 'string'
+    && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+  const sourceDate = (value) => typeof value === 'string' && value.length <= 40
+    && /^\d{4}-\d{2}-\d{2}T[\d:.]+(?:Z|[+-]\d{2}:\d{2})$/.test(value)
+    && Number.isFinite(Date.parse(value)) ? value : undefined;
+  for (const item of receiptItems) {
+    if (!isPlainObject(item) || !isUuid(item.memoryId) || seen.has(item.memoryId)) continue;
+    seen.add(item.memoryId);
+    candidateSources.push(pickDefined({ memoryId: item.memoryId,
+      createdAt: sourceDate(item.createdAt), updatedAt: sourceDate(item.updatedAt) }));
+    if (candidateSources.length === PUBLIC_MAX_RESPONSE_ITEMS * 4) break;
+  }
+  return {
+    classification: 'NOT_RECORDED',
+    conflictPairsAvailable: false,
+    explanation: 'The stored receipt does not identify competing facts. These are authorized candidate references, not a proven conflict pair; the answer policy still forbids a confident memory-grounded answer.',
+    receiptItemCount: receiptItems.length,
+    sourceReferencesComplete: candidateSources.length === receiptItems.length,
+    candidateSources: candidateSources.slice(0, PUBLIC_MAX_RESPONSE_ITEMS),
+    // Keep each page and the total reference-only projection bounded. This lets
+    // a normal 32-result receipt explain its remaining candidates without an
+    // unbounded response or pretending that its first page is a complete set.
+    additionalCandidateSourcePages: [1, 2, 3].map((page) => ({
+      offset: page * PUBLIC_MAX_RESPONSE_ITEMS,
+      sources: candidateSources.slice(page * PUBLIC_MAX_RESPONSE_ITEMS, (page + 1) * PUBLIC_MAX_RESPONSE_ITEMS)
+    })).filter((page) => page.sources.length > 0)
+  };
+}
+
 function decorateRetrievalReceiptContainer(value, thor_apiBase) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
   const receiptKey = ['receipt', 'retrievalReceipt'].find((key) => value[key]
@@ -4135,12 +4175,21 @@ function decorateRetrievalReceiptContainer(value, thor_apiBase) {
     : { ...value };
   // This connector owns the navigation hint. Do not accept an upstream URL.
   delete thor_decorated.graymatterInspection;
+  // This is a connector-owned diagnostic projection, never upstream free text.
+  delete (receiptKey ? thor_decorated[receiptKey] : thor_decorated).conflictDiagnostics;
   if (thor_inspection) thor_decorated.graymatterInspection = thor_inspection;
   if (graymatterPolicy && !graymatterPolicy.answerAllowed && !graymatterPolicy.caveatRequired) {
+    const diagnostics = conflictReceiptDiagnostics(receipt);
     const summary = pickDefined({
       receiptId: graymatterPolicy.receiptId, traceId: graymatterPolicy.traceId,
       retrievalStatus: graymatterPolicy.retrievalStatus, answerPolicy: graymatterPolicy.answerPolicy,
-      recommendedAction: graymatterPolicy.recommendedAction, graymatterPolicy
+      recommendedAction: graymatterPolicy.recommendedAction, graymatterPolicy,
+      ...(diagnostics ? {
+        conflictDiagnostics: diagnostics,
+        quality: isPlainObject(receipt.quality) ? publicFields(receipt.quality, PUBLIC_RECEIPT_SECTIONS.quality) : undefined,
+        provenance: isPlainObject(receipt.provenance) ? publicFields(receipt.provenance, PUBLIC_RECEIPT_SECTIONS.provenance) : undefined,
+        policy: publicFields(receipt.policy, PUBLIC_RECEIPT_SECTIONS.policy)
+      } : {})
     });
     return receipt === value
       ? { ...summary, ...(thor_inspection ? { graymatterInspection: thor_inspection } : {}) }
@@ -5479,6 +5528,9 @@ function minimizePublicReceipt(receipt) {
     if (!Object.prototype.hasOwnProperty.call(receipt, section)) continue;
     const value = receipt[section];
     result[section] = isPlainObject(value) ? publicFields(value, fields) : value;
+  }
+  if (isPlainObject(receipt.conflictDiagnostics)) {
+    result.conflictDiagnostics = receipt.conflictDiagnostics;
   }
   if (Array.isArray(receipt.items)) {
     result.items = receipt.items.slice(0, PUBLIC_MAX_RESPONSE_ITEMS).map((item) =>

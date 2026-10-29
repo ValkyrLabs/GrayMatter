@@ -1,12 +1,12 @@
 # OpenAI Plugin Directory Submission
 
-OpenAI now publishes Apps SDK apps as plugins. GrayMatter is an app-plus-skills plugin: its app is backed by the public MCP endpoint and its two bundled skills teach safe durable-memory and bounded-context behavior.
+OpenAI now publishes Apps SDK apps as plugins. GrayMatter is an app-plus-skills plugin: its app is backed by the public MCP endpoint and its three bundled skills teach safe durable-memory and bounded-context behavior.
 
 ## Developer-mode validation
 
 1. Deploy `mcp-server/` over HTTPS with `GRAYMATTER_PUBLIC_APP=true` and the environment documented in `README.md`.
-2. Enable Developer mode in ChatGPT under Settings → Security and login.
-3. Under Settings → Plugins, create a developer-mode app using `https://api-0.valkyrlabs.com/graymatter/mcp`.
+2. Open [ChatGPT Plugins](https://chatgpt.com/plugins), select the plus button, then **Add custom MCP server**.
+3. Enter `https://api-0.valkyrlabs.com/graymatter/mcp`, configure OAuth, and create it as a plugin under the account’s workspace policy.
 4. Complete OAuth linking, confirm that exactly eight public tools are discovered, and run the representative prompts in `SUBMISSION_CHECKLIST.md`.
 5. After metadata changes, redeploy and refresh the developer-mode app.
 
@@ -19,7 +19,7 @@ For this resubmission, update the existing draft rather than creating another. U
 3. Open the plugin submission portal and create a `With MCP` plugin.
 4. Enter the concrete production MCP URL and OAuth configuration, then scan tools.
 5. Verify names, descriptions, strict schemas, OAuth security schemes, annotations, `_meta`, and server instructions imported from the live endpoint.
-6. Add the GrayMatter listing, two bundled skills, privacy policy, terms and support URLs, test cases, reviewer test credentials, availability, and release notes from `SUBMISSION_CHECKLIST.md`.
+6. Add the GrayMatter listing, three bundled skills, privacy policy, terms and support URLs, test cases, reviewer test credentials, availability, and release notes from `SUBMISSION_CHECKLIST.md`.
 7. Submit for review. After approval, publish from the portal.
 
 ## Hard blockers
@@ -31,6 +31,10 @@ Do not submit until:
 - two isolated reviewer accounts pass the public MCP smoke test;
 - production api-docs exposes the ContextPage compile endpoint;
 - the public privacy policy covers all disclosed data handling; and
-- the actual ChatGPT tester path passes its required cases, including both bundled skills; legacy clients separately retain the assigned durable app ID in `.app.json`.
+- the actual ChatGPT tester path passes its required cases, including all three bundled skills; legacy clients separately retain the assigned durable app ID in `.app.json`.
 
 See `SUBMISSION_CHECKLIST.md` for the ready-to-paste listing, tool explanations, prompts, data disclosure, reviewer procedure, security controls, and exact blockers.
+
+## New-user acceptance
+
+Run the [onboarding acceptance journey](chatgpt-onboarding.md) with a fresh account as well as the seeded reviewer cases. Starter prompts must work without reviewer fixtures. The hosted package includes onboarding, memory, and context skills. After changing skills, publish a new reviewed plugin version; a local edit or MCP metadata refresh does not update installed hosted skills.

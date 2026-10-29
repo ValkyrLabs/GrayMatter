@@ -205,7 +205,7 @@ function createFixtureApi() {
 
       if (req.method === 'GET' && req.url.startsWith('/v1/Procedure?')) {
         counts.procedures += 1;
-        res.end(JSON.stringify([{
+        res.end(JSON.stringify({ content: [{
           id: 'procedure-release-review',
           name: 'Production release review',
           description: 'Run security, privacy, readiness, and rollback checks.',
@@ -213,7 +213,7 @@ function createFixtureApi() {
           confidence: 0.97,
           enabled: true,
           ownerId: 'must-not-leak'
-        }]));
+        }], last: true }));
         return;
       }
 

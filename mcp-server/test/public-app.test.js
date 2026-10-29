@@ -313,6 +313,17 @@ test('public tool timeout preserves machine-readable shared execution limits', a
       assert.equal(out.executionLimits.configuredTimeoutMs, 40);
       assert.equal(out.executionLimits.sharedAcrossRequests, true);
       assert.equal(out.executionLimits.onExhaustion, 'FAIL_CLOSED');
+      const schema = publicTools.find(tool => tool.name === 'memory_search').outputSchema;
+      for (const key of Object.keys(out)) assert.ok(schema.properties[key], `undeclared result field: ${key}`);
+      const limitsSchema = schema.properties.executionLimits;
+      assert.equal(limitsSchema.additionalProperties, false);
+      for (const [key, value] of Object.entries(out.executionLimits)) {
+        const field = limitsSchema.properties[key];
+        assert.ok(field, `undeclared execution limit: ${key}`);
+        assert.equal(field.type === 'integer' ? Number.isInteger(value) : typeof value === field.type, true);
+        if (field.minimum !== undefined) assert.ok(value >= field.minimum);
+        if (field.enum) assert.ok(field.enum.includes(value));
+      }
       assert.equal(fetchAborted, true);
     } finally {
       await close(server);
@@ -548,7 +559,8 @@ test('public credit exhaustion returns a neutral usage-limit error without comme
   assert.equal(result.isError, true);
   assert.equal(result.structuredContent.error.code, 'USAGE_LIMIT_REACHED');
   assert.equal(result.structuredContent.error.retryable, false);
-  assert.match(result.structuredContent.error.message, /try again later/i);
+  assert.match(result.structuredContent.error.message, /usage settings or contact GrayMatter support/i);
+  assert.doesNotMatch(result.structuredContent.error.message, /try again later/i);
   assert.doesNotMatch(serialized, /buy|purchase|payment|recharge|credits|upgrade|checkout|account outside ChatGPT|valkyrlabs\.com\/graymatter\/credits/i);
   assert.doesNotMatch(serialized, /currentBalance|requiredCredits|0\.00/);
 });

@@ -32,7 +32,7 @@ require jq -e '.interface.longDescription | contains("retrieval receipts")' "$RO
 require jq -e '.description == "Persistent, secure memory and shared context for AI agents."' "$ROOT/.codex-plugin/plugin.json" >/dev/null
 require jq -e '.apps == "./.app.json"' "$ROOT/.codex-plugin/plugin.json" >/dev/null
 require jq -e '.interface.defaultPrompt | length == 3' "$ROOT/.codex-plugin/plugin.json" >/dev/null
-require jq -e '.interface.defaultPrompt | index("Compile task-specific context from GrayMatter.")' "$ROOT/.codex-plugin/plugin.json" >/dev/null
+require jq -e '.interface.defaultPrompt | index("Help me get started with GrayMatter and save my first useful memory.")' "$ROOT/.codex-plugin/plugin.json" >/dev/null
 require jq -e '.plugins[] | select(.name == "graymatter") | .source.path == "./plugins/graymatter"' "$ROOT/.agents/plugins/marketplace.json" >/dev/null
 require jq -e '.slug == "graymatter"' "$ROOT/clawhub.json" >/dev/null
 require jq -e '.tags | index("openclaw-skill")' "$ROOT/clawhub.json" >/dev/null
@@ -50,15 +50,17 @@ require jq -e '.apps.graymatter == {
   "id": "asdk_app_6a590a1720808191b3909ed57132a25d"
 }' "$ROOT/.app.json" >/dev/null
 
-if find "$ROOT/scripts" "$ROOT/plugins/graymatter/scripts" -maxdepth 1 -type f -name '*.py' | grep -q .; then
+# The hosted ZIP builder is a developer-only packaging tool, never a runtime dependency.
+require test ! -f "$ROOT/plugins/graymatter/scripts/package-openai-submission.py"
+if find "$ROOT/scripts" "$ROOT/plugins/graymatter/scripts" -maxdepth 1 -type f -name '*.py' ! -name 'package-openai-submission.py' | grep -q .; then
   echo "GrayMatter product scripts must stay portable bash; Python scripts are not allowed in shipped script surfaces" >&2
   exit 1
 fi
-if grep -RIl '^#!.*python' "$ROOT/scripts" "$ROOT/plugins/graymatter/scripts" "$ROOT/plugins/graymatter/.codex-plugin" | grep -q .; then
+if grep -RIl --exclude=package-openai-submission.py '^#!.*python' "$ROOT/scripts" "$ROOT/plugins/graymatter/scripts" "$ROOT/plugins/graymatter/.codex-plugin" | grep -q .; then
   echo "GrayMatter product scripts must stay portable bash; Python shebangs are not allowed" >&2
   exit 1
 fi
-if grep -RInE '\bpython3?\b|PyYAML|requirements\.txt|pyproject\.toml' \
+if grep -RInE --exclude=package-openai-submission.py '\bpython3?\b|PyYAML|requirements\.txt|pyproject\.toml' \
   "$ROOT/scripts" "$ROOT/plugins/graymatter/scripts" "$ROOT/plugins/graymatter/.codex-plugin" "$ROOT/plugins/graymatter/.mcp.json" | grep -q .; then
   echo "GrayMatter install/runtime surfaces must not require Python; keep product automation in bash/curl/jq and MCP in Node" >&2
   exit 1

@@ -1,0 +1,7 @@
+{
+  "mcpServers": {
+    "graymatter": {
+      "url": "https://api-0.valkyrlabs.com/graymatter/mcp"
+    }
+  }
+}

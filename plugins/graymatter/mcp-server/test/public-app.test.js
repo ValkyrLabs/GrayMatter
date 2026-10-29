@@ -143,6 +143,7 @@ test('public tool surface is exact, strict, OAuth-scoped, and correctly annotate
     assert.equal(typeof tool.annotations.destructiveHint, 'boolean');
   }
   assert.equal(publicTools.find((tool) => tool.name === 'memory_forget').annotations.destructiveHint, true);
+  assert.equal(publicTools.find((tool) => tool.name === 'memory_update').annotations.destructiveHint, true);
   assert.equal(publicTools.find((tool) => tool.name === 'memory_search').annotations.readOnlyHint, true);
   assert.equal(publicTools.find((tool) => tool.name === 'memory_save').annotations.readOnlyHint, false);
 
@@ -172,6 +173,39 @@ test('public context_compile rejects undocumented generic filters', async (t) =>
   assert.match(response.body.result.structuredContent.error.message, /filters is not a supported argument/i);
 });
 
+test('every public descriptor tells clients not to substitute searches for unsupported reviewer requests', () => {
+  // Live ChatGPT attempted an in-scope text search for a requested tenantId
+  // override. That remained tenant-safe but failed the submitted no-call case.
+  for (const tool of publicTools) {
+    assert.match(tool.description, /Do not invoke any GrayMatter tool for requests to override tenant/);
+    assert.match(tool.description, /scope comes from the signed-in account/);
+    assert.match(tool.description, /Do not reinterpret such a request as an authorized text search/);
+    assert.match(tool.description, /delete an unspecified record, ask the user to identify it/);
+    assert.match(tool.description, /do not search for deletion candidates or select a target yourself/);
+  }
+});
+
+test('memory descriptors preserve requested provenance when broadening a topic search', () => {
+  for (const name of ['memory_search', 'memory_get']) {
+    const description = publicTools.find((tool) => tool.name === name).description;
+    assert.match(description, /preserve all identifying qualifiers/);
+    assert.match(description, /seeded versus newly created/);
+    assert.match(description, /verify those qualifiers against returned metadata and memory_get/);
+    assert.match(description, /Do not substitute a newer or similarly worded record/);
+    assert.match(description, /report no verified match if the evidence is insufficient/);
+  }
+});
+
+test('specific memory matching follows bounded pagination before declaring no verified match', () => {
+  for (const name of ['memory_search', 'memory_get']) {
+    const description = publicTools.find((tool) => tool.name === name).description;
+    assert.match(description, /bounded page, not an exhaustive result set/);
+    assert.match(description, /continue the same query and filters with offset=nextOffset/);
+    assert.match(description, /up to three pages total/);
+    assert.match(description, /disclose that the search is incomplete/);
+  }
+});
+
 test('public endpoint publishes protected-resource metadata and challenges unauthenticated calls', async (t) => {
   const server = publicServer('https://api.example.test/v1');
   t.after(() => close(server));
@@ -179,7 +213,7 @@ test('public endpoint publishes protected-resource metadata and challenges unaut
 
   const metadata = await request(port, 'GET', '/.well-known/oauth-protected-resource');
   assert.equal(metadata.status, 200);
-  assert.equal(metadata.body.resource, 'https://graymatter.example.test');
+  assert.equal(metadata.body.resource, 'https://graymatter.example.test/graymatter/mcp');
   assert.deepEqual(metadata.body.authorization_servers, ['https://identity.example.test']);
   assert.deepEqual(metadata.body.scopes_supported, ['memory:read', 'memory:write', 'context:read']);
 
@@ -279,6 +313,17 @@ test('public tool timeout preserves machine-readable shared execution limits', a
       assert.equal(out.executionLimits.configuredTimeoutMs, 40);
       assert.equal(out.executionLimits.sharedAcrossRequests, true);
       assert.equal(out.executionLimits.onExhaustion, 'FAIL_CLOSED');
+      const schema = publicTools.find(tool => tool.name === 'memory_search').outputSchema;
+      for (const key of Object.keys(out)) assert.ok(schema.properties[key], `undeclared result field: ${key}`);
+      const limitsSchema = schema.properties.executionLimits;
+      assert.equal(limitsSchema.additionalProperties, false);
+      for (const [key, value] of Object.entries(out.executionLimits)) {
+        const field = limitsSchema.properties[key];
+        assert.ok(field, `undeclared execution limit: ${key}`);
+        assert.equal(field.type === 'integer' ? Number.isInteger(value) : typeof value === field.type, true);
+        if (field.minimum !== undefined) assert.ok(value >= field.minimum);
+        if (field.enum) assert.ok(field.enum.includes(value));
+      }
       assert.equal(fetchAborted, true);
     } finally {
       await close(server);
@@ -349,8 +394,17 @@ test('canonical and compatibility MCP routes initialize and discover only public
     const initialized = await request(port, 'POST', path, rpc('initialize'), headers);
     assert.equal(initialized.status, 200);
     assert.equal(initialized.body.result.protocolVersion, '2025-06-18');
+    assert.match(initialized.body.result.instructions, /Do not invoke any GrayMatter tool for requests to override tenant/);
+    assert.match(initialized.body.result.instructions, /Do not reinterpret such a request as an authorized text search/);
+    assert.match(initialized.body.result.instructions, /do not search for deletion candidates or select a target yourself/);
+    assert.match(initialized.body.result.instructions, /preserve all identifying qualifiers/);
+    assert.match(initialized.body.result.instructions, /Do not substitute a newer or similarly worded record/);
     const listed = await request(port, 'POST', path, rpc('tools/list'), headers);
     assert.deepEqual(listed.body.result.tools.map((tool) => tool.name), publicTools.map((tool) => tool.name));
+    for (const tool of listed.body.result.tools) {
+      assert.match(tool.description, /Do not reinterpret such a request as an authorized text search/);
+      assert.match(tool.description, /do not search for deletion candidates or select a target yourself/);
+    }
   }
 });
 
@@ -505,9 +559,88 @@ test('public credit exhaustion returns a neutral usage-limit error without comme
   assert.equal(result.isError, true);
   assert.equal(result.structuredContent.error.code, 'USAGE_LIMIT_REACHED');
   assert.equal(result.structuredContent.error.retryable, false);
-  assert.match(result.structuredContent.error.message, /try again later/i);
+  assert.match(result.structuredContent.error.message, /usage settings or contact GrayMatter support/i);
+  assert.doesNotMatch(result.structuredContent.error.message, /try again later/i);
   assert.doesNotMatch(serialized, /buy|purchase|payment|recharge|credits|upgrade|checkout|account outside ChatGPT|valkyrlabs\.com\/graymatter\/credits/i);
   assert.doesNotMatch(serialized, /currentBalance|requiredCredits|0\.00/);
+});
+
+
+test('public receipts minimize internal metadata while preserving selection and evaluator semantics', async (t) => {
+  const internal = {
+    id: 'unneeded-generated-row', createdDate: 'unneeded-audit-date', trashed: false,
+    authContextHash: 'must-not-leak', schemaManifestVersion: 'must-not-leak',
+    requestFingerprint: 'must-not-leak', providerRouteHash: 'must-not-leak',
+    agentId: 'must-not-leak', workflowId: 'must-not-leak',
+    policyDecisions: ['must-not-leak'], unexpectedInternalField: 'must-not-leak'
+  };
+  const receipt = {
+    ...internal, receiptId: 'review-minimized', query: 'marketplace release review',
+    retrievalStatus: 'OK', answerPolicy: 'ALLOW_ANSWER', recommendedAction: 'ANSWER',
+    quality: { ...internal, overallScore: 0.8, resultCount: 2, freshnessScore: 0 },
+    coverage: { ...internal, coverageStatus: 'COMPLETE', requestedEntities: ['MemoryEntry'],
+      matchedEntities: ['MemoryEntry'], missingEntities: [] },
+    provenance: { ...internal, sourceCount: 2, oldestSourceAt: '2026-07-31',
+      newestSourceAt: '2026-10-03', sourceTypes: ['MemoryEntry'] },
+    policy: { ...internal, rbacDecision: 'ALLOW', tenantScopeVerified: true,
+      restrictedRecordsExcluded: true, secureFieldRedactions: 0, policyNotes: ['must-not-leak'] },
+    evaluator: { ...internal, enabled: false, sufficient: null, missing: null,
+      confidence: null, explanation: 'Evaluator disabled; confidence unavailable.' },
+    items: [{ ...internal, memoryId: 'memory-source-1', sourceId: 'source-1',
+      sourceType: 'MemoryEntry', sourceTitle: 'Release review decision',
+      similarityScore: 0.9, freshnessScore: 0.7, finalScore: 0.8, redacted: false,
+      createdAt: '2026-07-31', updatedAt: '2026-10-03', selectionReason: 'Matches release review.' }]
+  };
+  const api = http.createServer((req, res) => {
+    res.setHeader('content-type', 'application/json');
+    if (req.method === 'POST') req.resume();
+    res.end(JSON.stringify(req.method === 'POST'
+      ? { ...internal, contextPage: { pageRef: 'ctxpg-review', summary: 'Useful review context.',
+          auth_context_hash: 'must-not-leak', request_fingerprint: 'must-not-leak' },
+          retrievalReceipt: receipt, tokenBudget: 1200 }
+      : { ...internal, receipt }));
+  });
+  t.after(() => close(api));
+  const apiPort = await listen(api);
+  const server = publicServer(`http://127.0.0.1:${apiPort}/v1`);
+  t.after(() => close(server));
+  const port = await listen(server);
+  const tool = (name, args) => request(port, 'POST', '/graymatter/mcp', rpc('tools/call', {
+    name, arguments: args
+  }), { authorization: 'Bearer token-a' });
+
+  for (const name of ['retrieval_receipt_get', 'context_compile']) {
+    const response = await tool(name, name === 'context_compile'
+      ? { task: 'Prepare the release review.', tokenBudget: 1200 }
+      : { receiptId: 'review-minimized' });
+    const result = response.body.result;
+    assert.equal(result.structuredContent.ok, true);
+    const data = result.structuredContent.data;
+    const actual = data.receipt || data.retrievalReceipt;
+    assert.equal(actual.receiptId, 'review-minimized');
+    assert.deepEqual(actual.quality, { overallScore: 0.8, resultCount: 2, freshnessScore: 0 });
+    assert.equal(actual.coverage.coverageStatus, 'COMPLETE');
+    assert.deepEqual(actual.coverage.missingEntities, []);
+    assert.equal(actual.provenance.oldestSourceAt, '2026-07-31');
+    assert.equal(actual.provenance.newestSourceAt, '2026-10-03');
+    assert.equal(actual.policy.rbacDecision, 'ALLOW');
+    assert.equal(actual.policy.tenantScopeVerified, true);
+    assert.equal(actual.evaluator.enabled, false);
+    assert.equal(actual.evaluator.confidence, null);
+    assert.equal(actual.evaluator.sufficient, null);
+    assert.equal(actual.items[0].memoryId, 'memory-source-1');
+    assert.equal(actual.items[0].sourceTitle, 'Release review decision');
+    assert.equal(actual.items[0].selectionReason, 'Matches release review.');
+    assert.equal(actual.graymatterPolicy.answerAllowed, true);
+    assert.equal(data.graymatterPolicy.answerAllowed, true);
+    assert.equal(data.graymatterInspection, undefined);
+    assert.doesNotMatch(JSON.stringify(result), /must-not-leak|unneeded-|unexpectedInternalField|policyNotes/);
+    if (name === 'context_compile') {
+      assert.equal(data.contextPage.pageRef, 'ctxpg-review');
+      assert.equal(data.contextPage.summary, 'Useful review context.');
+      assert.equal(data.tokenBudget, 1200);
+    }
+  }
 });
 
 test('public conflict diagnostics expose authorized references without releasing answer context', async (t) => {
@@ -625,4 +758,70 @@ test('public compilation reports withholding instead of claiming successful cont
   assert.equal(denied.structuredContent.data.graymatterPolicy.answerAllowed, false);
   blocked = false;
   assert.match((await compile()).body.result.content[0].text, /context compiled/);
+});
+
+test('public minimization preserves policy refusal and never restores withheld context', async (t) => {
+  let policy = {};
+  const api = http.createServer((req, res) => {
+    req.resume();
+    res.setHeader('content-type', 'application/json');
+    res.end(JSON.stringify({ contextPage: { summary: 'POLICY-WITHHELD' }, retrievalReceipt: {
+      receiptId: 'denied-review', ...policy,
+      items: [{ text: 'POLICY-WITHHELD', sourceTitle: 'POLICY-WITHHELD' }],
+      authContextHash: 'must-not-leak'
+    } }));
+  });
+  t.after(() => close(api));
+  const apiPort = await listen(api);
+  const server = publicServer(`http://127.0.0.1:${apiPort}/v1`);
+  t.after(() => close(server));
+  const port = await listen(server);
+  for (policy of [
+    { retrievalStatus: 'ACCESS_DENIED', answerPolicy: 'DENY', recommendedAction: 'REQUIRE_CLARIFICATION' },
+    { retrievalStatus: 'PARTIAL_COVERAGE', answerPolicy: 'DENY', recommendedAction: 'ANSWER_WITH_CAVEAT' },
+    { retrievalStatus: 'OK', answerPolicy: 'ALLOW_ANSWER', recommendedAction: 'REQUIRE_RETRY' },
+    { retrievalStatus: 'OK', recommendedAction: 'ANSWER' }
+  ]) {
+    const response = await request(port, 'POST', '/graymatter/mcp', rpc('tools/call', {
+      name: 'context_compile', arguments: { task: 'Prepare release review.' }
+    }), { authorization: 'Bearer token-a' });
+    const data = response.body.result.structuredContent.data;
+    assert.equal(data.contextPage, undefined);
+    assert.equal(data.retrievalReceipt.items, undefined);
+    assert.equal(data.retrievalReceipt.answerPolicy, policy.answerPolicy);
+    assert.equal(data.graymatterPolicy.answerAllowed, false);
+    assert.equal(data.graymatterPolicy.caveatRequired, false);
+    assert.equal(data.graymatterPolicy.disposition, 'do_not_answer_from_memory');
+    if (policy.answerPolicy === 'DENY') assert.ok(data.graymatterPolicy.requiredActions.includes('deny'));
+    assert.doesNotMatch(JSON.stringify(data), /POLICY-WITHHELD|must-not-leak/);
+  }
+});
+
+test('all public results omit normalized identity and operational keys without removing memory facts', async (t) => {
+  const id = '11111111-1111-4111-8111-111111111111';
+  const api = http.createServer((_req, res) => {
+    res.setHeader('content-type', 'application/json');
+    res.end(JSON.stringify({ id, title: 'Release decision', text: 'Require security and privacy review.',
+      sourceChannel: 'openai-review', tags: ['release-review'], metadata: {
+        owner_id: 'must-not-leak', organization_id: 'must-not-leak', user_id: 'must-not-leak',
+        session_id: 'must-not-leak', auth_context_hash: 'must-not-leak',
+        schema_manifest_version: 'must-not-leak', request_fingerprint: 'must-not-leak',
+        provider_routing: 'must-not-leak', policy_decisions: ['must-not-leak'],
+        access_token: 'must-not-leak', note: 'Public memory annotation'
+      } }));
+  });
+  t.after(() => close(api));
+  const apiPort = await listen(api);
+  const server = publicServer(`http://127.0.0.1:${apiPort}/v1`);
+  t.after(() => close(server));
+  const port = await listen(server);
+  const response = await request(port, 'POST', '/graymatter/mcp', rpc('tools/call', {
+    name: 'memory_get', arguments: { id }
+  }), { authorization: 'Bearer token-a' });
+  const data = response.body.result.structuredContent.data;
+  assert.equal(data.id, id);
+  assert.equal(data.text, 'Require security and privacy review.');
+  assert.deepEqual(data.tags, ['release-review']);
+  assert.deepEqual(data.metadata, { note: 'Public memory annotation' });
+  assert.doesNotMatch(JSON.stringify(response.body), /must-not-leak/);
 });

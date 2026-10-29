@@ -32,6 +32,10 @@ need toolchain and dependency downloads; installed local memory works offline.
 For other clients, use the source commands below. Hosted workflows, ecommerce
 and application hosting use their authenticated ValkyrAI services.
 
+## Get started in ChatGPT
+
+Connect the complete GrayMatter plugin and choose **Help me get started with GrayMatter and save my first useful memory**. Share one real preference or project fact; GrayMatter saves it, reads it back, and uses it in your task. Choose primary memory with optional automatic saving to recall context before new tasks and capture useful lasting facts while the plugin is active. You can choose explicit-save-only or pause at any time. See the [ChatGPT onboarding journey](docs/chatgpt-onboarding.md) for controls and host activation limits.
+
 ## Install local Lite in one command
 
 On macOS or Linux:

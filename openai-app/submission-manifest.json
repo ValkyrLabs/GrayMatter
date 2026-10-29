@@ -16,6 +16,7 @@
     "logo": "assets/graymatter-logo.png"
   },
   "skills": [
+    "skills/graymatter-onboarding/SKILL.md",
     "skills/graymatter-memory/SKILL.md",
     "skills/graymatter-context/SKILL.md"
   ],

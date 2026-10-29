@@ -28,6 +28,8 @@ REQUIRED=(
   skills/graymatter/SKILL.md
   skills/graymatter-analytics/SKILL.md
   skills/graymatter-analytics/references/semantic-layer-template.md
+  skills/graymatter-onboarding/SKILL.md
+  skills/graymatter-onboarding/agents/openai.yaml
   skills/graymatter-memory/SKILL.md
   skills/graymatter-memory/agents/openai.yaml
   skills/graymatter-context/SKILL.md
@@ -45,6 +47,7 @@ REQUIRED=(
   docs/local-models.md
   docs/knowledge-packs.md
   docs/omegarag-release-evidence.md
+  docs/chatgpt-onboarding.md
   docs/openai-app-directory-submission.md
   docs/privacy-policy.md
   docs/reviewer-test-credentials.md

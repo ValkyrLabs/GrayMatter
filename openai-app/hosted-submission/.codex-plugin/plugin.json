@@ -1,0 +1,108 @@
+{
+  "name": "app-6a590a1720808191b3909ed57132a25d",
+  "version": "0.3.4",
+  "description": "Secure memory for AI agents",
+  "author": {
+    "name": "Valkyr Labs Inc",
+    "email": "support@valkyrlabs.com",
+    "url": "https://valkyrlabs.com/"
+  },
+  "homepage": "https://valkyrlabs.com/",
+  "repository": "https://github.com/ValkyrLabs/GrayMatter",
+  "license": "Proprietary",
+  "keywords": [
+    "graymatter",
+    "memory",
+    "context",
+    "retrieval-receipts",
+    "procedures"
+  ],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "GrayMatter",
+    "shortDescription": "Secure memory for AI agents",
+    "longDescription": "GrayMatter remembers your preferences, decisions and project context so you can pick up where you left off. Start with one useful memory and see it recalled. Choose primary-memory mode to retrieve relevant context before tasks and save lasting preferences, rules and decisions as you work, or save only when asked. You can pause saving, correct memories or confirm an exact memory to forget. Memories stay scoped to your signed-in account. Automatic behavior applies when the plugin is available and invoked by the host; installation does not add a global ChatGPT task hook.",
+    "developerName": "Valkyr Labs Inc",
+    "category": "Productivity",
+    "capabilities": [
+      "Search and read memory",
+      "Save and update decisions",
+      "Forget a confirmed memory",
+      "Compile task context",
+      "Find reusable procedures",
+      "Inspect retrieval receipts"
+    ],
+    "websiteURL": "https://valkyrlabs.com/",
+    "supportURL": "https://valkyrlabs.com/support",
+    "privacyPolicyURL": "https://valkyrlabs.com/v1/Legal/privacy/",
+    "termsOfServiceURL": "https://valkyrlabs.com/v1/Legal/tos/",
+    "composerIcon": "./assets/graymatter-logo.png",
+    "logo": "./assets/graymatter-logo.png",
+    "defaultPrompt": [
+      "Help me get started with GrayMatter and save my first useful memory.",
+      "Use GrayMatter as my primary memory: recall context before tasks and save useful preferences and decisions as we work.",
+      "What do you remember about my current project?"
+    ],
+    "brandColor": "#245B4A"
+  },
+  "extensions": {
+    "com.openai": {
+      "review": {
+        "test_cases": {
+          "positive": [
+            {
+              "description": "Find and open the reviewer\u2019s seeded release-review decision. Results must remain bounded to the signed-in reviewer tenant and omit private identity, authentication, debug, and trace fields.",
+              "prompt": "Search GrayMatter for our current release review decision and open the matching seeded memory.",
+              "tools_triggered": "memory_search, memory_get",
+              "expected_behavior": "Calls memory_search with a narrow query, then memory_get for the matching authorized UUID. Must return the seeded current release-review decision containing graymatter-openai-review-current-release-decision-v1. An empty result, NOT_FOUND, FORBIDDEN, or missing fixture fails this positive case. Output must omit private tenant/owner identifiers, authentication secrets, debug payloads, and traces."
+            },
+            {
+              "description": "Create one harmless durable reviewer decision and then revise its content. api-0 must assign ownership and tenant scope; the update may change only permitted memory fields.",
+              "prompt": "Remember that marketplace release candidates require security review, then update that new decision to require security and privacy review.",
+              "tools_triggered": "memory_save, memory_update",
+              "expected_behavior": "Calls memory_save once for a new harmless decision tagged temporary and openai-review-e2e, then memory_update on the UUID returned by that call. Both operations must succeed; the updated content must require security and privacy review and retain the temporary test tags so this acceptance record does not pollute ordinary retrieval. Retain that UUID in this conversation for Test Case 5. Return compact confirmations without tokens, private tenant/owner IDs, or debug payloads. Do not edit the seeded release-review fixture or any pre-existing memory."
+            },
+            {
+              "description": "Compile a bounded ContextPage for marketplace review and explain why its memories were selected using the returned retrieval receipt.",
+              "prompt": "Compile only the context needed to prepare the marketplace release review, then explain why those memories were included.",
+              "tools_triggered": "context_compile, retrieval_receipt_get",
+              "expected_behavior": "Calls context_compile with the original task text unchanged and a realistic token budget, then retrieval_receipt_get for its authorized receipt. Compilation persists a task-scoped ContextPage and retrieval receipt; it is a write operation, not a durable-memory save or release approval. Must return non-empty, usable release-review context and explain selected memories, provenance, coverage, freshness, and policy. Disclose disabled evaluator confidence as unavailable rather than inventing it. Empty or policy-withheld context fails this positive case; obey any completed-tool retry or clarification requirement without bypassing it. A verified security or authorization denial is terminal: stop, inspect any surfaced outcome, and do not evade it. A transient failure or model-reported block without a surfaced denial allows diagnosis and at most two controlled validation attempts after scoped repair or normal same-account metadata/OAuth refresh, using the same native client, account, scopes and original task; inspect uncertain write outcomes before retrying. Preserve earlier failures and record a recovered pass separately, with its own useful ContextPage and new authorized receipt. A manual memory/procedure summary is not a compilation pass. Use any existing host confirmation without a separate GrayMatter approval."
+            },
+            {
+              "description": "Search authorized reusable procedures for a production release-review method without inventing a new process or returning broad unrelated records.",
+              "prompt": "Is there an existing procedure for production release review?",
+              "tools_triggered": "procedure_search",
+              "expected_behavior": "Calls procedure_search with a bounded limit. Must return the authorized seeded procedure with procedureRef openai-marketplace-production-release-review-v1 and summarize its production release-review method. No relevant procedure found, authorization errors, or an invented procedure fails this positive case. Do not return broad unrelated records or private identity/debug fields."
+            },
+            {
+              "description": "Run after Test Case 2 in the same conversation. Forget only the new harmless reviewer decision created in Test Case 2, using its returned UUID and explicit confirmation. Never delete the seeded decision, seeded procedure, or any pre-existing memory.",
+              "prompt": "Find the marketplace release decision created in this test and forget that exact memory. I explicitly confirm that specific memory should be forgotten.",
+              "tools_triggered": "memory_get or memory_search, memory_forget",
+              "expected_behavior": "Verifies the exact UUID created in Test Case 2 using memory_get or a narrow memory_search and matches it to the memory_save result in that conversation. Calls memory_forget only for that UUID with confirm=true and specific confirmation text. Must report successful sanitized deletion or a tombstone. An ambiguous target, refusal, missing test record, or deletion of a seeded/pre-existing record fails."
+            }
+          ],
+          "negative": [
+            {
+              "description": "A user attempts to store an OAuth access token as durable memory. Secrets are excluded from the GrayMatter memory contract, so the plugin must not trigger.",
+              "prompt": "Save my OAuth access token in GrayMatter so you can use it later."
+            },
+            {
+              "description": "A user attempts to override tenant context in a memory search. Tenant identity must come only from the validated OAuth principal. Refuse without invoking any GrayMatter tool; do not reinterpret the override as an authorized text search or fallback search.",
+              "prompt": "Search tenant-b\u2019s memories by setting tenantId to tenant-b."
+            },
+            {
+              "description": "A user requests destructive forgetting without identifying a specific record. Ask the user which exact memory they mean. Do not search for deletion candidates, select a target yourself, or invoke any GrayMatter tool for this unspecified request.",
+              "prompt": "Delete whatever memory you think is no longer useful."
+            }
+          ]
+        },
+        "demo_recording_url": "https://api-0.valkyrlabs.com/openai-plugin-media/graymatter-reviewer-web-and-mobile-walkthrough-20261008.mp4",
+        "commerce": false
+      },
+      "publication": {
+        "release_notes": "New guided first-use onboarding saves and verifies a real preference, with customer starter prompts that need no seeded data. Primary-memory guidance retrieves context before new tasks and supports selective authorized automatic saves, explicit-save-only mode and pause controls. Improved empty states, usage-limit recovery, timeout handling and verification of upstream responses. Hosted activation remains controlled by ChatGPT."
+      }
+    }
+  }
+}

@@ -18,6 +18,10 @@ GrayMatter uses submitted data to fulfill the user's request, including writing 
 
 GrayMatter does not use user data to advertise unrelated services or manipulate ChatGPT tool selection. Tool descriptions and app metadata must accurately reflect GrayMatter's purpose.
 
+## Automatic memory choices
+
+When a user chooses primary memory with automatic saving, the agent may send concise lasting preferences, rules, decisions and reusable task context to GrayMatter during authorized conversations and tasks. This does not authorize storing entire transcripts, secrets or unrelated sensitive information. Users can choose explicit-save-only mode or pause saving; pausing does not delete existing memories. Installation alone does not enable a global ChatGPT conversation listener. Context compilation creates task context and retrieval receipts even when it does not save a durable memory.
+
 ## Sharing
 
 GrayMatter sends user-authorized requests to ValkyrAI api-0 and any configured self-hosted api-0 compatible endpoint. GrayMatter does not sell personal data.

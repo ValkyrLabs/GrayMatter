@@ -4,7 +4,7 @@
 
 Use the existing resubmission draft; do not create a duplicate or reset ongoing scans as a workaround. This checklist is not live completion evidence. The historical July checkpoint below must not be read as current deployment or submission status.
 
-Give human and agent reviewers the [Reviewer Quick Start](docs/reviewer-test-credentials.md): one private sample account, five exact positive prompts in the same fresh conversation, and three exact negatives in separate fresh conversations. Verify both skills in the complete plugin. Keep actual web/native execution separate from direct transport diagnostics. Stop at the human's requested submission boundary.
+Give human and agent reviewers the [Reviewer Quick Start](docs/reviewer-test-credentials.md): one private sample account, five exact positive prompts in the same fresh conversation, and three exact negatives in separate fresh conversations. Verify all three skills in the complete plugin. Keep actual web/native execution separate from direct transport diagnostics. Stop at the human's requested submission boundary.
 
 ## Ready-to-paste listing
 
@@ -32,6 +32,10 @@ Give human and agent reviewers the [Reviewer Quick Start](docs/reviewer-test-cre
 - JWKS endpoint target: `https://api-0.valkyrlabs.com/oauth2/jwks`
 
 These production URLs were verified over HTTPS and the MCP endpoint completed OAuth-linked tool discovery on 2026-07-30.
+
+## First-use onboarding
+
+Use the customer starter prompts in the hosted manifest and the [new-user acceptance journey](docs/chatgpt-onboarding.md). First-use onboarding must not depend on seeded reviewer fixtures. Offer one useful memory, verify its returned ID, and apply it immediately. Primary-memory mode retrieves before new tasks and captures durable facts during work when the plugin is active; the user can choose explicit-save-only or pause. Installation cannot install a global ChatGPT task hook. These cases supplement the exact reviewer sequence below.
 
 ## Tool explanations and annotations
 
@@ -79,7 +83,7 @@ Data collected or processed:
 
 - OAuth access token in the request `Authorization` header, used only for validation and forwarding to api-0; never returned or intentionally logged.
 - Validated token claims needed for authorization: user ID, organization ID, tenant ID, roles, permissions, and scopes. These remain request context and are not accepted from tool arguments.
-- User-requested memory content, optional title, type, tags, source/scope, and importance tag.
+- User-requested memory content (including useful durable facts captured under the user’s automatic-memory preference), optional title, type, tags, source/scope, and importance tag.
 - Search queries, context-compilation task text, procedure queries, receipt IDs, and explicit forget confirmation text.
 - Server-generated MemoryEntry IDs, ContextPage references, retrieval receipts, and normal audit metadata.
 
@@ -135,7 +139,7 @@ The following two-principal isolation setup is an engineering check, not a requi
 7. Ensure the submitter has Apps Management write (`api.apps.write`) and read (`api.apps.read`) permissions and uses a global-data-residency project.
 8. Update the existing resubmission draft. Create plugin → With MCP applies only to a first submission.
 9. Add the concrete MCP URL and OAuth configuration, select Scan Tools, and verify the imported names, schemas, security schemes, annotations, `_meta`, and server instructions.
-10. Add the two bundled skills from `skills/graymatter-memory` and `skills/graymatter-context`, listing metadata, privacy/terms/support URLs, test cases, availability, reviewer credentials, and release notes.
+10. Add the three bundled skills from `skills/graymatter-onboarding`, `skills/graymatter-memory` and `skills/graymatter-context`, listing metadata, privacy/terms/support URLs, test cases, availability, reviewer credentials, and release notes.
 11. Complete all confirmations, submit for review, address feedback in a new draft version, and publish only after approval.
 12. After the portal assigns the durable app ID, add it to `.app.json`, rebuild/validate the package, and submit the exact final archive rather than the pre-submission empty app mapping.
 

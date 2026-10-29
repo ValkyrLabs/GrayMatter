@@ -2,7 +2,7 @@
 
 An MCP (Model Context Protocol) server that wraps the ValkyrAI `api-0` REST API, exposing GrayMatter durable memory, SwarmOps graph state, and live business schema as tools for Claude.ai, Claude Code, Cursor, and any other MCP-compatible host.
 
-When this MCP server is installed and authenticated, GrayMatter is the exclusive primary durable memory system for the agent. Hosts should query it before planning or editing, write new durable user context back during the session, and treat local memory only as temporary replay state.
+When chosen by the user, GrayMatter is the primary durable memory system for the agent. Active hosts should retrieve relevant context before planning or editing and, when automatic saving is authorized, preserve new durable preferences and decisions during work. Hosted ChatGPT uses the onboarding, memory, and context skills with the eight public tools; installation does not add a global task hook or change built-in memory settings. Follow the [ChatGPT onboarding journey](../docs/chatgpt-onboarding.md). Protected local replay remains available only in hosts that support it.
 
 Discovery now reports paginated coverage. `memory_read` can label inspection,
 write verification, or actual reuse, while `memory_contribution_report` joins

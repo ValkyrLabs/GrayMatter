@@ -4145,10 +4145,28 @@ function conflictReceiptDiagnostics(receipt) {
       createdAt: sourceDate(item.createdAt), updatedAt: sourceDate(item.updatedAt) }));
     if (candidateSources.length === PUBLIC_MAX_RESPONSE_ITEMS * 4) break;
   }
+  const references = new Map(candidateSources.map((source) => [source.memoryId.toLowerCase(), source.memoryId]));
+  const conflicts = [];
+  const notes = Array.isArray(receipt.policy?.policyNotes) ? receipt.policy.policyNotes.slice(0, 100) : [];
+  for (const note of notes) {
+    if (typeof note !== 'string' || note.length > 220) continue;
+    const [version, classification, leftId, rightId, ...extra] = note.split('|');
+    if (version !== 'context_conflict/v1' || extra.length
+        || !['FACT_VALUE_MISMATCH', 'DISPLAY_TITLE_COLLISION'].includes(classification)
+        || !isUuid(leftId) || !isUuid(rightId)) continue;
+    const leftMemoryId = references.get(leftId.toLowerCase());
+    const rightMemoryId = references.get(rightId.toLowerCase());
+    if (!leftMemoryId || !rightMemoryId) continue;
+    conflicts.push({ classification, leftMemoryId, rightMemoryId });
+    if (conflicts.length === PUBLIC_MAX_RESPONSE_ITEMS) break;
+  }
   return {
-    classification: 'NOT_RECORDED',
-    conflictPairsAvailable: false,
-    explanation: 'The stored receipt does not identify competing facts. These are authorized candidate references, not a proven conflict pair; the answer policy still forbids a confident memory-grounded answer.',
+    classification: conflicts[0]?.classification || 'NOT_RECORDED',
+    conflictPairsAvailable: conflicts.length > 0,
+    ...(conflicts.length ? { conflicts } : {}),
+    explanation: conflicts.length
+      ? 'The scorer recorded these authorized source references as a conflict. This content-free diagnosis does not override the answer policy or release withheld context.'
+      : 'The stored receipt does not identify competing facts. These are authorized candidate references, not a proven conflict pair; the answer policy still forbids a confident memory-grounded answer.',
     receiptItemCount: receiptItems.length,
     sourceReferencesComplete: candidateSources.length === receiptItems.length,
     candidateSources: candidateSources.slice(0, PUBLIC_MAX_RESPONSE_ITEMS),

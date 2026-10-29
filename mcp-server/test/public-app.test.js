@@ -671,6 +671,20 @@ test('public conflict diagnostics expose authorized references without releasing
   assert.match(actual.conflictDiagnostics.explanation, /not.*conflict pair/i);
   assert.doesNotMatch(JSON.stringify(actual), /POLICY-WITHHELD|PRIVATE-IDENTITY|UPSTREAM-INJECTION/);
 
+  receipt.policy.policyNotes = [
+    `context_conflict/v1|FACT_VALUE_MISMATCH|${sourceId}|${sourceId}`,
+    `context_conflict/v1|UNKNOWN|${sourceId}|${sourceId}`,
+    `context_conflict/v1|FACT_VALUE_MISMATCH|${sourceId}|99999999-9999-4999-8999-999999999999`,
+    `context_conflict/v1|FACT_VALUE_MISMATCH|${sourceId}|${sourceId}|POLICY-WITHHELD`
+  ];
+  const explained = await inspect();
+  assert.equal(explained.conflictDiagnostics.classification, 'FACT_VALUE_MISMATCH');
+  assert.equal(explained.conflictDiagnostics.conflictPairsAvailable, true);
+  assert.deepEqual(explained.conflictDiagnostics.conflicts, [{
+    classification: 'FACT_VALUE_MISMATCH', leftMemoryId: sourceId, rightMemoryId: sourceId
+  }]);
+  assert.doesNotMatch(JSON.stringify(explained), /UNKNOWN|99999999|POLICY-WITHHELD|PRIVATE-IDENTITY|policyNotes/);
+
   for (const restriction of [
     { answerPolicy: 'DENY' }, { policy: {} },
     { policy: { rbacDecision: 'DENY', tenantScopeVerified: true } },

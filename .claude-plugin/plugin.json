@@ -1,0 +1,23 @@
+{
+  "name": "graymatter",
+  "displayName": "GrayMatter",
+  "version": "0.3.4",
+  "description": "Secure, durable memory for Claude: recall project context, preserve decisions and preferences, and inspect the sources behind task context.",
+  "author": {
+    "name": "Valkyr Labs Inc.",
+    "email": "support@valkyrlabs.com",
+    "url": "https://valkyrlabs.com/"
+  },
+  "homepage": "https://valkyrlabs.com/graymatter",
+  "repository": "https://github.com/ValkyrLabs/GrayMatter",
+  "license": "AGPL-3.0-only",
+  "icon": "./assets/icon.png",
+  "privacyPolicyUrl": "https://valkyrlabs.com/v1/Legal/privacy/",
+  "keywords": [
+    "memory",
+    "project-context",
+    "decisions",
+    "preferences",
+    "retrieval-receipts"
+  ]
+}

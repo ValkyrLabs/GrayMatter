@@ -124,7 +124,7 @@ require_jq
 [[ -x "$API_COMMAND" ]] || { echo "GrayMatter API command is not executable: $API_COMMAND" >&2; exit 2; }
 
 if [[ -n "$TOKEN_COMMAND" ]]; then
-  if ! token="$(bash -lc "$TOKEN_COMMAND")"; then
+  if ! token="$(bash --noprofile --norc -c "$TOKEN_COMMAND")"; then
     echo "The supplied --token-command failed" >&2
     exit 2
   fi
@@ -231,13 +231,14 @@ fi
 
 invoke GET /graymatter/semantic-index/manifest
 if [[ "$REQUEST_OK" == true ]] && jq -e '
-    .schemaAvailable == true
+    ((.indexLifecycle.healthStatus // "") | ascii_downcase) as $health
+    | .schemaAvailable == true
     and .rbacFiltered == true
     and (.indexLifecycle | type == "object")
     and (.indexLifecycle.lifecycleDataAvailable == true)
     and ((.indexLifecycle.manifestVersion // "") | type == "string" and length > 0)
-    and ((.indexLifecycle.healthStatus // "") | ascii_downcase) as $health
-    | ($health | startswith("blocked") or startswith("degraded") or startswith("unavailable") or . == "migration_required" or . == "empty_authorized_scope" | not)
+    and ($health | length > 0)
+    and ($health | startswith("blocked") or startswith("degraded") or startswith("unavailable") or . == "migration_required" or . == "empty_authorized_scope" | not)
   ' >/dev/null 2>&1 <<<"$RESPONSE"; then
   record_probe graymatter.semantic.manifest true contract_passed 200 semantic-manifest
 else
@@ -281,7 +282,11 @@ if [[ "$PUBLISH_EVIDENCE" == true ]]; then
 fi
 
 FINISHED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-query_digest="$(printf '%s' "$CANARY_QUERY" | shasum -a 256 | awk '{print $1}')"
+if command -v sha256sum >/dev/null 2>&1; then
+  query_digest="$(printf '%s' "$CANARY_QUERY" | sha256sum | awk '{print $1}')"
+else
+  query_digest="$(printf '%s' "$CANARY_QUERY" | shasum -a 256 | awk '{print $1}')"
+fi
 jq -s \
   --arg reportVersion "$CONTRACT_VERSION" \
   --arg environment "$ENVIRONMENT" \

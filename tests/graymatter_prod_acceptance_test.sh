@@ -3,7 +3,18 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/gm-prod-acceptance.XXXXXX")"
-trap 'rm -rf "$TMP_DIR"' EXIT
+cleanup() {
+  local status=$?
+  if [[ "$status" -ne 0 ]]; then
+    echo 'graymatter_prod_acceptance_test failed; content-free fixture reports:' >&2
+    for report in "$TMP_DIR/report.json" "$TMP_DIR/failed-report.json"; do
+      [[ ! -f "$report" ]] || cat "$report" >&2
+    done
+  fi
+  rm -rf "$TMP_DIR"
+  return "$status"
+}
+trap cleanup EXIT
 
 cp "$ROOT/scripts/graymatter-prod-acceptance.sh" "$TMP_DIR/graymatter-prod-acceptance.sh"
 chmod +x "$TMP_DIR/graymatter-prod-acceptance.sh"
@@ -32,7 +43,7 @@ case "$method $path" in
     printf '%s\n' '{"schemaAvailable":true,"rbacFiltered":true,"schemaVersion":"schema-v1","policyVersion":"policy-v1","domains":[]}'
     ;;
   'GET /graymatter/semantic-index/manifest')
-    health="${TEST_SEMANTIC_HEALTH:-healthy}"
+    health="${TEST_SEMANTIC_HEALTH-healthy}"
     jq -nc --arg health "$health" '{schemaAvailable:true,rbacFiltered:true,indexLifecycle:{lifecycleDataAvailable:true,manifestVersion:"index-v1",healthStatus:$health}}'
     ;;
   'POST /graymatter/capabilities/evidence')
@@ -41,7 +52,7 @@ case "$method $path" in
     jq -c '{acceptedCapabilityIds:[.probes[].capabilityId]}' <<<"$body"
     ;;
   'GET /graymatter/omega/capabilities')
-    if [[ "${TEST_SEMANTIC_HEALTH:-healthy}" == "healthy" ]]; then
+    if [[ "${TEST_SEMANTIC_HEALTH-healthy}" == "healthy" ]]; then
       jq -nc '{environment:"production",scopeHash:("a" * 64),authorityHash:("b" * 64),capabilities:[{"id":null,"capabilityId":"graymatter.receipt.create","state":"LIVE_VERIFIED"},{"id":null,"capabilityId":"graymatter.context.create","state":"LIVE_VERIFIED"},{"id":null,"capabilityId":"graymatter.graph.shape","state":"LIVE_VERIFIED"},{"id":null,"capabilityId":"graymatter.semantic.manifest","state":"LIVE_VERIFIED"}]}'
     else
       jq -nc '{environment:"production",scopeHash:("a" * 64),authorityHash:("b" * 64),capabilities:[{"id":"graymatter.receipt.create","state":"LIVE_VERIFIED"},{"id":"graymatter.context.create","state":"LIVE_VERIFIED"},{"id":"graymatter.graph.shape","state":"LIVE_VERIFIED"},{"id":"graymatter.semantic.manifest","state":"DEGRADED"}]}'
@@ -99,6 +110,35 @@ jq -e '
   and ([.probes[] | select(.capabilityId == "graymatter.semantic.manifest") | .passed] == [false])
 ' "$FAILED_REPORT" >/dev/null
 grep -q '^POST|/graymatter/capabilities/evidence|' "$TMP_DIR/failed-calls.log"
+
+# An absent or empty health value cannot establish a healthy index.
+TEST_CALL_LOG="$TMP_DIR/empty-health-calls.log" \
+TEST_SEMANTIC_HEALTH='' \
+GRAYMATTER_API_COMMAND="$TMP_DIR/graymatter_api.sh" \
+"$TMP_DIR/graymatter-prod-acceptance.sh" \
+  --environment production --publish-capability-evidence --format json \
+  --artifact "$TMP_DIR/empty-health-report.json" >"$TMP_DIR/empty-health-console.json" && {
+  echo 'acceptance canary treated an empty health value as healthy' >&2
+  exit 1
+}
+jq -e '.published == true and .verification == "PASSED" and ([.probes[] | select(.capabilityId == "graymatter.semantic.manifest") | .passed] == [false])' \
+  "$TMP_DIR/empty-health-report.json" >/dev/null
+
+# Linux does not necessarily have Perl shasum. Prefer its native sha256sum.
+mkdir "$TMP_DIR/hash-bin"
+if command -v sha256sum >/dev/null 2>&1; then
+  printf '#!/usr/bin/env bash\nexec %q "$@"\n' "$(command -v sha256sum)" >"$TMP_DIR/hash-bin/sha256sum"
+else
+  printf '#!/usr/bin/env bash\nexec %q -a 256 "$@"\n' "$(command -v shasum)" >"$TMP_DIR/hash-bin/sha256sum"
+fi
+printf '#!/usr/bin/env bash\necho "unexpected shasum fallback" >&2\nexit 97\n' >"$TMP_DIR/hash-bin/shasum"
+printf '#!/bin/bash\ncase "${1:-}" in -l|-lc|-cl|--login) echo "unexpected login profile" >&2; exit 98;; esac\nexec /bin/bash "$@"\n' >"$TMP_DIR/hash-bin/bash"
+chmod +x "$TMP_DIR/hash-bin/sha256sum" "$TMP_DIR/hash-bin/shasum" "$TMP_DIR/hash-bin/bash"
+PATH="$TMP_DIR/hash-bin:$PATH" TEST_CALL_LOG="$TMP_DIR/hash-calls.log" TEST_EXPECT_TOKEN=mock-secret-token \
+GRAYMATTER_API_COMMAND="$TMP_DIR/graymatter_api.sh" \
+"$TMP_DIR/graymatter-prod-acceptance.sh" --token-command 'printf mock-secret-token' --environment production --format json \
+  --artifact "$TMP_DIR/hash-report.json" >"$TMP_DIR/hash-console.json"
+jq -e '.queryDigest == "sha256:04da2f068bb0ca33b0d0b44f7af9dac4cbd48802fabc38503c50cba433988ed9"' "$TMP_DIR/hash-report.json" >/dev/null
 
 if GRAYMATTER_API_COMMAND="$TMP_DIR/graymatter_api.sh" \
   "$TMP_DIR/graymatter-prod-acceptance.sh" --format json >/dev/null 2>&1; then

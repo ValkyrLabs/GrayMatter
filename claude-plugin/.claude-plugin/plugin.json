@@ -1,7 +1,7 @@
 {
   "name": "graymatter",
   "displayName": "GrayMatter",
-  "version": "0.3.5",
+  "version": "0.3.6",
   "description": "Secure, durable memory for Claude: recall project context, preserve decisions and preferences, and inspect the sources behind task context.",
   "author": {
     "name": "Valkyr Labs Inc.",

@@ -1,0 +1,29 @@
+{
+  "status": "native-cloud-diagnostic-passed",
+  "nativeJUnitTests": 1,
+  "nativeTrials": 2,
+  "fixedInputs": {
+    "fixture.json": "c6fca3e6a0b0c73e327eaab788f3a55d1418a626743695121dcb9eed512488ea",
+    "consumer.py": "60e03185e168adcec6e505fc84c6a664939fc3599641369067e666cfa99d605f",
+    "judge.py": "5671dcda710f7ec970252849dfe7be1cf49f57baf6e0f89814a46ab6f69bdf30"
+  },
+  "baselineSha256": "04d6aff2b5981eef20244a9c38749e51b9a9d73d2f0e490d1de9e0729adb36a4",
+  "candidatePatchSha256": "f8ffcff5afbfd979f379417e77c6d0eb9b9391995ac5d69c7e2d1a2fe783d9f4",
+  "alignedOwnerInputsSha256": "d4ee7d0287642b6eaebbf543b07b6eb44cf50a7832baf0fb0229b417b6cff14d",
+  "owningNativeReportSha256": "e240fbd9de1e1caa9536e706445b46d033ad046e3d5875c7da3e4e23cf374147",
+  "generatedOpenApiSha256": "3d91b202ce8e29db19fa115d2fd8d2ba31355468c44de3ed3fd99749b455af44",
+  "toolchain": "canonical offline VAIX and AspectJ, sealed Maven (443 runtime JARs), JDK 17, H2, OS TCP loopback-only sandbox",
+  "discovery": "tenant-scoped internal generated ContentMediaLinkService QBE on original query, returned relationship supplies target locator",
+  "compile": {
+    "includeTypedPathEndpoints": true,
+    "originalTask": true,
+    "usesExistingReceipt": true,
+    "tokenBudget": 1024
+  },
+  "hydrate": {
+    "maxItems": 2,
+    "maxTokens": 1024
+  },
+  "consumerEvidenceMaxUtf8Bytes": 1024,
+  "claimScope": "typed_path_and_endpoint_projection_only"
+}

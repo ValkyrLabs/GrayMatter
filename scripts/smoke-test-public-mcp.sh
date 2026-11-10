@@ -6,6 +6,7 @@ TOKEN_A="${GRAYMATTER_TENANT_A_TOKEN:-}"
 TOKEN_B="${GRAYMATTER_TENANT_B_TOKEN:-}"
 RECEIPT_ID="${GRAYMATTER_TEST_RECEIPT_ID:-}"
 LOG_FILE="${GRAYMATTER_LOG_FILE:-}"
+PUBLIC_CATALOG="${GRAYMATTER_PUBLIC_MCP_CATALOG:-reviewed}"
 
 for command_name in curl jq; do
   command -v "$command_name" >/dev/null 2>&1 || {
@@ -18,6 +19,10 @@ done
 [[ -n "$TOKEN_A" ]] || { echo "GRAYMATTER_TENANT_A_TOKEN is required" >&2; exit 1; }
 [[ -n "$TOKEN_B" ]] || { echo "GRAYMATTER_TENANT_B_TOKEN is required" >&2; exit 1; }
 [[ -n "$RECEIPT_ID" ]] || { echo "GRAYMATTER_TEST_RECEIPT_ID is required" >&2; exit 1; }
+case "$PUBLIC_CATALOG" in
+  reviewed|typed-context|typed-discovery) ;;
+  *) echo "GRAYMATTER_PUBLIC_MCP_CATALOG must be reviewed, typed-context, or typed-discovery" >&2; exit 1 ;;
+esac
 
 TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/graymatter-public-mcp.XXXXXX")"
 trap 'rm -rf "$TMP_DIR"' EXIT
@@ -71,6 +76,12 @@ jq -e '.result.protocolVersion and .result.serverInfo.name == "graymatter"' "$TM
 post_rpc "$TOKEN_A" "$(rpc_payload 3 tools/list)" "$TMP_DIR/tools.json"
 actual_tools="$(jq -r '.result.tools[].name' "$TMP_DIR/tools.json" | sort | tr '\n' ' ' | sed 's/ $//')"
 expected_tools="context_compile memory_forget memory_get memory_save memory_search memory_update procedure_search retrieval_receipt_get"
+if [[ "$PUBLIC_CATALOG" != "reviewed" ]]; then
+  expected_tools="${expected_tools/context_compile/context_compile context_hydrate}"
+fi
+if [[ "$PUBLIC_CATALOG" == "typed-discovery" ]]; then
+  expected_tools="${expected_tools/context_compile/context_compile context_discover_typed_path}"
+fi
 [[ "$actual_tools" == "$expected_tools" ]] || {
   echo "unexpected public tool surface: $actual_tools" >&2
   exit 1

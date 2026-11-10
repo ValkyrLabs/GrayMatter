@@ -101,6 +101,17 @@ class KnowledgePackControllerTest {
             .andExpect(jsonPath("$[0].text").value("Portable agent memory"))
             .andExpect(jsonPath("$[0].sourceChannel").value("knowledge-pack:" + localPackId));
 
+        var projection = searchIndexes.findByPrincipalUsernameIgnoreCase("admin").get(0);
+        String mutation = "/v1/graymatter/memory/" + projection.getMemoryId();
+        mockMvc.perform(post(mutation + "/revise").with(httpBasic("admin", "graymatter-light"))
+                .contentType(MediaType.APPLICATION_JSON).content(objectMapper.writeValueAsString(
+                    Map.of("expectedSourceHash", projection.getSourceHash(), "text", "rewritten"))))
+            .andExpect(status().isConflict());
+        mockMvc.perform(post(mutation + "/forget").with(httpBasic("admin", "graymatter-light"))
+                .contentType(MediaType.APPLICATION_JSON).content(objectMapper.writeValueAsString(
+                    Map.of("expectedSourceHash", projection.getSourceHash(), "confirmed", true))))
+            .andExpect(status().isConflict());
+
         mockMvc.perform(get("/v1/knowledge-packs/{id}/graph", localPackId)
                 .with(httpBasic("admin", "graymatter-light")))
             .andExpect(status().isOk())

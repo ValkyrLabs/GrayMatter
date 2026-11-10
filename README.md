@@ -46,12 +46,15 @@ cd GrayMatter
 ./vaix setup
 ```
 
-`./vaix setup` uses Java 17+, Maven, and Node 20+ already on the machine when
+`./vaix setup` uses compatible Java 17–24, Maven, and Node 20+ already on the machine when
 possible. Missing toolchains are downloaded privately under `.vaix/runtime`;
-nothing is installed system-wide. The command builds standalone Lite using public
+nothing is installed system-wide. Newer unsupported JDKs are skipped, and a compatible
+private runtime is reused on repeated setup. The command builds standalone Lite using public
 Maven dependencies, creates one local profile, starts the services, and verifies
 the connection. A hosted account or private ThorAPI generator is not required.
 Explicit schema generation remains available through `./vaix generate`.
+Connection verification uses Node to check local sign-in, starter data, and an
+MCP memory tool under one 10-second deadline. It runs entirely on loopback.
 Setup starts:
 
 - dashboard and sign-in: `http://localhost:8787`
@@ -382,6 +385,11 @@ Username: your-username
 ```
 
 The happy path deliberately has only four visible stages: `downloading plugin`, `performing signup/login`, `authenticating`, and `GrayMatter plugin ready`. It does not require `jq` or manual JWT handling. Advanced OpenClaw operators can run `scripts/gm-activate` afterward for the complete smoke-test, agent-registration, and schema-sync bootstrap.
+
+MCP stdio discovery starts before account checks so the IDE can connect promptly.
+The installer handles sign-in; memory requests enforce the selected account and
+permissions. Release and schema warmups remain available through the explicit
+legacy launcher and activation commands.
 
 `scripts/gm-activate` is the preferred first-run path. It checks for updates, signs in, stores the session in Keychain when available, validates the install, registers the agent, and writes a bounded startup-preflight artifact after invariant retrieval, authenticated capability discovery, and live OpenAPI freshness checks.
 

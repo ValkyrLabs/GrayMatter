@@ -66,6 +66,16 @@ function thor_spawn(thor_command, thor_args, thor_env) {
 
 async function main() {
   let thor_connection = resolveConnection();
+  const thor_args = process.argv.slice(2);
+  if (thor_args.includes('--stdio')) {
+    // MCP initialization must not wait for a vault prompt, interactive sign-in,
+    // or release/schema warmups. The adapter validates the selected account on
+    // memory requests; the installer continues to own explicit sign-in.
+    thor_log('starting MCP transport; account authorization remains required for memory requests');
+    thor_spawn(process.execPath, [path.join(thor_pluginRoot, 'mcp-server', 'index.js'),
+      '--stdio', ...thor_args.filter(thor_arg => thor_arg !== '--stdio')], connectionEnvironment(thor_connection));
+    return;
+  }
   let thor_token = readStoredToken(thor_connection);
   let thor_authStateValue = thor_connection.blended ? 'valid' : await authState(thor_token, thor_connection.apiBase, thor_connection);
   if (thor_authStateValue === 'unavailable') {
@@ -94,7 +104,6 @@ async function main() {
   }
 
   const thor_env = { ...connectionEnvironment(thor_connection), VALKYR_AUTH_TOKEN: thor_token };
-  const thor_args = process.argv.slice(2);
   if (process.platform !== 'win32' && process.env.GRAYMATTER_PORTABLE_LAUNCH_ONLY !== 'true') {
     thor_spawn(path.join(thor_scriptDir, 'gm-mcp-launcher'), thor_args, thor_env);
     return;

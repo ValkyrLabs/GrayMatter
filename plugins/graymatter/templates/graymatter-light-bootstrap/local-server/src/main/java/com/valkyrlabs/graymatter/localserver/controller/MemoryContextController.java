@@ -38,6 +38,12 @@ public class MemoryContextController {
         return contexts.receipt(authenticated.getName(), id);
     }
 
+    @PostMapping("/graymatter/retrieval-context/{id}/refresh")
+    public MemoryContextService.ContextResponse refresh(Principal authenticated, @PathVariable UUID id,
+        @RequestBody MemoryContextService.ContextRequest request) {
+        return contexts.refresh(authenticated.getName(), id, request);
+    }
+
     @PostMapping({"/graymatter/retrieval-context/{id}/recompress",
                   "/graymatter/retrieval-context/{id}/fork"})
     public MemoryContextService.ContextResponse recompress(Principal authenticated, @PathVariable UUID id,

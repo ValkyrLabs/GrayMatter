@@ -11,7 +11,10 @@ import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Base64;
+import java.util.HashMap;
 import java.util.Locale;
+import java.util.Map;
+import java.util.function.ObjIntConsumer;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -50,18 +53,44 @@ public class LocalMemoryEmbeddingService {
 
     public float[] featureHash(String text) {
         float[] vector = new float[DIMENSIONS];
+        forEachFeature(text, (feature, weight) -> add(vector, feature, weight / 4.0f));
+        return normalize(vector);
+    }
+
+    // An occupied hash bucket is insufficient evidence of a lexical match.
+    // Compare the original word and trigram features for hash-only candidates.
+    record LexicalFeatures(Map<String, Integer> weights, double norm) {
+        static LexicalFeatures from(String text) {
+            Map<String, Integer> weights = new HashMap<>();
+            forEachFeature(text, (feature, weight) -> weights.merge(feature, weight, Integer::sum));
+            double squares = weights.values().stream().mapToDouble(weight -> (double) weight * weight).sum();
+            return new LexicalFeatures(weights, Math.sqrt(squares));
+        }
+
+        double cosineWith(String candidate) {
+            if (norm == 0) return 0;
+            LexicalFeatures other = from(candidate);
+            if (other.norm == 0) return 0;
+            double dot = 0;
+            for (var entry : weights.entrySet()) {
+                dot += (double) entry.getValue() * other.weights.getOrDefault(entry.getKey(), 0);
+            }
+            return dot / (norm * other.norm);
+        }
+    }
+
+    private static void forEachFeature(String text, ObjIntConsumer<String> consumer) {
         Matcher words = WORD.matcher(text.toLowerCase(Locale.ROOT));
         while (words.find()) {
             String word = words.group();
-            add(vector, "w:" + word, 1.0f);
+            consumer.accept("w:" + word, 4);
             if (word.length() >= 4) {
                 String wrapped = "^" + word + "$";
                 for (int i = 0; i <= wrapped.length() - 3; i++) {
-                    add(vector, "c:" + wrapped.substring(i, i + 3), 0.25f);
+                    consumer.accept("c:" + wrapped.substring(i, i + 3), 1);
                 }
             }
         }
-        return normalize(vector);
     }
 
     public float[] semantic(String text) {

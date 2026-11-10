@@ -222,7 +222,7 @@ test('profile login refreshes only its configured account without creating or ac
   assert.equal(fixture.requests.length, 1);
 });
 
-test('MCP startup uses the server selected in the initial native prompt', async (t) => {
+test('explicit interactive MCP launch uses the server selected in the native prompt', async (t) => {
   const fixture = await server(t, (_req, res) => { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end('{"username":"local-user"}'); });
   const state = tempState();
   const plugin = path.join(state, 'plugin');
@@ -230,7 +230,7 @@ test('MCP startup uses the server selected in the initial native prompt', async 
   fs.mkdirSync(path.join(plugin, 'mcp-server'));
   for (const file of ['gm-auth.mjs', 'gm-connection.mjs', 'gm-mcp-launcher.mjs']) fs.copyFileSync(path.join(root, 'scripts', file), path.join(plugin, 'scripts', file));
   fs.writeFileSync(path.join(plugin, 'mcp-server/index.js'), 'process.stdout.write(JSON.stringify({apiBase:process.env.VALKYR_API_BASE,local:process.env.GRAYMATTER_LIGHT_MODE,username:process.env.GRAYMATTER_LIGHT_USERNAME,hasPassword:Boolean(process.env.GRAYMATTER_LIGHT_PASSWORD),token:process.env.VALKYR_AUTH_TOKEN}));');
-  const result = await run(path.join(plugin, 'scripts/gm-mcp-launcher.mjs'), ['--stdio'], {
+  const result = await run(path.join(plugin, 'scripts/gm-mcp-launcher.mjs'), [], {
     ...fakeVault(state), GRAYMATTER_PORTABLE_LAUNCH_ONLY: 'true',
     GRAYMATTER_TEST_DIALOG_JSON: JSON.stringify({ apiBase: fixture.base, kind: 'local', username: 'local-user', password: 'fixture-password' })
   });
@@ -239,7 +239,7 @@ test('MCP startup uses the server selected in the initial native prompt', async 
   assert.equal(fixture.requests.length, 2, 'sign-in and startup verification use the chosen local instance');
 });
 
-test('MCP startup follows a symlinked source folder and starts the local server', async (t) => {
+test('explicit interactive MCP launch follows a symlinked source folder', async (t) => {
   const fixture = await server(t, (_req, res) => { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end('{"username":"local-user"}'); });
   const state = tempState(); t.after(() => fs.rmSync(state, { recursive: true, force: true }));
   const plugin = path.join(state, 'plugin');
@@ -249,7 +249,7 @@ test('MCP startup follows a symlinked source folder and starts the local server'
   const link = path.join(state, 'selected-source'); fs.symlinkSync(plugin, link);
   const { saveConnection } = await import(moduleUrl);
   saveConnection({ apiBase: fixture.base, kind: 'local', username: 'local-user', password: 'disposable-symlink-fixture' }, { GRAYMATTER_STATE_DIR: state });
-  const result = await run(path.join(link, 'scripts/gm-mcp-launcher.mjs'), ['--stdio'], { GRAYMATTER_STATE_DIR: state, GRAYMATTER_LOCAL_ONLY: 'true', GRAYMATTER_PORTABLE_LAUNCH_ONLY: 'true' });
+  const result = await run(path.join(link, 'scripts/gm-mcp-launcher.mjs'), [], { GRAYMATTER_STATE_DIR: state, GRAYMATTER_LOCAL_ONLY: 'true', GRAYMATTER_PORTABLE_LAUNCH_ONLY: 'true' });
   assert.equal(result.code, 0, result.stderr); assert.equal(result.stdout, 'local-symlink-launch-passed');
   assert.equal(fixture.requests.length, 1); assert.match(result.stderr, /starting portable MCP server/u);
 });
@@ -280,12 +280,12 @@ test('local-only connections reject hosted routes, remote Lite and blended defau
   assert.throws(() => resolveConnection({ ...env, GRAYMATTER_LOCAL_ONLY: 'true' }), /requires a local GrayMatter Lite/u);
 });
 
-test('local-only reconnect reports rejected local credentials without opening a hosted sign-in dialog', async (t) => {
+test('explicit local-only reconnect reports rejected credentials without a hosted dialog', async (t) => {
   const { saveConnection } = await import(moduleUrl);
   const fixture = await server(t, (_req, res) => { res.writeHead(401); res.end('{}'); });
   const state = tempState();
   saveConnection({ apiBase: fixture.base, kind: 'local', username: 'local-user', password: 'fixture-password' }, { GRAYMATTER_STATE_DIR: state });
-  const result = await run(path.join(root, 'scripts/gm-mcp-launcher.mjs'), ['--stdio'], { ...fakeVault(state), GRAYMATTER_LOCAL_ONLY: 'true', GRAYMATTER_PORTABLE_LAUNCH_ONLY: 'true' });
+  const result = await run(path.join(root, 'scripts/gm-mcp-launcher.mjs'), [], { ...fakeVault(state), GRAYMATTER_LOCAL_ONLY: 'true', GRAYMATTER_PORTABLE_LAUNCH_ONLY: 'true' });
   assert.equal(result.code, 4);
   assert.match(result.stderr, /.\/vaix doctor/u);
   assert.doesNotMatch(result.stderr, /opening the secure GrayMatter dialog/u);

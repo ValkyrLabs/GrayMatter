@@ -112,6 +112,30 @@ It generates twice and compares hashes, rejects a conflicting extension,
 builds generated Java and verifies generated TypeScript contracts, starts the authenticated local runtime,
 writes a memory, verifies the served contract, then starts the expanded
 ThorAPI application and reads both `GrayMatter` and `CustomerCase` resources.
+It also checks that receipt and hydration DTOs do not acquire CRUD endpoints,
+and exercises a permitted answer, an explicitly disputed source and an
+ambiguous weekday through the portable MCP server against the generated JAR.
+
+For a receipt policy change, also exercise a populated database. With Python
+3.11+ and Java 21, run:
+
+```bash
+python3 tests/lite_receipt_upgrade_test.py /path/to/v2.jar /path/to/v3.jar
+```
+
+The runner writes two synthetic memories and an allowed v2 receipt, reopens
+that H2 file with v3, checks that the historical receipt cannot hydrate or
+fork, then recompiles and reopens the new receipt after another restart.
+V3 uses a nullable text column for new decisions and reads the historical
+enum column for older receipts. This avoids relying on Hibernate to widen a
+native H2 enum when a decision is added.
+
+To exercise a populated v3 database with v4, run
+`python3 tests/lite_receipt_upgrade_test.py --discovery /path/to/v3.jar /path/to/v4.jar`.
+The test reopens the old receipt for audit, starts a new search and verifies
+that an added dispute stales its earlier permission after a process restart.
+`node tests/gm_lite_lifecycle_mcp_test.cjs /path/to/v4.jar` exercises the
+local agent tools against the running distribution.
 
 ## MCP and verification
 

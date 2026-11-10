@@ -122,6 +122,7 @@ function projectDispatch(response, traceId) {
       || response.deterministicAttempted !== true || response.agentExecutionPerformed !== false
       || !isObject(route) || !ROUTES.has(route.recommendedRoute)
       || typeof route.receipt?.receiptRef !== 'string' || !REFERENCE.test(route.receipt.receiptRef)
+      || (route.receipt.id != null && (typeof route.receipt.id !== 'string' || !UUID.test(route.receipt.id)))
       || (response.fallbackRoute != null && !ROUTES.has(response.fallbackRoute))) throw new Error('Invalid dispatch contract');
   let workflow = null;
   if (status === 'procedure_started') {
@@ -138,7 +139,9 @@ function projectDispatch(response, traceId) {
     contractVersion: CONTRACT_VERSION, operation: 'execute', traceId, status,
     procedureRef: response.procedureRef ?? null, workflowVersionId: response.workflowVersionId ?? null, workflow,
     recommendedRoute: route.recommendedRoute, fallbackRoute: response.fallbackRoute ?? null,
-    routeReceiptRef: route.receipt.receiptRef, deterministicAttempted: true, agentExecutionPerformed: false
+    routeReceiptRef: route.receipt.receiptRef,
+    ...(route.receipt.id == null ? {} : { routeReceiptId: route.receipt.id.toLowerCase() }),
+    deterministicAttempted: true, agentExecutionPerformed: false
   };
 }
 
@@ -163,4 +166,4 @@ async function readProcedureExecution(request, executionId) {
   }
 }
 
-module.exports = { executeProcedure, readProcedureExecution, prepareProcedureRequest, clientError, MAX_REQUEST_BYTES, plainRequest };
+module.exports = { executeProcedure, readProcedureExecution, prepareProcedureRequest, workflowProjection, clientError, MAX_REQUEST_BYTES, plainRequest };

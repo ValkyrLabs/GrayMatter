@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "cohort": "prospective-synthetic-invoice-return-v1",
+  "seed": "19b90a21-47eb-4962-9f36-35dd705c8916",
+  "count": 12,
+  "sourceFirst": 6,
+  "procedureFirst": 6,
+  "tasksSha256": "2cd6fddcf5c7c6c70feb3e44dd78372e8207535d267e53d39c35e1dae0aca442",
+  "oracleSha256": "dfb09ad1a0971c027869f6b90b03922c9e2451b56f3de2e39555ff1d467045ff",
+  "taskIds": [
+    "empty-snapshot",
+    "customers-without-invoices",
+    "invoices-without-customers",
+    "all-visible-out-of-order",
+    "all-missing",
+    "single-visible-customer-many-invoices",
+    "repeated-missing-reference",
+    "surplus-visible-customers",
+    "mixed-missing-first",
+    "mixed-missing-last",
+    "invoice-limit",
+    "both-limits"
+  ],
+  "primaryMetric": "exact six-field native report per assigned task per arm; missing, timeout, fallback, or invalid provenance scores zero",
+  "latency": "measured monotonic call-through-available elapsed time on strictly paired exact successes, reported by arm; no timing threshold",
+  "noninferiority": "procedure exact successes \u2265 direct-source successes and no cases lost; operational equality on these fixtures only",
+  "minimumEligibility": "Distinct same-owner normal non-TEST successful execution per arm; source version selected before run; candidate routed by SkillOptProcedureExecutionRuntimeService through actual promoted binding; no fixtures or expected values used by training, holdout, replay, or promotion; no synthetic outcomes or agent/LLM quality claim"
+}

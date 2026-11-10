@@ -1,0 +1,61 @@
+{
+  "version": "association-store-comparison/v1",
+  "frozenAtUtc": "2026-11-07T06:31:58.579387+00:00",
+  "fixture": "../fixture.json",
+  "fixtureSha256": "c88f1c7ab95d897c7f00b3f284cb586338c39d364de226ec671a04f4038cf985",
+  "liteObservation": "../candidate-release-observed.json",
+  "liteObservationSha256": "06078198dd0903c9d666b3cf5872f42372617d58289ea5f808327a48828324f2",
+  "sdk": {
+    "name": "@langchain/langgraph-checkpoint",
+    "version": "1.2.2",
+    "lock": "../../store-context-probe/package-lock.json",
+    "store": "InMemoryStore"
+  },
+  "inputs": "All 14 existing frozen cases, exact text, tags, type, query, direction, label, source-channel filter and topK. No generated answer.",
+  "encoder": {
+    "implementation": "test-supplied local term-frequency vector",
+    "tokenization": "lowercase ASCII [a-z0-9]+, no stopwords/stemming",
+    "vocabulary": "sorted union of tokens in all fixture source bodies and queries, excluding tags, labels, keys and oracle",
+    "fields": [
+      "text"
+    ],
+    "training": false,
+    "models": [],
+    "networkCalls": 0
+  },
+  "arms": {
+    "nativeTopK": "Unmodified store.search on source namespace, query, exact sourceChannel/type filter and original topK. Record zero scores without filtering.",
+    "nativeWide": "Same native search with limit topK+8. This changes retrieval budget and is a separate wider-search control.",
+    "applicationOneHop": "Benchmark application: native topK search; keep positive-score seeds only; search edge namespace by exact fromId, bounded 64+1 total edges and up to8 seeds; get outgoing targets once; honor original source/type filters; deduplicate and append up to8 distinct targets, no recursive/reverse traversal. Do not require neighbor query similarity; labels are stored without interpretation. No conflict, trust, token or receipt policy is invented for the SDK."
+  },
+  "resourceBoundary": {
+    "warmups": 2,
+    "measuredRepetitions": 7,
+    "network": "OS sandbox denies all network; fresh in-process store per case",
+    "nodeHeapMiB": 512,
+    "persistence": "process memory only",
+    "identity": "namespaces are application-provided; no authentication/ACL model tested",
+    "tokenBudget": "same requested Lite budget retained as context; native SDK does not accept it. Record returned UTF8 body bytes without calling them model tokens. No relative latency ranking vs Lite HTTP/H2."
+  },
+  "lifecycle": {
+    "case": "linked-detail",
+    "mutations": [
+      "correct-anchor",
+      "delete-anchor",
+      "delete-association"
+    ],
+    "method": "fresh store per mutation; actual put/delete; read native exact source and edge; rerun native search/application one-hop; compare detached client snapshot with live get object",
+    "receipt": "not exercised on SDK; null is not evidence of a product-wide absence"
+  },
+  "checks": [
+    "native scores equal independent term-frequency cosine calculation",
+    "native rank limits and original metadata filter apply",
+    "application results independently reconstructible from native seeds/edges/gets",
+    "query-free link can be followed by application",
+    "reverse/two-hop/cycle/filter behavior explicit",
+    "labels related/supersedes produce identical selection",
+    "source correction/delete and edge-delete reflected in current APIs",
+    "held client snapshots are not server freshness claims"
+  ],
+  "interpretation": "Matched input and observed evidence availability only. Different rankers and native contracts; application adapter is not an upstream graph feature. No answer-quality, policy win-rate, persistence, access-control, cost or competitor-wide superiority claim."
+}

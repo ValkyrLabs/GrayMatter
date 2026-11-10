@@ -1,0 +1,7 @@
+{
+  "name": "graymatter-store-context-probe",
+  "private": true,
+  "dependencies": {
+    "@langchain/langgraph-checkpoint": "1.2.2"
+  }
+}

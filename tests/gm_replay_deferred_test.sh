@@ -6,6 +6,8 @@ tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 fail() { echo "FAIL: $*" >&2; exit 1; }
 mkdir -p "$tmp/deferred"
+export GRAYMATTER_STATE_DIR="$tmp/state" GRAYMATTER_PROFILES_FILE="$tmp/profiles.json"
+unset GRAYMATTER_PROFILE GRAYMATTER_PROFILES GRAYMATTER_PROFILE_RESOLVED GRAYMATTER_BLEND_PROFILES
 export GRAYMATTER_DEFERRED_DIR="$tmp/deferred" GRAYMATTER_FALLBACK_SPOOL="$tmp/fallback.json"
 export GRAYMATTER_REPLAY_LOCK_DIR="$tmp/lock" GRAYMATTER_CREDIT_EVENTS_PATH="$tmp/events.jsonl"
 export VALKYR_API_BASE='https://authorized.test/v1' TEST_REPLAY_LOG="$tmp/calls"

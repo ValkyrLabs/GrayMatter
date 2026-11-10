@@ -95,6 +95,21 @@ profile before mutating data or calling a non-federated MCP tool. In blended
 mode the MCP memory query/read/health tools return the same profile-labeled
 federated envelope as the CLI.
 
+## Local authentication
+
+Lite checks the current account, enabled flag, password verifier and roles on
+every authenticated request. For repeated valid Basic credentials it can
+reuse a successful password comparison for 60 seconds. The process keeps at
+most 128 keyed proof digests. A password-verifier change immediately requires
+a new comparison, and disabling or deleting the account immediately denies
+the next request. Browser session cookies do not authorize later API requests.
+
+Unknown accounts, failed checks, and passwords exceeding 72 UTF-8 bytes use
+the underlying BCrypt path each time. Existing long-password verification
+semantics are preserved. The proofs expire for use after 60 seconds and are
+bounded in memory until eviction or process exit. Account administration and
+the current source permissions still govern every operation.
+
 ## Starter KnowledgePack
 
 The committed source pack contains support/setup/product memories for:
@@ -164,7 +179,11 @@ The MCP `filters` object accepts only `type`, `source`/`sourceChannel`, and
 silently become a broad search.
 
 The default `feature-hash-384-v1` vectors work without a model or network.
-They improve fuzzy lexical recall but are **not** a semantic language model.
+They can find related spellings, but are **not** a semantic language model.
+In offline `HYBRID` and `SCHEMA_FILTERED` searches, Lite ranks exact-word
+matches with BM25 first, then fills remaining slots with verified word or
+trigram neighbors. A configured semantic model still contributes its own
+ranking when available.
 For semantic embeddings from a local model, install Ollama and a local embedding
 model, then set:
 
@@ -181,6 +200,29 @@ configured profiles without sending a test embedding request. The portable
 Java/H2 scan is intended for personal memory scale; there is no ANN engine in
 Lite.
 
+### Correcting and forgetting a local memory
+
+Read `GET /v1/graymatter/memory/{id}` to obtain the exact owned snapshot and
+its `sourceHash`. The private Lite MCP tools also accept the hash returned by
+`memory_get`. Supply the hash from the revision the user reviewed.
+
+| Operation | Request and result |
+| --- | --- |
+| `POST /v1/graymatter/memory/{id}/revise` or `lite_memory_revise` | Supply `expectedSourceHash` and replacement `text`, `tags`, or both. The response contains the corrected record and its current hash. An empty tags array clears the tags. |
+| `POST /v1/graymatter/memory/{id}/forget` or `lite_memory_forget` | Supply `expectedSourceHash` and `confirmed: true` for that exact record. HTTP 204 acknowledges removal of its local source and search index. |
+
+A competing change returns HTTP 412. Read the current version before
+reapplying a correction or confirming deletion. Returning to an earlier
+text creates a new revision. The hash binds the source fields and, after a
+correction, a fresh random revision value. Submitting the identical values at the current
+revision leaves its hash valid. A missing or inaccessible record returns 404.
+Individual mutation of an imported signed KnowledgePack row returns 409.
+Previously delivered text and exported copies have their own lifecycles.
+
+These private MCP tools are available on an authenticated single loopback
+Lite profile. On the wire the memory ID is in the path. For an MCP call add
+`id` to the arguments.
+
 ### Bifrost context for agents
 
 `POST /v1/graymatter/retrieval-context` and
@@ -194,16 +236,81 @@ ceiling. Canonical `MemoryEntry` text is not changed by compression.
 Receipts store source IDs and SHA-256 hashes, not source text. Inspect one with
 `GET /v1/graymatter-retrieval-receipts/{id}`. Recompress with
 `POST /v1/graymatter/retrieval-context/{id}/recompress` using the same query,
-an optional smaller `tokenBudget`, and optional `protectedRefs` or
+an optional `tokenBudget`, and optional `protectedRefs` or
 `evictedRefs`. Protected refs carry into child contexts and cannot be evicted.
 `POST /v1/graymatter/retrieval-context/{id}/fork` creates an independently
-addressable child with the same source rechecks. Each result has a
+addressable child with the same source rechecks. A usable result has a
 `contextPageRef` that an agent can carry through a handoff. An exact source can
 be hydrated through
 `GET /v1/graymatter/retrieval-context/{id}/hydrate/{memoryId}?maxTokens=1000`.
 Every inspection, recompression, and hydration rechecks current ownership and
 source hash; changed or removed memories cannot be replayed from old context.
-The response `answerPolicy` tells an agent when evidence is insufficient.
+With `bifrost-lite-context/v4`, use the compiled text when the server returns
+`OK`, `ALLOW_ANSWER` and `ANSWER`. This decision describes the selected
+source set. It does not measure whether every relevant fact was retrieved.
+The raw search respects `topK`. When compiling context, Lite also checks for
+an explicitly marked conflict below that cutoff, under the same principal and
+filters. If an otherwise eligible marked source contains every query word in
+its text, Lite retains one such source in the receipt and withholds the page.
+The diagnostic source count can therefore exceed `topK` by one.
+
+Two notes can also give different values without either author marking a
+conflict. For a query such as “Telemetry window”, two bare settings in the
+same scope saying “Telemetry window is Monday.” and “Telemetry window is
+Friday.” leave it unclear whether both days apply. Lite asks for
+clarification and records the two source IDs in `ambiguousRefs`. It neither
+chooses the more recent note nor treats either author as wrong. This check
+covers a narrow form of weekday setting in untagged, standalone notes sharing
+a type and source channel. A complete result set containing an explicit
+two-day weekly schedule for that setting can account for both assignments.
+If the agent drops that supporting source, the narrowed receipt still
+withholds the context. The rule does not infer exclusivity,
+resolve dated corrections or detect arbitrary disagreements in prose.
+
+Before using a receipt for a new action, inspect it or repeat the search with
+`POST /v1/graymatter/retrieval-context/{id}/refresh`. The private MCP
+equivalent is `lite_context_refresh`. Supply the original query, filters,
+retrieval mode, result limit, budget and protected IDs. Delivery may omit
+text by setting `includeText: false`. A fresh result identifies the original
+with `parentReceiptId` and reports `sourceSelection: FRESH_SEARCH`.
+Changing the discovery scope returns 409. Start a new search for a different
+scope or for a historical receipt whose original settings were never recorded.
+
+Inspection and hydration check the membership and revision of all memories
+eligible under the original owner, type, source and tag filters. A newly
+added dispute can stale an earlier positive receipt even when its original
+passage still exists. A fixed-source fork inherits that check. A change
+elsewhere in the same filter scope can also stale the receipt even when a
+fresh search returns the same answer. A tighter source filter reduces these
+retries. The snapshot records hashes and source references. Inspection reads
+the owner's candidate metadata, which has a cost for large memory stores.
+
+| Receipt status | What the agent should do |
+| --- | --- |
+| `PARTIAL_COVERAGE` | Inspect `truncatedRefs` and `omittedRefs`. Recompress the same sources with a larger budget, up to 16,000. If the configured semantic provider degraded, retrieve again after it recovers. |
+| `CONFLICTING_CONTEXT` | Inspect `conflictRefs` through the owned memory read API and clarify the explicitly marked conflict. Recompiling or forking still evaluates those sources. |
+| `AMBIGUOUS_WEEKDAY` | Ask whether multiple days apply to this setting. Inspect the source IDs in the Lite receipt's `ambiguousRefs`; these are separate from explicitly disputed sources. |
+| `NO_RESULTS` | Revise the query or filters. |
+| `STALE_CONTEXT` or `RETRY_REQUIRED` | Retrieve a fresh context. Older receipts lacking the recorded decision can still be inspected. |
+
+A withheld response supplies the diagnostic `receiptId` and reason. Its
+context, usable page pointer and context hash are empty, the item list is empty,
+and its delivered token estimate is zero. A receipt inspection separates the
+original `recordedRetrievalStatus` from the current `retrievalStatus` after
+source rechecks. Receipt hydration requires current, complete evidence.
+If an agent requests a smaller excerpt, read its `truncated` flag: it remains
+true even when the budget cannot fit a truncation marker. The `sourceHash`
+identifies the original record. It does not imply the excerpt contains
+the whole source.
+An explicit eviction from a complete parent sets `sourceSetNarrowed` on
+the child and its descendants and withholds the narrowed context. Use a fresh
+retrieval to establish a new candidate set. Recompression of a withheld parent
+can grow the budget while preserving its sources. For the offline vector
+profile, GrayMatter verifies the original word and trigram overlap before
+accepting a hit that depends entirely on hashed features.
+Clients matching `SUFFICIENT_CONTEXT` or `ANSWER_WITH_CITATIONS` should
+use the policy fields above. Inspect an older receipt for history; retrieve
+fresh context under the current policy before reusing its sources.
 
 These APIs cover Lite's agentic-memory boundary. They do not include hosted
 ValkyrAI workflows, SkillOptics evaluation, or generated-domain retrieval.

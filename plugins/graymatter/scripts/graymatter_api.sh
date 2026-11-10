@@ -1103,7 +1103,7 @@ fi
 resolve_tenant_id >/dev/null
 perform_request
 
-if [[ "$HTTP_STATUS" == "401" || "$HTTP_STATUS" == "403" ]]; then
+if [[ "${GRAYMATTER_SKIP_AUTH_REISSUE:-false}" != "true" && ( "$HTTP_STATUS" == "401" || "$HTTP_STATUS" == "403" ) ]]; then
   if refresh_token; then
     perform_request
   elif run_login && [[ -n "$TOKEN" ]]; then

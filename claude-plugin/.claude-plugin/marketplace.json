@@ -1,0 +1,20 @@
+{
+  "name": "graymatter",
+  "owner": {
+    "name": "Valkyr Labs Inc.",
+    "email": "support@valkyrlabs.com"
+  },
+  "metadata": {
+    "description": "GrayMatter secure memory, hosted connector, and workflow skills for Claude."
+  },
+  "plugins": [
+    {
+      "name": "graymatter",
+      "displayName": "GrayMatter",
+      "source": "./",
+      "description": "Secure, durable memory and task context for Claude.",
+      "version": "0.3.5",
+      "category": "productivity"
+    }
+  ]
+}

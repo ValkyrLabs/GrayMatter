@@ -1,0 +1,90 @@
+{
+  "schemaVersion": "cloud-dispatch-full-protocol/v1",
+  "state": "frozen before execution; no results yet",
+  "frozenInputs": {
+    "fixture.json": "c6fca3e6a0b0c73e327eaab788f3a55d1418a626743695121dcb9eed512488ea",
+    "consumer.py": "60e03185e168adcec6e505fc84c6a664939fc3599641369067e666cfa99d605f",
+    "judge.py": "5671dcda710f7ec970252849dfe7be1cf49f57baf6e0f89814a46ab6f69bdf30",
+    "protocol.json": "ac486d74e10d325cda1edb57f5af7b6fd97cffe0c50ccf9836c0f204a9848906"
+  },
+  "assignment": {
+    "cases": 12,
+    "arms": [
+      "source_only",
+      "typed_pair"
+    ],
+    "warmups": 2,
+    "measuredRepetitions": 7,
+    "order": "fixture case order; control then treatment per iteration",
+    "unit": "12 assigned tasks; repetitions are not independent task samples"
+  },
+  "consumer": {
+    "maxEvidenceUtf8Bytes": 1024,
+    "maxSources": 16,
+    "model": "none; unchanged frozen consumer and SQLite judge"
+  },
+  "native": {
+    "mode": "BALANCED",
+    "recipe": "ENTITY_NEIGHBORHOOD",
+    "planBudgets": {
+      "maxGraphHops": 1,
+      "maxLatencyMs": 1200,
+      "maxCandidates": 8
+    },
+    "sourceOnly": {
+      "queryMode": "ENTITY",
+      "objectTypes": [
+        "ContentMediaLink"
+      ],
+      "maxHops": 0,
+      "maxNodes": 1,
+      "maxResults": 1,
+      "targetReadMaxBytes": 4096,
+      "targetReadMaxTokens": 1024
+    },
+    "typedPair": {
+      "queryMode": "PATH",
+      "discoverPathFromQuery": true,
+      "objectTypes": [
+        "ContentMediaLink"
+      ],
+      "graphPaths": [
+        "ContentMediaLink.contentData.ContentData"
+      ],
+      "direction": "OUTBOUND",
+      "maxHops": 1,
+      "maxNodes": 2,
+      "maxEdges": 1,
+      "maxResults": 1,
+      "pageTokenBudget": 1024,
+      "hydrateMaxItems": 2,
+      "hydrateMaxTokens": 1024
+    }
+  },
+  "mapping": {
+    "anchor": "exact complete frozen anchor text -> ContentMediaLink.fileName, never split/truncated",
+    "detail": "exact complete frozen detail text -> ContentData.title",
+    "edge": "the supplied directed anchor/detail edge -> owning contentData FK; free relation label has no representable field and no authority",
+    "tags": "supplied detail tags -> ContentData.tags/Tag.name",
+    "excluded": "sourceSuffix rows are stored but requester has effective object READ and MERGE denied; inherited tenant-root READ is explicitly overridden",
+    "identity": "ordinary organization MEMBER with actual row grants; peer is OWNER",
+    "sourceKeys": "native source IDs map to frozen row keys only for output verification and citations, never sent to retrieval",
+    "enrollment": "Synthetic ORM fixture inside one actual tenant transaction per case, with explicit native per-row ownership; current effective READ/MERGE verified. This does not validate generated create API authorization."
+  },
+  "knownPreRunBoundaries": [
+    "Current DDL file_name varchar(255) cannot losslessly store anchors of lengths258,258,261 (direct-1,distractor-1,conflict-1); actual insertion is attempted atomically and recorded; no static success implied.",
+    "Direct cases have no supplied edge; typed pair has no fallback or self-edge.",
+    "Free edge labels and typed FK have different semantics, disclosed explicitly.",
+    "Source-only requires current receipt ALLOW_ANSWER plus successful owning target read; typed pair requires the exact scoped typed-path caveat and owning paired hydration. Other native policy outcomes are withheld.",
+    "Setup or transport/runtime errors are unavailable, never credited as correct abstentions. Native denied/withheld outcomes may correctly abstain.",
+    "Fixed query discovery matches literal filename, capped to one unique source observed at discovery; selected path revisions and FK are checked later.",
+    "No family, shipment ID, answer, planted source ID, tags or expected output enter retrieval requests.",
+    "Different native storage/projection and authorization mappings preclude general competitive rankings or causal latency claims.",
+    "Current source-read implementation prioritizes a nonnull synthetic graph memoryId as MemoryEntry before its generated entity fields; owning target-read may reject. No direct database read substitutes for this arm."
+  ],
+  "postCaptureControls": [
+    "effective target READ denial invalidates existing receipt and page hydration",
+    "independent MERGE revocation invalidates existing receipt and page hydration"
+  ],
+  "qualification": "Canonical VAIX regeneration/AJC/H2 is required; this preparation does not launch it."
+}

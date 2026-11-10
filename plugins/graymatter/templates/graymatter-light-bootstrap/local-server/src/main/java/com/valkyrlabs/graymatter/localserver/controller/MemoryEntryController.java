@@ -15,6 +15,7 @@ import java.util.List;
 import java.util.UUID;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.http.HttpStatus;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -84,6 +85,7 @@ public class MemoryEntryController {
         }
     }
 
+    @Transactional
     @PostMapping({"", "/write"})
     public MemoryEntryResponse create(
         Principal authenticated,
@@ -141,7 +143,11 @@ public class MemoryEntryController {
         String sourceChannel,
         String tags,
         Instant createdDate,
-        Instant lastModifiedDate) {
+        Instant lastModifiedDate,
+        String sourceHash) {
+        // The private Lite snapshot DTO names its object reference explicitly.
+        public UUID getMemoryId() { return id; }
+
         static MemoryEntryResponse from(MemoryEntry entry) {
             return new MemoryEntryResponse(
                 entry.getId(),
@@ -150,7 +156,8 @@ public class MemoryEntryController {
                 entry.getSourceChannel(),
                 entry.getTags(),
                 entry.getCreatedAt(),
-                entry.getModifiedAt());
+                entry.getModifiedAt(),
+                MemoryHybridSearchService.sourceHash(entry));
         }
     }
 

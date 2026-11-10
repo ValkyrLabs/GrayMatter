@@ -122,6 +122,28 @@
           <version>${thorapi.version}</version>
         </dependency>
       </dependencies>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.codehaus.mojo</groupId>
+            <artifactId>build-helper-maven-plugin</artifactId>
+            <executions>
+              <execution>
+                <id>add-lite-thorapi-adapters</id>
+                <phase>generate-sources</phase>
+                <goals><goal>add-source</goal></goals>
+                <configuration><sources><source>src/thorapi/java</source></sources></configuration>
+              </execution>
+              <execution>
+                <id>add-lite-thorapi-adapter-tests</id>
+                <phase>generate-test-sources</phase>
+                <goals><goal>add-test-source</goal></goals>
+                <configuration><sources><source>src/thorapi-test/java</source></sources></configuration>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
     </profile>
     <profile>
       <id>native</id>

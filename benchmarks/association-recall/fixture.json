@@ -1,0 +1,133 @@
+{
+  "version": "association-recall-fixture/v1",
+  "baselineJarSha256": "8167718d5c939044f65e8022be9c83c204cf7dbe0085a4548aba7697315be796",
+  "retrieval": {"retrievalMode": "KEYWORD", "topK": 1, "tokenBudget": 1024, "includeText": true},
+  "timing": {"warmups": 2, "measuredRepetitions": 7},
+  "runtime": {"javaMajor": 17, "jvmFlags": ["-Xms128m", "-Xmx512m"], "embeddingModel": "none", "answerModel": "none"},
+  "cases": [
+    {
+      "id": "linked-detail", "query": "Aster courier", "question": "What pickup code is documented for the Aster courier?",
+      "rows": [
+        {"key": "anchor", "text": "Aster courier dispatch. Aster courier route information follows. Aster courier pickup details are in an attached note."},
+        {"key": "answer", "text": "Courier pickup code is cobalt-seven. Bring a canvas pouch."},
+        {"key": "unlinked", "text": "Courier vans use electric motors."}
+      ],
+      "links": [{"from": "anchor", "to": "answer", "relation": "has detail"}],
+      "oracle": {"relevantKeys": ["anchor", "answer"], "requiredAnswerKeys": ["answer"], "answerText": "cobalt-seven", "expectedExpandedKeys": ["anchor", "answer"], "expectedExpandedStatus": "OK"}
+    },
+    {
+      "id": "direct-positive", "query": "Basil terminal", "question": "Which gate serves Basil terminal?",
+      "rows": [{"key": "anchor", "text": "Basil terminal uses gate four. Basil terminal passengers should enter through gate four."}],
+      "links": [],
+      "oracle": {"relevantKeys": ["anchor"], "requiredAnswerKeys": ["anchor"], "answerText": "gate four", "expectedExpandedKeys": ["anchor"], "expectedExpandedStatus": "OK"}
+    },
+    {
+      "id": "unrelated-neighbor", "query": "Cedar depot", "question": "Which locker holds the Cedar depot parcel?",
+      "rows": [
+        {"key": "anchor", "text": "Cedar depot stores the parcel in locker six. Cedar depot collection requires a badge."},
+        {"key": "distractor", "text": "Mural restoration uses gold leaf and soft brushes."}
+      ],
+      "links": [{"from": "anchor", "to": "distractor", "relation": "related"}],
+      "oracle": {"relevantKeys": ["anchor"], "requiredAnswerKeys": ["anchor"], "answerText": "locker six", "forbiddenKeys": ["distractor"], "expectedExpandedKeys": ["anchor"], "expectedExpandedStatus": "OK"}
+    },
+    {
+      "id": "metadata-only-neighbor", "query": "Mallow permit", "question": "Which desk handles the Mallow permit?",
+      "rows": [
+        {"key": "anchor", "text": "Mallow permit applicants use desk three. Mallow permit forms are checked there. Mallow permit desk staff verify signatures."},
+        {"key": "metadata", "text": "The marine exhibit contains painted wooden boats.", "tags": ["Mallow", "permit"]}
+      ],
+      "links": [{"from": "anchor", "to": "metadata", "relation": "supporting"}],
+      "oracle": {"relevantKeys": ["anchor"], "requiredAnswerKeys": ["anchor"], "answerText": "desk three", "forbiddenKeys": ["metadata"], "expectedExpandedKeys": ["anchor"], "expectedExpandedStatus": "OK"}
+    },
+    {
+      "id": "query-free-detail", "query": "Dahlia dispatch", "question": "What packing symbol applies to Dahlia dispatch?",
+      "rows": [
+        {"key": "anchor", "text": "Dahlia dispatch has a separate packing note. Dahlia dispatch staff consult that note before collection."},
+        {"key": "answer", "text": "Use the silver triangle as the packing symbol."}
+      ],
+      "links": [{"from": "anchor", "to": "answer", "relation": "packing instruction"}],
+      "oracle": {"relevantKeys": ["anchor", "answer"], "requiredAnswerKeys": ["answer"], "answerText": "silver triangle", "expectedExpandedKeys": ["anchor"], "expectedExpandedStatus": "OK", "boundary": "A useful relationship alone cannot satisfy the frozen independent query-evidence requirement."}
+    },
+    {
+      "id": "neutral-conflict", "query": "Helix launch", "question": "May the launch timing be answered confidently?",
+      "rows": [
+        {"key": "anchor", "text": "Helix launch starts at nine. Helix launch scheduling has a linked timing note. Helix launch operators must review that note."},
+        {"key": "dispute", "text": "Launch timing remains disputed and requires verification.", "tags": ["unresolved"]}
+      ],
+      "links": [{"from": "anchor", "to": "dispute", "relation": "related"}],
+      "oracle": {"relevantKeys": ["anchor", "dispute"], "requiresAbstention": true, "expectedExpandedKeys": [], "expectedExpandedStatus": "CONFLICTING_CONTEXT"}
+    },
+    {
+      "id": "supersedes-conflict", "query": "Helix launch", "question": "May an arbitrary supersedes label resolve disputed launch timing?",
+      "rows": [
+        {"key": "anchor", "text": "Helix launch starts at nine. Helix launch scheduling has a linked timing note. Helix launch operators must review that note."},
+        {"key": "dispute", "text": "Launch timing remains disputed and requires verification.", "tags": ["unresolved"]}
+      ],
+      "links": [{"from": "anchor", "to": "dispute", "relation": "supersedes"}],
+      "oracle": {"relevantKeys": ["anchor", "dispute"], "requiresAbstention": true, "expectedExpandedKeys": [], "expectedExpandedStatus": "CONFLICTING_CONTEXT"}
+    },
+    {
+      "id": "incoming-edge", "query": "Iris station", "question": "What is the collection token for Iris station?",
+      "rows": [
+        {"key": "anchor", "text": "Iris station stores collection information. Iris station has a separate token note. Iris station staff review that note."},
+        {"key": "incoming", "text": "Station collection token is amber-five."}
+      ],
+      "links": [{"from": "incoming", "to": "anchor", "relation": "mentions"}],
+      "oracle": {"relevantKeys": ["anchor", "incoming"], "requiredAnswerKeys": ["incoming"], "answerText": "amber-five", "forbiddenKeys": ["incoming"], "expectedExpandedKeys": ["anchor"], "expectedExpandedStatus": "OK"}
+    },
+    {
+      "id": "two-hops", "query": "Kestrel archive", "question": "What key opens the Kestrel archive cabinet?",
+      "rows": [
+        {"key": "anchor", "text": "Kestrel archive access has a catalog note. Kestrel archive staff check its catalog. Kestrel archive access follows that catalog."},
+        {"key": "middle", "text": "Archive catalog points to a separate cabinet-key note."},
+        {"key": "deep", "text": "Archive cabinet key is jade-eight."}
+      ],
+      "links": [{"from": "anchor", "to": "middle", "relation": "catalog"}, {"from": "middle", "to": "deep", "relation": "key"}],
+      "oracle": {"relevantKeys": ["anchor", "middle", "deep"], "requiredAnswerKeys": ["deep"], "answerText": "jade-eight", "forbiddenKeys": ["deep"], "expectedExpandedKeys": ["anchor", "middle"], "expectedExpandedStatus": "OK"}
+    },
+    {
+      "id": "reciprocal-cycle", "query": "Larch transfer", "question": "What seal is needed for Larch transfer?",
+      "rows": [
+        {"key": "anchor", "text": "Larch transfer has a seal note. Larch transfer staff review the note. Larch transfer checks the parcel seal."},
+        {"key": "answer", "text": "Transfer parcels need an ivory seal."}
+      ],
+      "links": [{"from": "anchor", "to": "answer", "relation": "detail"}, {"from": "answer", "to": "anchor", "relation": "backreference"}],
+      "oracle": {"relevantKeys": ["anchor", "answer"], "requiredAnswerKeys": ["answer"], "answerText": "ivory seal", "expectedExpandedKeys": ["anchor", "answer"], "expectedExpandedStatus": "OK"}
+    },
+    {
+      "id": "filter-boundary", "query": "Nettle transit", "question": "What authorized record applies to Nettle transit?",
+      "rows": [
+        {"key": "anchor", "text": "Nettle transit uses bay two. Nettle transit records remain in this source channel."},
+        {"key": "excluded", "text": "Transit access code is violet-nine.", "sourceSuffix": "excluded"}
+      ],
+      "links": [{"from": "anchor", "to": "excluded", "relation": "detail"}],
+      "oracle": {"relevantKeys": ["anchor"], "requiredAnswerKeys": ["anchor"], "answerText": "bay two", "forbiddenKeys": ["excluded"], "expectedExpandedKeys": ["anchor"], "expectedExpandedStatus": "OK"}
+    },
+    {
+      "id": "no-independent-seed", "query": "Zinnia observatory", "question": "Is there any query-grounded evidence for Zinnia observatory?",
+      "rows": [{"key": "anchor", "text": "Stone walls retain heat."}, {"key": "answer", "text": "Copper baskets hold small shells."}],
+      "links": [{"from": "anchor", "to": "answer", "relation": "Zinnia observatory"}],
+      "oracle": {"relevantKeys": [], "requiresAbstention": true, "expectedExpandedKeys": [], "expectedExpandedStatus": "NO_RESULTS"}
+    },
+    {
+      "id": "weak-seed", "query": "Juniper boarding", "question": "Can a partial-query seed authorize expansion?",
+      "rows": [
+        {"key": "anchor", "text": "Juniper Juniper Juniper Juniper Juniper refers to a tree."},
+        {"key": "neighbor", "text": "Boarding requires a paper wristband."}
+      ],
+      "links": [{"from": "anchor", "to": "neighbor", "relation": "related"}],
+      "oracle": {"relevantKeys": ["anchor"], "forbiddenKeys": ["neighbor"], "expectedExpandedKeys": ["anchor"], "expectedExpandedStatus": "OK"}
+    },
+    {
+      "id": "budget-withholding", "query": "Orchid freight", "question": "Can the complete linked evidence fit the fixed small budget?", "tokenBudget": 128,
+      "rows": [
+        {"key": "anchor", "text": "Orchid freight uses a linked handling note. Orchid freight workers need both records. Orchid freight must preserve the complete handling instruction."},
+        {"key": "answer", "text": "Freight handling requires a padded crate, two supporting straps, a visible directional marker and a signed loading checklist before collection."}
+      ],
+      "links": [{"from": "anchor", "to": "answer", "relation": "handling"}],
+      "oracle": {"relevantKeys": ["anchor", "answer"], "requiresAbstention": true, "expectedExpandedKeys": [], "expectedExpandedStatus": "PARTIAL_COVERAGE"}
+    }
+  ],
+  "lifecycle": {"case": "linked-detail", "mutations": ["correct-anchor", "delete-anchor", "revoke-anchor-owner", "delete-association"], "receipts": ["inspect", "hydrate-answer", "recompress", "refresh"], "faultFixtures": "Owner transfer and edge revocation use exact stopped-H2 updates. All source creation, ordinary correction/deletion, association creation and post-restart reads use authenticated HTTP."},
+  "scoring": {"unit": "Returned evidence and API abstention only. No generated answer is scored.", "answerEvidence": "All required source keys and the exact answer text occur in a disclosed context.", "precision": "Disclosed relevant keys divided by all disclosed keys, reported per case.", "abstention": "A required-abstention case discloses no context/items/page and answerPolicy is not ALLOW_ANSWER.", "latency": "Python monotonic elapsed time for one authenticated compile HTTP request. Seven measured repetitions after two warmups, same process and fixture.", "tokens": "Server tokenEstimate and actual UTF-8 context bytes. This compiler uses a conservative byte ceiling, not a model tokenizer."}
+}

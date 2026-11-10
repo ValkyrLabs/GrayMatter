@@ -1,0 +1,26 @@
+{
+  "version": "graphiti-supplied-graph-protocol/v1",
+  "sourceCommit": "747b480ec6b12ecb718f1e2bc588b20ee36ea9c2",
+  "fixtureSha256": "c88f1c7ab95d897c7f00b3f284cb586338c39d364de226ec671a04f4038cf985",
+  "mapping": "Exact source text to EntityNode.summary; opaque source_N names; exact free relation to EntityEdge.name/fact; source channels to group_id; metadata retained as attributes. Native model save/get/delete APIs; no LLM extraction, fake database, or injected search results.",
+  "control": "native node_search BM25 + RRF, limit1; internal BM25 limit2",
+  "treatment": "control seeds passed to native node_search BFS + RRF, outgoing depth1, limit8; internal BFS limit16; application only deduplicates union, maximum9 sources",
+  "entrypoint": "graphiti_core.search.search.node_search against official FalkorDriver and real embedded FalkorDBLite",
+  "models": [],
+  "embeddingCalls": 0,
+  "llmCalls": 0,
+  "timing": {
+    "warmups": 2,
+    "measuredRepetitions": 7,
+    "threads": 1,
+    "databaseMaxMemory": "256mb"
+  },
+  "network": "OS denies all IP networking; only Unix sockets beneath the exact scratch root allowed; live TEST-NET denial gate before DB; no credentials inherited; telemetry disabled",
+  "budgets": "Preserve Lite requested byte budget in observations but Graphiti node retrieval does not accept it. Report returned UTF8 body bytes, no invented token accounting or withholding policy.",
+  "lifecycle": [
+    "correct-anchor",
+    "delete-anchor",
+    "delete-edge"
+  ],
+  "interpretation": "Native retrieval component from a supplied graph, not extraction/consolidation or hosted service. No generated-answer, authenticated ACL, receipt freshness, market-wide or latency superiority claim. Prior Lite observations reused with their independent HTTP/H2 cost boundary."
+}

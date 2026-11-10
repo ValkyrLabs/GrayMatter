@@ -161,6 +161,26 @@ function readJsonLine(stream) {
   });
 }
 
+test('portable memory_link keeps the private three-string contract and probes a legacy backend without writing', async t => {
+  const upstream = createFakeApi((_req, res) => { res.writeHead(404); res.end(); });
+  const apiBase = await listen(upstream.server);
+  t.after(() => upstream.server.close());
+  const server = createGrayMatterMcpServer({apiBase: `${apiBase}/v1`, lightUsername: 'fixture', lightPassword: 'fixture-password'});
+  const base = await listen(server);
+  t.after(() => server.close());
+  const rpc = (method, params) => postRpc(base, {jsonrpc: '2.0', id: 1, method, params});
+  const catalog = await rpc('tools/list', {});
+  const descriptors = catalog.body.result.tools.filter(tool => tool.name === 'memory_link');
+  assert.equal(descriptors.length, 1);
+  assert.deepEqual(descriptors[0].inputSchema.required, ['fromId', 'toId', 'relation']);
+  assert.equal(descriptors[0].annotations.idempotentHint, true);
+  const args = {fromId: '00000000-0000-4000-8000-000000000028', toId: '00000000-0000-4000-8000-000000000039', relation: 'supersedes'};
+  const reply = await rpc('tools/call', {name: 'memory_link', arguments: args});
+  assert.equal(reply.body.result.structuredContent.error.code, 'MEMORY_LINK_UNSUPPORTED');
+  assert.deepEqual(upstream.requests.map(({method, path}) => [method, path]), [['GET', '/v1/graymatter/memory/associations/capabilities']]);
+  for (const value of Object.values(args)) assert.equal(JSON.stringify(reply).includes(value), false);
+});
+
 test('health reports server readiness without api-0 auth', async () => {
   const server = createGrayMatterMcpServer({ apiBase: 'https://api-0.example.test/v1' });
   const baseUrl = await listen(server);
@@ -1956,6 +1976,67 @@ test('graymatter_remember normalizes invariant alias on the governed Omega path'
   } finally {
     server.close();
     fakeApi.server.close();
+  }
+});
+
+test('remember tools surface a conflict without attempting another write', async () => {
+  const fakeApi = createFakeApi(async (_req, res, record) => {
+    assert.equal(record.path, '/v1/graymatter/omega/remember');
+    assert.equal(record.body.idempotencyKey, 'original-formation-key');
+    res.writeHead(409, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ message: 'idempotencyKey was already used for different memory formation input' }));
+  });
+  const apiBase = await listen(fakeApi.server);
+  let schemaRefreshes = 0;
+  const server = createGrayMatterMcpServer({
+    apiBase: `${apiBase}/v1`,
+    schemaRefreshProvider: () => { schemaRefreshes++; return true; }
+  });
+  const baseUrl = await listen(server);
+
+  try {
+    for (const name of ['graymatter_remember', 'omega_remember']) {
+      const response = await postRpc(baseUrl, {
+        jsonrpc: '2.0', id: name, method: 'tools/call',
+        params: { name, arguments: { text: 'Changed intent', idempotencyKey: 'original-formation-key' } }
+      });
+      assert.equal(response.body.result.isError, true);
+      assert.equal(response.body.result.structuredContent.error.code, 'MEMORY_FORMATION_CONFLICT');
+      assert.equal(response.body.result.structuredContent.error.retryable, false);
+    }
+    assert.equal(fakeApi.requests.length, 2);
+    assert.equal(schemaRefreshes, 0);
+  } finally {
+    server.close();
+    fakeApi.server.close();
+  }
+});
+
+test('write preconditions do not trigger schema refresh or automatic replay', async () => {
+  for (const status of [412, 428]) {
+    const fakeApi = createFakeApi(async (_req, res) => {
+      res.writeHead(status, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ message: 'Precondition failed; schema revision must not override the business decision' }));
+    });
+    const apiBase = await listen(fakeApi.server);
+    let schemaRefreshes = 0;
+    const server = createGrayMatterMcpServer({
+      apiBase: `${apiBase}/v1`,
+      schemaRefreshProvider: () => { schemaRefreshes++; return true; }
+    });
+    const baseUrl = await listen(server);
+    try {
+      const response = await postRpc(baseUrl, {
+        jsonrpc: '2.0', id: status, method: 'tools/call',
+        params: { name: 'memory_put', arguments: { type: 'context', content: 'Preserve the original write precondition' } }
+      });
+      assert.ok(response.body.error || response.body.result?.isError);
+      assert.equal(fakeApi.requests.length, 1);
+      assert.equal(schemaRefreshes, 0);
+    } finally {
+      server.close();
+      fakeApi.server.close();
+    }
   }
 });
 

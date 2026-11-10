@@ -8,14 +8,23 @@ const os = require('node:os');
 const { executeProcedure, readProcedureExecution, clientError, MAX_REQUEST_BYTES } = require('../mcp-server/lib/procedure-execution.cjs');
 const { searchProcedures, discoveryError } = require('../mcp-server/lib/procedure-discovery.cjs');
 const { inspectProcedure, inspectionError } = require('../mcp-server/lib/procedure-inspection.cjs');
+const { verifyProcedureEvidence, evidenceError } = require('../mcp-server/lib/procedure-evidence.cjs');
+const { startShadowReplay, shadowReplayError } = require('../mcp-server/lib/procedure-shadow-replay.cjs');
+
+const { readProcedureResult, resultError } = require('../mcp-server/lib/procedure-result.cjs');
 
 async function main() {
   const args = process.argv.slice(2);
   if (args.length === 1 && args[0] === '--help') {
     process.stdout.write('Usage: gm-procedure-execute execute < task.json\n'
       + '       gm-procedure-execute status <workflow-execution-uuid>\n'
+      + '       gm-procedure-execute result <execution-uuid> <workflow-version-uuid>\n'
       + '       gm-procedure-execute search < search.json\n'
       + '       gm-procedure-execute inspect <procedure-uuid>\n'
+      + '       gm-procedure-execute verify < evidence.json\n'
+      + '       gm-procedure-execute shadow-replay < holdout.json\n'
+      + 'Shadow replay requires only candidateRef and baselineCapsuleRef; accepted is not success or promotion.\n'
+      + 'Verify requires executionId; optionally supply routeReceiptId and trajectoryId, or expectedResult for a pinned reconciliation report.\n'
       + 'Search JSON requires query; optional limit, offset, enabledOnly, minimumConfidence.\n'
       + 'Task JSON requires taskType, stable traceId, and inputs (plain object).\n'
       + 'Optional: applicationId, projectId, contextPageId, procedureHints.\n'
@@ -33,6 +42,7 @@ async function main() {
       const result = await run(command, [method, endpoint, ...(payload === undefined ? [] : [JSON.stringify(payload)])], {
         encoding: 'utf8', timeout: Math.min(65000, options.timeoutMs ?? 65000), maxBuffer: 8 * 1024 * 1024,
         env: { ...process.env, GRAYMATTER_SKIP_SELF_UPDATE: 'true', GRAYMATTER_SKIP_AUTO_REPLAY: 'true', GRAYMATTER_SKIP_DEFERRED: 'true',
+          ...(options.allowAuthRetry === false ? { GRAYMATTER_SKIP_AUTH_REISSUE: 'true' } : {}),
           ...(statusFile ? { GRAYMATTER_API_RESPONSE_STATUS: statusFile } : {}) }
       });
       if (statusFile && fs.existsSync(statusFile)) {
@@ -53,8 +63,13 @@ async function main() {
     } finally { if (directory) fs.rmSync(directory, { recursive: true, force: true }); }
   };
   let result;
-  if (args.length === 1 && ['execute', 'search'].includes(args[0])) {
-    const invalidInput = () => args[0] === 'search' ? discoveryError('INVALID_SEARCH_INPUT') : clientError('INVALID_INPUT');
+  if (args.length === 1 && ['execute', 'search', 'verify', 'shadow-replay'].includes(args[0])) {
+    const invalidInput = () => {
+      if (args[0] === 'shadow-replay') return shadowReplayError('INVALID_SHADOW_REPLAY_INPUT');
+      if (args[0] === 'verify') return evidenceError('INVALID_EVIDENCE_INPUT');
+      if (args[0] === 'search') return discoveryError('INVALID_SEARCH_INPUT');
+      return clientError('INVALID_INPUT');
+    };
     if (process.stdin.isTTY) throw invalidInput();
     const chunks = [];
     let bytes = 0;
@@ -65,11 +80,20 @@ async function main() {
     }
     let input;
     try { input = JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch { throw invalidInput(); }
-    result = args[0] === 'execute' ? await executeProcedure(request, input)
-      : await searchProcedures(request, input, {
+    if (args[0] === 'shadow-replay') {
+      result = await startShadowReplay(request, input);
+    } else if (args[0] === 'verify') {
+      result = await verifyProcedureEvidence(request, input);
+    } else if (args[0] === 'execute') {
+      result = await executeProcedure(request, input);
+    } else {
+      result = await searchProcedures(request, input, {
         maxPages: Number(process.env.GRAYMATTER_PROCEDURE_SCAN_MAX_PAGES || 10),
         maxMs: Number(process.env.GRAYMATTER_PROCEDURE_SCAN_MAX_MS || 15000)
       });
+    }
+  } else if (args.length === 3 && args[0] === 'result') {
+    result = await readProcedureResult(request, args[1], args[2]);
   } else if (args.length === 2 && args[0] === 'status') {
     result = await readProcedureExecution(request, args[1]);
   } else if (args.length === 2 && args[0] === 'inspect') {
@@ -81,6 +105,24 @@ async function main() {
 }
 
 main().catch(error => {
+  if (['INVALID_SHADOW_REPLAY_INPUT', 'SHADOW_REPLAY_OUTCOME_UNKNOWN'].includes(error?.code)) {
+    const safe = shadowReplayError(error.code);
+    process.stderr.write(JSON.stringify({ error: { code: safe.code, message: safe.message } }) + '\n');
+    process.exitCode = 1;
+    return;
+  }
+  if (['INVALID_RESULT_INPUT', 'PROCEDURE_RESULT_UNAVAILABLE'].includes(error?.code)) {
+    const safe = resultError(error.code === 'INVALID_RESULT_INPUT');
+    process.stderr.write(JSON.stringify({ error: { code: safe.code, message: safe.message } }) + '\n');
+    process.exitCode = 1;
+    return;
+  }
+  if (['INVALID_EVIDENCE_INPUT', 'PROCEDURE_EVIDENCE_UNAVAILABLE'].includes(error?.code)) {
+    const safe = evidenceError(error.code);
+    process.stderr.write(`${JSON.stringify({ error: { code: safe.code, message: safe.message } })}\n`);
+    process.exitCode = 1;
+    return;
+  }
   if (['INVALID_INSPECTION_INPUT', 'PROCEDURE_INSPECTION_UNAVAILABLE'].includes(error?.code)) {
     const safe = inspectionError(error.code);
     process.stderr.write(`${JSON.stringify({ error: { code: safe.code, message: safe.message } })}\n`);

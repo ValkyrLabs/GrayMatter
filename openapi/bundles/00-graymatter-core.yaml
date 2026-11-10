@@ -27,11 +27,87 @@ tags:
   description: GridHeim-compatible local workbooks
 - name: KnowledgePack
   description: Portable signed GrayMatter knowledge packs
+- name: MemoryAssociationOperations
+  description: Authorized durable associations between memory identities
 - name: LocalRuntimeOperations
   description: Handwritten local-runtime adapters around generated domain services
 security:
 - basicAuth: []
 paths:
+  "/graymatter/memory/associations/capabilities":
+    get:
+      tags: [MemoryAssociationOperations]
+      operationId: getMemoryAssociationCapabilities
+      x-thorapi-nonCrud: true
+      summary: Inspect authenticated durable memory association support
+      responses:
+        '200':
+          description: Exact association protocol and verified physical deletion policy
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/MemoryAssociationCapability"
+        '401': {description: Authentication required}
+        '503': {description: Association storage or required constraints unavailable}
+  "/graymatter/memory/associations":
+    post:
+      tags: [MemoryAssociationOperations]
+      operationId: recordMemoryAssociation
+      x-thorapi-nonCrud: true
+      summary: Record one authorized directed memory identity association
+      description: >-
+        Accepts exactly fromId, toId and relation. The server derives identity,
+        placement, audit fields and the idempotent write key. Both current memory
+        identities must remain authorized. Labels are navigation metadata and do
+        not create supersession, contradiction, corroboration or other evidence.
+        A current exact tuple reuses its original committed association receipt.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/MemoryAssociationRequest"
+      responses:
+        '201':
+          description: New association committed
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/MemoryAssociationReceipt"
+        '200':
+          description: Existing exact association reauthorized
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/MemoryAssociationReceipt"
+        '400': {description: Invalid tuple or unsupported request field}
+        '401': {description: Authentication required}
+        '403': {description: Association write is not authorized}
+        '404': {description: Required authorized memory unavailable}
+        '409': {description: Stored association no longer matches its admitted identity}
+        '503': {description: Association storage or required constraints unavailable}
+  "/graymatter/memory/associations/{associationRef}":
+    get:
+      tags: [MemoryAssociationOperations]
+      operationId: readMemoryAssociation
+      x-thorapi-nonCrud: true
+      summary: Reauthorize and read an exact persisted association receipt
+      parameters:
+      - name: associationRef
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+      responses:
+        '200':
+          description: Association and both current memory identities remain authorized
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/MemoryAssociationReceipt"
+        '401': {description: Authentication required}
+        '404': {description: Required authorized association or memory unavailable}
+        '409': {description: Stored association integrity is invalid}
+        '503': {description: Association storage or required constraints unavailable}
   "/api-docs":
     get:
       tags:
@@ -67,6 +143,104 @@ paths:
             application/json:
               schema:
                 "$ref": "#/components/schemas/MemoryEntry"
+  "/graymatter/memory/{id}":
+    get:
+      tags: [LocalRuntimeOperations]
+      operationId: getLiteMemorySnapshot
+      x-thorapi-nonCrud: true
+      summary: Read the current owned memory revision
+      parameters:
+      - "$ref": "#/components/parameters/id"
+      responses:
+        '200':
+          description: Read the current owned memory revision
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/LiteMemoryEntrySnapshot"
+        '404':
+          description: Requested object is unavailable to the current principal
+  "/graymatter/memory/{id}/revise":
+    post:
+      tags: [LocalRuntimeOperations]
+      operationId: reviseLiteMemory
+      x-thorapi-nonCrud: true
+      summary: Correct the exact owned revision
+      parameters:
+      - "$ref": "#/components/parameters/id"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/LiteMemoryRevisionRequest"
+      responses:
+        '200':
+          description: Correct the exact owned revision
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/LiteMemoryEntrySnapshot"
+        '400':
+          description: Invalid request or revision hash
+        '404':
+          description: Requested object is unavailable to the current principal
+        '409':
+          description: Individual edits to signed knowledge pack contents are unavailable
+        '412':
+          description: The reviewed memory revision has changed
+  "/graymatter/memory/{id}/forget":
+    post:
+      tags: [LocalRuntimeOperations]
+      operationId: forgetLiteMemory
+      x-thorapi-nonCrud: true
+      summary: Forget the confirmed owned revision
+      parameters:
+      - "$ref": "#/components/parameters/id"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/LiteMemoryForgetRequest"
+      responses:
+        '204':
+          description: Owned memory was removed
+        '400':
+          description: Invalid request or revision hash
+        '404':
+          description: Requested object is unavailable to the current principal
+        '409':
+          description: Individual edits to signed knowledge pack contents are unavailable
+        '412':
+          description: The reviewed memory revision has changed
+  "/graymatter/retrieval-context/{id}/refresh":
+    post:
+      tags: [LocalRuntimeOperations]
+      operationId: refreshLiteContext
+      x-thorapi-nonCrud: true
+      summary: Rerun the original discovery against current eligible memories
+      parameters:
+      - "$ref": "#/components/parameters/id"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/LiteDiscoveryRequest"
+      responses:
+        '200':
+          description: Rerun the original discovery against current eligible memories
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/LiteContextResponse"
+        '400':
+          description: Unsupported inputs or a required protected source is unavailable
+        '404':
+          description: Requested object is unavailable to the current principal
+        '409':
+          description: Original discovery scope unavailable or different
   "/MemoryEntry/read":
     post:
       tags:
@@ -332,6 +506,10 @@ paths:
       responses:
         '200':
           description: Child context reference and receipt
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/LiteContextResponse"
       operationId: graymatterLiteGraymatterRetrievalContextIdForkPost
       x-thorapi-nonCrud: true
   "/memory/semantic-health":
@@ -474,6 +652,10 @@ paths:
                   type: integer
                   minimum: 128
                   maximum: 16000
+                includeAssociations:
+                  type: boolean
+                  default: false
+                  description: Expand one hop from independently relevant memory anchors.
                 retrievalMode:
                   type: string
                   enum:
@@ -508,6 +690,10 @@ paths:
       responses:
         '200':
           description: Bounded context, citations, and content-free receipt reference
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/LiteContextResponse"
       operationId: graymatterLiteGraymatterRetrievalContextPost
       x-thorapi-nonCrud: true
   "/graymatter-retrieval-receipts":
@@ -526,6 +712,10 @@ paths:
                   type: string
                 topK:
                   type: integer
+                includeAssociations:
+                  type: boolean
+                  default: false
+                  description: Expand one hop from independently relevant memory anchors.
                 retrievalMode:
                   type: string
                 includeText:
@@ -551,6 +741,10 @@ paths:
       responses:
         '200':
           description: Receipt with policy-gated retrieval context
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/LiteContextResponse"
       operationId: graymatterLiteGraymatterRetrievalReceiptsPost
       x-thorapi-nonCrud: true
   "/graymatter-retrieval-receipts/{id}":
@@ -568,6 +762,10 @@ paths:
       responses:
         '200':
           description: Receipt status and stale refs
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/LiteReceiptStatus"
         '404':
           description: Receipt not owned or missing
       operationId: graymatterLiteGraymatterRetrievalReceiptsIdGet
@@ -612,6 +810,10 @@ paths:
       responses:
         '200':
           description: Child receipt and rechecked context
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/LiteContextResponse"
         '409':
           description: Query or protected source changed
       operationId: graymatterLiteGraymatterRetrievalContextIdRecompressPost
@@ -643,10 +845,14 @@ paths:
       responses:
         '200':
           description: Bounded redacted source excerpt
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/LiteHydrationResponse"
         '404':
           description: Receipt or memory not owned or missing
         '409':
-          description: Source changed
+          description: Current receipt cannot authorize hydration of a source
       operationId: graymatterLiteGraymatterRetrievalContextIdHydrateMemoryidGet
       x-thorapi-nonCrud: true
 components:
@@ -765,6 +971,113 @@ components:
           items:
             type: string
             maxLength: 500
+    MemoryAssociation:
+      type: object
+      x-thorapi-table-name: memory_association
+      x-graymatter-server-managed: true
+      x-graymatter-association-delete-rule: CASCADE
+      x-java-class-annotation: |
+        @Table(name = "memory_association",
+          uniqueConstraints = {
+            @UniqueConstraint(name = "uk_memassoc_write", columnNames = {"write_key_hash"})
+          },
+          indexes = {
+            @Index(name = "idx_memassoc_from", columnList = "owner_id,scope_key_hash,from_id"),
+            @Index(name = "idx_memassoc_to", columnList = "owner_id,scope_key_hash,to_id")
+          })
+      description: >-
+        Server-managed durable directed association between record identities.
+        ThorAPI owns persistence, audit and ownership. Owning commands recheck
+        both current endpoint permissions. Free-form labels never imply evidence
+        or supersession. Database foreign keys cascade physical endpoint deletion;
+        the association has no effect on future records reusing a deleted UUID.
+      required: [contractVersion, fromId, toId, relation, tupleHash, scopeKeyHash, writeKeyHash, recordedAt]
+      properties:
+        contractVersion:
+          type: string
+          maxLength: 64
+          description: Server-owned protocol version; stored as text for forward-compatible schema upgrades.
+        fromId:
+          type: string
+          format: uuid
+          x-graymatter-association-endpoint: MemoryEntry
+        toId:
+          type: string
+          format: uuid
+          x-graymatter-association-endpoint: MemoryEntry
+        relation:
+          type: string
+          minLength: 1
+          maxLength: 512
+          x-graymatter-max-code-points: 128
+          x-graymatter-max-utf8-bytes: 512
+          x-field-extra-annotation: '@jakarta.persistence.Column(name = "relation", length = 512, columnDefinition = "varchar(512)")'
+          description: Exact case-sensitive label, at most 128 Unicode code points and 512 UTF-8 bytes; no surrounding whitespace, controls or unpaired surrogates.
+        tupleHash:
+          type: string
+          minLength: 64
+          maxLength: 64
+          pattern: '^[a-f0-9]{64}$'
+        scopeKeyHash:
+          type: string
+          minLength: 64
+          maxLength: 64
+          pattern: '^[a-f0-9]{64}$'
+        writeKeyHash:
+          type: string
+          minLength: 64
+          maxLength: 64
+          pattern: '^[a-f0-9]{64}$'
+        recordedAt:
+          type: string
+          format: date-time
+    MemoryAssociationRequest:
+      type: object
+      additionalProperties: false
+      x-thorapi-nonCrud: true
+      required: [fromId, toId, relation]
+      properties:
+        fromId: {type: string, format: uuid}
+        toId: {type: string, format: uuid}
+        relation:
+          type: string
+          minLength: 1
+          maxLength: 512
+          x-graymatter-max-code-points: 128
+          x-graymatter-max-utf8-bytes: 512
+          description: Exact valid UTF-8 label; owning command additionally enforces at most 128 code points and 512 bytes, no surrounding whitespace or control characters.
+    MemoryAssociationReceipt:
+      type: object
+      additionalProperties: false
+      x-thorapi-nonCrud: true
+      x-java-class-annotation: |
+        @com.fasterxml.jackson.annotation.JsonIncludeProperties({"contractVersion", "status", "associationRef", "fromId", "toId", "relation", "tupleHash", "recordedAt", "replayed"})
+      required: [contractVersion, status, associationRef, fromId, toId, relation, tupleHash, recordedAt, replayed]
+      properties:
+        contractVersion: {type: string, enum: [graymatter-memory-association/v1]}
+        status: {type: string, enum: [recorded]}
+        associationRef: {type: string, format: uuid}
+        fromId: {type: string, format: uuid}
+        toId: {type: string, format: uuid}
+        relation: {type: string, minLength: 1, maxLength: 512}
+        tupleHash: {type: string, pattern: '^[a-f0-9]{64}$'}
+        recordedAt: {type: string, format: date-time}
+        replayed: {type: boolean}
+    MemoryAssociationCapability:
+      type: object
+      additionalProperties: false
+      x-thorapi-nonCrud: true
+      x-java-class-annotation: |
+        @com.fasterxml.jackson.annotation.JsonIncludeProperties({"contractVersion", "supported", "semantics", "tupleHashAlgorithm", "cascadeDelete", "maxRelationCodePoints", "maxRelationUtf8Bytes"})
+      required: [contractVersion, supported, semantics, tupleHashAlgorithm, cascadeDelete, maxRelationCodePoints, maxRelationUtf8Bytes]
+      properties:
+        contractVersion: {type: string, enum: [graymatter-memory-association/v1]}
+        supported: {type: boolean}
+        semantics: {type: string, enum: [record-identity-navigation]}
+        tupleHashAlgorithm: {type: string, enum: [sha256-length-prefixed-utf8/v1]}
+        cascadeDelete: {type: boolean}
+        maxRelationCodePoints: {type: integer, enum: [128]}
+        maxRelationUtf8Bytes: {type: integer, enum: [512]}
     MemoryEntry:
       type: object
       x-thorapi-table-name: memory_entry
@@ -922,6 +1235,201 @@ components:
         memoryEntryCount:
           type: integer
           minimum: 0
+    LiteMemoryEntrySnapshot:
+      type: object
+      x-thorapi-nonCrud: true
+      required: [memoryId, text, type, sourceChannel, tags, sourceHash]
+      properties:
+        memoryId: { type: string, format: uuid }
+        text: { type: string }
+        type: { type: string }
+        sourceChannel: { type: string }
+        tags: { type: string, description: Comma-separated local tags }
+        createdDate: { type: string, format: date-time }
+        lastModifiedDate: { type: string, format: date-time }
+        sourceHash: { type: string, pattern: '^[0-9a-f]{64}$', description: Commitment to this revision including its correction history }
+    LiteMemoryRevisionRequest:
+      type: object
+      x-thorapi-nonCrud: true
+      additionalProperties: false
+      description: Supply replacement text or tags or both. An empty tags array clears the tags.
+      required: [expectedSourceHash]
+      properties:
+        expectedSourceHash: { type: string, pattern: '^[0-9a-f]{64}$' }
+        text: { type: string, minLength: 1, maxLength: 16000 }
+        tags:
+          type: array
+          maxItems: 50
+          items: { type: string, minLength: 1, maxLength: 128, pattern: '^[^,]+$' }
+    LiteMemoryForgetRequest:
+      type: object
+      x-thorapi-nonCrud: true
+      additionalProperties: false
+      required: [expectedSourceHash, confirmed]
+      properties:
+        expectedSourceHash: { type: string, pattern: '^[0-9a-f]{64}$' }
+        confirmed: { type: boolean, description: Must be true for this exact memory }
+    LiteDiscoveryFilters:
+      type: object
+      x-thorapi-nonCrud: true
+      additionalProperties: false
+      properties:
+        type: { type: string }
+        source: { type: string }
+        sourceChannel: { type: string }
+        tags: { type: array, maxItems: 50, items: { type: string } }
+    LiteDiscoveryRequest:
+      type: object
+      x-thorapi-nonCrud: true
+      required: [query]
+      properties:
+        query: { type: string, minLength: 1, maxLength: 1000 }
+        topK: { type: integer, minimum: 1, maximum: 100, default: 8 }
+        tokenBudget: { type: integer, minimum: 128, maximum: 16000, default: 4000 }
+        retrievalMode: { type: string }
+        includeText: { type: boolean }
+        includeAssociations: { type: boolean, default: false }
+        source: { type: string }
+        type: { type: string }
+        tags: { type: array, maxItems: 50, items: { type: string } }
+        protectedRefs: { type: array, maxItems: 100, items: { type: string, format: uuid } }
+        filters: { "$ref": "#/components/schemas/LiteDiscoveryFilters" }
+    LiteHydrationResponse:
+      type: object
+      x-thorapi-nonCrud: true
+      required: [receiptId, memoryId, sourceHash, excerpt, tokenEstimate, truncated]
+      properties:
+        receiptId: { type: string, format: uuid }
+        memoryId: { type: string, format: uuid }
+        sourceHash:
+          type: string
+          description: Commitment to the original source record, not a digest of the excerpt.
+        excerpt: { type: string }
+        tokenEstimate:
+          type: integer
+          description: Delivered UTF-8 byte count used for the conservative Lite token estimate.
+        truncated:
+          type: boolean
+          description: True when the full redacted source did not fit the requested budget.
+    LiteContextItem:
+      type: object
+      x-thorapi-nonCrud: true
+      properties:
+        memoryId: { type: string, format: uuid }
+        sourceHash: { type: string }
+        type: { type: string }
+        sourceChannel: { type: string }
+        excerpt: { type: string }
+        truncated: { type: boolean }
+        score: { type: number, format: double }
+    MemoryAssociationRecallRef:
+      type: object
+      x-thorapi-nonCrud: true
+      additionalProperties: false
+      description: Content-free proof of a directed navigation path used to select an independently relevant memory.
+      x-java-class-annotation: |
+        @com.fasterxml.jackson.annotation.JsonIncludeProperties({"associationRef", "anchorId", "memoryId", "associationHash", "anchorSourceHash", "sourceHash"})
+      required: [associationRef, anchorId, memoryId, associationHash, anchorSourceHash, sourceHash]
+      properties:
+        associationRef: { type: string, format: uuid }
+        anchorId: { type: string, format: uuid }
+        memoryId: { type: string, format: uuid }
+        associationHash: { type: string, pattern: '^[0-9a-f]{64}$' }
+        anchorSourceHash: { type: string, pattern: '^[0-9a-f]{64}$' }
+        sourceHash: { type: string, pattern: '^[0-9a-f]{64}$' }
+    LiteContextResponse:
+      type: object
+      x-thorapi-nonCrud: true
+      required: [receiptId, policyVersion, retrievalStatus, answerPolicy, recommendedAction, conflictRefs, ambiguousRefs, sourceSelection]
+      properties:
+        receiptId: { type: string, format: uuid }
+        contextPageRef: { type: string, format: uuid, nullable: true }
+        parentReceiptId: { type: string, format: uuid, nullable: true }
+        sourceSelection:
+          type: string
+          description: FRESH_SEARCH for a new discovery pass, FIXED_SOURCES for a fork or recompression, UNRECORDED for older discovery receipts
+        policyVersion: { type: string }
+        retrievalStatus: { type: string }
+        answerPolicy: { type: string }
+        recommendedAction: { type: string }
+        retrievalMode: { type: string }
+        vectorProfile: { type: string }
+        semanticDegraded: { type: boolean }
+        context: { type: string, nullable: true }
+        items:
+          type: array
+          items:
+            "$ref": "#/components/schemas/LiteContextItem"
+        omittedRefs: { type: array, items: { type: string, format: uuid } }
+        truncatedRefs: { type: array, items: { type: string, format: uuid } }
+        staleRefs: { type: array, items: { type: string, format: uuid } }
+        ambiguousRefs:
+          description: Owned sources that give different weekdays for the same queried schedule setting. Clarify whether multiple days apply; neither source is declared false.
+          type: array
+          items: { type: string, format: uuid }
+        conflictRefs:
+          description: Receipt sources explicitly marked as conflicting or unresolved.
+          type: array
+          items: { type: string, format: uuid }
+        tokenEstimate: { type: integer }
+        contextHash: { type: string, nullable: true }
+        sourceSetNarrowed: { type: boolean }
+        sourceCount: { type: integer }
+        associationPolicyVersion:
+          type: string
+          enum: [graymatter-association-recall/v1]
+          description: Present when the caller opted into governed association recall.
+        associationRefs:
+          type: array
+          maxItems: 8
+          items: { "$ref": "#/components/schemas/MemoryAssociationRecallRef" }
+        associationTruncated:
+          type: boolean
+          description: The bounded association scan or selection exhausted its allowance.
+    LiteReceiptStatus:
+      type: object
+      x-thorapi-nonCrud: true
+      required: [receiptId, policyVersion, retrievalStatus, answerPolicy, recommendedAction, conflictRefs, ambiguousRefs, sourceSelection]
+      properties:
+        receiptId: { type: string, format: uuid }
+        parentReceiptId: { type: string, format: uuid, nullable: true }
+        sourceSelection:
+          type: string
+          description: FRESH_SEARCH for a new discovery pass, FIXED_SOURCES for a fork or recompression, UNRECORDED for older discovery receipts
+        policyVersion: { type: string }
+        retrievalMode: { type: string }
+        queryHash: { type: string }
+        tokenBudget: { type: integer }
+        createdAt: { type: string, format: date-time }
+        sourceCount: { type: integer }
+        protectedRefs: { type: array, items: { type: string, format: uuid } }
+        staleRefs: { type: array, items: { type: string, format: uuid } }
+        ambiguousRefs:
+          description: Owned sources that give different weekdays for the same queried schedule setting. Clarify whether multiple days apply; neither source is declared false.
+          type: array
+          items: { type: string, format: uuid }
+        conflictRefs: { type: array, items: { type: string, format: uuid } }
+        sourceSetNarrowed: { type: boolean }
+        recordedRetrievalStatus:
+          description: Decision at compilation. Older receipts can lack this field.
+          type: string
+          nullable: true
+        retrievalStatus:
+          description: Effective decision after current source checks.
+          type: string
+        answerPolicy: { type: string }
+        recommendedAction: { type: string }
+        associationPolicyVersion:
+          type: string
+          enum: [graymatter-association-recall/v1]
+          description: Present when the caller opted into governed association recall.
+        associationRefs:
+          type: array
+          maxItems: 8
+          items: { "$ref": "#/components/schemas/MemoryAssociationRecallRef" }
+        associationTruncated:
+          type: boolean
+          description: The bounded association scan or selection exhausted its allowance.
     CreateMemoryEntryRequest:
       type: object
       x-thorapi-nonCrud: true
@@ -1219,8 +1727,13 @@ components:
         format: uuid
 x-graymatter-mcp-contract:
   version: graymatter-memory-tools/v1
+  associationContract: graymatter-memory-association/v1
   mappings:
     memory_put: POST /MemoryEntry/write
+    memory_link: POST /graymatter/memory/associations
     memory_get: GET /MemoryEntry/{id}
     memory_query: POST /MemoryEntry/query
     memory_health: GET /memory/status
+    lite_memory_revise: POST /graymatter/memory/{id}/revise
+    lite_memory_forget: POST /graymatter/memory/{id}/forget
+    lite_context_refresh: POST /graymatter/retrieval-context/{id}/refresh

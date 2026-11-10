@@ -72,6 +72,136 @@ This makes one generated ACL-checked GET and validates the returned ID. It expos
 
 The command returns exit code 0 for a verified typed result, including blocked/fallback. Consumers must inspect the JSON status. Invalid input, unavailable status and unverified dispatch return exit code 1 with a content-free JSON error on stderr. No partial result is emitted as success.
 
+### Run a frozen SHADOW holdout
+
+The source-only `shadow-replay` command requires the updated ValkyrAI backend
+operation. It submits one baseline capsule from the candidate's frozen
+holdout through normal workflow admission:
+
+```sh
+scripts/gm-procedure-execute shadow-replay <<'JSON'
+{"candidateRef":"skillcand-example","baselineCapsuleRef":"skillxp-example"}
+JSON
+```
+
+The server derives the task from the authorized original execution and
+checks the compiler, experiment, immutable version, current grants, route
+and billing policy. The command accepts only those two references; it
+cannot supply task contents, scores, approvals or dispatch provenance.
+References use at most 128 letters, digits, `.`, `_`, `:` or `-`, beginning
+with a letter or digit.
+
+`accepted` returns the exact execution/version IDs, original route and task
+digest. Read the execution using `status`; acceptance alone establishes
+neither task success nor promotion. `not_dispatched` returns the selected
+route without an execution. The command verifies HTTP 200, sends once,
+disables deferred replay and launches no fallback. After a timeout, inspect
+any known execution or retry the same candidate and baseline capsule; the
+server reauthorizes an existing dispatch. Evaluation and promotion remain
+separate operations. Complete execution-scoped costs are currently unknown
+in workflow replay, so no cost saving follows from a successful run.
+
+### Check which retrieval went into a procedure run
+
+Keep the execution's `workflow.id` and generated `routeReceiptId` from
+`execute`, together with the original Omega retrieval's trajectory ID.
+The route receipt UUID and its human-readable `routeReceiptRef` are distinct.
+The verifier compares the UUID with the route it reads from the owning API.
+Run the read-only check from a session with access to the linked records.
+
+If the only reference available is the execution UUID, supply
+`{"executionId":"<uuid>"}`. The verifier follows the stable route reference
+under the actor recorded by the execution. A route that exposes only a
+ContextPage ID leads to an authorized page read and then an exact retrieval
+receipt read. The current receipt supplies the trajectory reference. Legacy
+expanded records can use the exact-route fallback when the owning locator is
+missing. A legacy execution without route provenance returns `incomplete`.
+
+```sh
+scripts/gm-procedure-execute verify < evidence.json
+```
+
+```json
+{
+  "executionId": "11111111-1111-4000-8000-111111111111",
+  "routeReceiptId": "22222222-2222-4000-8000-222222222222",
+  "trajectoryId": "gm_traj_your_original_trajectory"
+}
+```
+
+Replace the example references with ones from the same operation. The command
+reads the exact `WorkflowExecution`, `SkillOptRouteReceipt` and Omega
+trajectory through their authenticated APIs. It compares procedure and
+mechanization references, immutable workflow version and snapshot hash,
+ContextPage and retrieval references, and the Bifrost chain fields. Execution
+inputs, route explanations and memory text stay out of the report.
+
+* `linked` means the returned records agree on the checked references. Inspect
+  `workflow.state` and `workflow.testMode` separately.
+* `incomplete` lists missing evidence by category. Legacy records or a partial
+  Bifrost chain can produce this result.
+* `PROCEDURE_EVIDENCE_UNAVAILABLE` means the verifier could not establish a
+  consistent set of authorized reads. Conflicting versions, changed procedure
+  bindings, missing records and revoked access can all produce this error.
+
+For a staging rehearsal, choose a test-mode execution for the reviewed invoice
+workflow with a known expected reconciliation report. Check both
+`workflow.testMode` and `resultVerification.status`. In the November 6 live
+read, a successful test-mode execution had no recorded version, snapshot,
+route, or trajectory. Its correct result was `incomplete`. Use it as a
+negative control; a positive control needs those references from an actual
+governed dispatch.
+
+The reads occur in sequence. Treat the report as an observation at read time.
+A matching snapshot hash compares recorded commitments. Verifying the business
+effect requires inspecting the resulting artifact under current access.
+The command is read-only and reports the execution origin as `unattested`.
+
+**Check the result against an expectation prepared before dispatch.** For the
+`invoice-customer-reconciliation/v1` workflow, add an optional `expectedResult`
+object to the same `verify` input:
+
+```json
+{
+  "contractId": "invoice-customer-reconciliation/v1",
+  "workflowVersionId": "<reviewed workflow version UUID>",
+  "definitionSnapshotHash": "<64 lowercase hex characters from the reviewed definition>",
+  "resultChecksum": "<SHA-256 of the independently expected reconciliation report>"
+}
+```
+
+Build the expected report from your complete, ordered invoice/customer fixture
+or an independent reconciliation. Serialize its six fields in this order:
+`customerCount`, `invoiceCount`, `matchedCount`, `snapshotRef`, `unmatchedCount`,
+`unmatchedInvoiceIds`. Hash its compact UTF-8 JSON with no trailing newline.
+The snapshot reference and ordered unmatched IDs are part of the comparison.
+Copying the checksum from the execution under check defeats the comparison.
+
+For a linked, successful execution on the pinned definition, the CLI makes a
+fourth authenticated GET for its business result. It validates the result’s
+contract, checksum and field constraints, and reports `matches_expectation` or
+`differs_from_expectation` without returning invoice IDs. Missing links,
+unfinished runs or an unavailable result yield `not_checked`. A changed
+version, conflicting readbacks or a revoked grant fails the check and returns
+no partial report. Like the other typed CLI results, a mismatch has exit code
+zero: check the JSON status explicitly. The server's own fixture verdict is
+reported separately. A matching report establishes equality to the supplied
+expectation; a downstream payment, ledger update or similar side effect still
+needs a receipt from that system.
+
+To repeat the cross-runtime check locally, use JDK 21, the compiled ValkyrAI
+backend and its test dependency classpath:
+
+```sh
+tests/gm_procedure_result_interop_test.sh /path/to/valkyrai-test-classpath.txt
+```
+
+This runs the catalog’s invoice join and report modules on two synthetic
+invoices, reads the result through ValkyrAI’s Java result service, and sends
+that response to the JavaScript verifier. An independent membership check
+provides the expected report. Execution, route and trajectory reads use
+fixtures; the test does not exercise a hosted tenant.
+
 Authentication, profiles and generated ACLs use `scripts/graymatter_api.sh`. The client disables self-update, deferred writes and automatic replay for this action boundary, and adds no retry loop or model calls. Keep credentials in the existing credential vault; pass business parameters and secured record references, not credentials. This adapter inherits the shared transport's process-local request handling.
 
 Pending product proof: public discovery integration and private MCP registration after the reviewer freeze, packaged/installed mirror parity, authenticated execution and isolation canaries, arbitrary trace ingestion, held-out procedure validation, independent agent discovery/reuse and measured lifetime cost. This adapter alone does not establish those outcomes or token savings.

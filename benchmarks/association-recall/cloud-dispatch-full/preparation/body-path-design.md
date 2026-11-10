@@ -1,0 +1,16 @@
+The frozen first run retains the existing filename→title mapping. A separate body-based product extension can preserve all twelve inputs without changing a column to fit the benchmark.
+
+ContentData.contentData already represents full content, has canonical maxLength5,000,000, and generates LONG32VARCHAR. All full anchors can map there. Each existing detail is at most206 characters and fits ContentMediaLink.fileName. Both arms would use that same new mapping. No row splitting, text truncation, duplicated facts, answer labels, or per-arm field choices are needed.
+
+Use the existing authoritative canonical edge `ContentMediaLink.contentData.ContentData`, traversed INBOUND from a ContentData seed to a ContentMediaLink. Do not assert the inverse collection `ContentData.contentMedia` as a new authoritative scalar relation. The existing proof validates edge direction, both node revisions and READ+MERGE, then follows the actual owning ContentMediaLink.contentData FK. Its current scalar-mapping check explicitly rejects collection attributes.
+
+The extension requires:
+
+- A separately versioned strict request branch for objectTypes:[ContentData], that same canonical path, direction:INBOUND, one hop and two nodes. Existing outbound behavior remains its own branch; no arbitrary field/path QBE is exposed.
+- Query-derived ContentData.contentData discovery using the fixed literal predicate, generated ACL filtering before paging, current visible schema and exact effective INCLUDE/nonsecure field policy. The original query must ground the actual body projection. Probe at least two matching authorized seeds before declaring uniqueness.
+- A bounded generated-service lookup of incoming ContentMediaLink rows by their real owning contentData relation. Reject ambiguity among authorized incoming endpoints before producing a one-path receipt. Scalar contentDataId, an inverse collection snapshot, or caller IDs cannot establish the edge.
+- The existing QUERY_BODY proof, owning FK validation, source incarnation/revision commitments, commit-time recheck, target READ+MERGE, and current paired ContextPage projection checks. Schema/policy/graph ABI fingerprints continue binding receipts. The existing graph ABI already expresses INBOUND edges; any semantic contract/marker change must be explicit, not silently reused as v1 discovery.
+- A canonical API description for the additional allowed combination and regenerated DTO/schema/manifest parity. No entity-field length or table migration is intrinsically required. Actual ContentData body field eligibility under current policy and generated graph shape must be verified before enabling the branch.
+- Controls for hidden/visible seed ambiguity, incoming endpoint ambiguity, wrong/mutated owning FK, source/target READ and MERGE loss, corrected/deleted source, ungrounded body, caller IDs/filters, and metacharacters. Uniqueness is checked at discovery, while replay checks the selected path; no whole-corpus absence promise is implied.
+
+Current projection budgets are separate from the 5-million-character storage bound: ThorApiEntityIndexDocumentBuilder caps fields at8,000 and documents at48,000 characters. The frozen task bodies fit these bounds; the product must not promise unbounded hydration. This design does not change current sources or claim native qualification.

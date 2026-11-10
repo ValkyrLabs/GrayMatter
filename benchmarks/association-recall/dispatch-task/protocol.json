@@ -1,0 +1,71 @@
+{
+  "version": "dispatch-task/v1",
+  "task": "Closed-schema dispatch packet with exact pickup code, gate, packing symbol and citations; abstain on missing/conflicting evidence",
+  "classification": "Prospective synthetic task values and fixed deterministic consumer, not open-ended agent QA; six designed scenarios with two populations each, not twelve independent capabilities",
+  "fixtureSha256": "c6fca3e6a0b0c73e327eaab788f3a55d1418a626743695121dcb9eed512488ea",
+  "assignment": {
+    "tasks": 12,
+    "arms": [
+      "control",
+      "treatment"
+    ],
+    "warmups": 2,
+    "measuredRepetitions": 7,
+    "order": "control then treatment for each iteration; cases fixed corpus order",
+    "scoredUnit": "12 assigned tasks, never 84 independent observations"
+  },
+  "consumer": {
+    "maxEvidenceUtf8Bytes": 1024,
+    "maxSources": 16,
+    "overflow": "abstain; no clipping",
+    "answerModel": "none",
+    "taskInput": [
+      "shipmentId",
+      "instruction"
+    ],
+    "productIdentityVisible": false,
+    "oracleVisible": false
+  },
+  "judge": "Separate full-authorized-input SQLite distinct-value reconciliation; exact canonical packet checksum and per-field source citations",
+  "native": {
+    "Lite": {
+      "jarSha256": "a059d353daa3f1c37af22241ae56d67ef1be603b04af0d7a0292f9cd5c8b815f",
+      "retrievalMode": "KEYWORD",
+      "topK": 1,
+      "tokenBudget": 1024,
+      "treatment": "includeAssociations=true",
+      "javaMajor": 17,
+      "jvmFlags": [
+        "-Xms128m",
+        "-Xmx512m"
+      ]
+    },
+    "Graphiti": {
+      "commit": "747b480ec6b12ecb718f1e2bc588b20ee36ea9c2",
+      "control": "native BM25/RRF limit1",
+      "treatment": "union with native outbound BFS/RRF depth1 limit8",
+      "redisMaxMemory": "256mb",
+      "threads": 1,
+      "mapping": "literal bodies to EntityNode.summary; directed free labels to EntityEdge; scopes to groups; no extraction"
+    },
+    "Hindsight": {
+      "commit": "eb963cb5a929d92c081371df64c2d5c2fe3351af",
+      "budget": "LOW native100 candidates/arm20 graph seeds",
+      "maxTokens": 1024,
+      "embedding": "BAAI/bge-small-en-v1.5 ONNX pinned in prior protocol; CPU1",
+      "llm": "none raw chunk",
+      "reranker": "rrf",
+      "temporal": false,
+      "treatment": "enable_graph_retrieval=true",
+      "databaseSharedBuffers": "32MB",
+      "mapping": "literal retain bodies; each unordered edge pair becomes opaque shared entity; scopes to banks; no extraction"
+    }
+  },
+  "limits": [
+    "Native retrieval budgets, embeddings, transport and storage differ; same task bytes and final consumer bound do not equate native work.",
+    "Timings are diagnostics, not causal cross-product speed estimates.",
+    "Synthetic JSON fact grammar makes parsing deterministic and does not measure general language understanding.",
+    "Task facts are trusted supplied records; this does not test authorization beyond native configured channel/group/bank boundaries.",
+    "No model, provider, policy or query settings will change after first result inspection."
+  ]
+}

@@ -1,0 +1,255 @@
+{
+  "contractVersion": "graymatter-memory-association/v1",
+  "hashAlgorithm": "sha256-length-prefixed-utf8/v1",
+  "positive": [
+    {
+      "name": "basic",
+      "request": {
+        "fromId": "00000000-0000-4000-8000-000000000028",
+        "toId": "00000000-0000-4000-8000-000000000039",
+        "relation": "explained_by"
+      },
+      "canonical": {
+        "fromId": "00000000-0000-4000-8000-000000000028",
+        "toId": "00000000-0000-4000-8000-000000000039",
+        "relation": "explained_by"
+      },
+      "tupleHash": "b3930289bd13d068b60243c6e5c6c4d04b621958ae8266e5e02b2f27f9ee5381"
+    },
+    {
+      "name": "reverse",
+      "request": {
+        "fromId": "00000000-0000-4000-8000-000000000039",
+        "toId": "00000000-0000-4000-8000-000000000028",
+        "relation": "explained_by"
+      },
+      "canonical": {
+        "fromId": "00000000-0000-4000-8000-000000000039",
+        "toId": "00000000-0000-4000-8000-000000000028",
+        "relation": "explained_by"
+      },
+      "tupleHash": "f9cc14e1300da1014d604be247133a8b8e00b720356df7f7c5e37dd3689ee20c"
+    },
+    {
+      "name": "case",
+      "request": {
+        "fromId": "00000000-0000-4000-8000-000000000028",
+        "toId": "00000000-0000-4000-8000-000000000039",
+        "relation": "Explained_By"
+      },
+      "canonical": {
+        "fromId": "00000000-0000-4000-8000-000000000028",
+        "toId": "00000000-0000-4000-8000-000000000039",
+        "relation": "Explained_By"
+      },
+      "tupleHash": "f4b0e5332521ef1074e7c3cc5e13e5fe1a743659d177b50eac00430525470159"
+    },
+    {
+      "name": "japanese",
+      "request": {
+        "fromId": "00000000-0000-4000-8000-000000000028",
+        "toId": "00000000-0000-4000-8000-000000000039",
+        "relation": "\u95a2\u9023\u5148"
+      },
+      "canonical": {
+        "fromId": "00000000-0000-4000-8000-000000000028",
+        "toId": "00000000-0000-4000-8000-000000000039",
+        "relation": "\u95a2\u9023\u5148"
+      },
+      "tupleHash": "d0ddf2d81084cb6eb85e594598ce72f3e0ef0c0e805c634503b0aad1faadd264"
+    },
+    {
+      "name": "emoji-boundary",
+      "request": {
+        "fromId": "00000000-0000-4000-8000-000000000028",
+        "toId": "00000000-0000-4000-8000-000000000039",
+        "relation": "\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0"
+      },
+      "canonical": {
+        "fromId": "00000000-0000-4000-8000-000000000028",
+        "toId": "00000000-0000-4000-8000-000000000039",
+        "relation": "\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0\ud83e\udde0"
+      },
+      "tupleHash": "dad707e7f073bea7002b794e61d2b3db3747e33de452e3d57c479e852e9b6538"
+    },
+    {
+      "name": "composed",
+      "request": {
+        "fromId": "00000000-0000-4000-8000-000000000028",
+        "toId": "00000000-0000-4000-8000-000000000039",
+        "relation": "caf\u00e9"
+      },
+      "canonical": {
+        "fromId": "00000000-0000-4000-8000-000000000028",
+        "toId": "00000000-0000-4000-8000-000000000039",
+        "relation": "caf\u00e9"
+      },
+      "tupleHash": "a8c8d52920fa747251ae0aea66a454fd1077244df3331eedfa4e9c7ebe6889af"
+    },
+    {
+      "name": "decomposed",
+      "request": {
+        "fromId": "00000000-0000-4000-8000-000000000028",
+        "toId": "00000000-0000-4000-8000-000000000039",
+        "relation": "cafe\u0301"
+      },
+      "canonical": {
+        "fromId": "00000000-0000-4000-8000-000000000028",
+        "toId": "00000000-0000-4000-8000-000000000039",
+        "relation": "cafe\u0301"
+      },
+      "tupleHash": "ef00510c05af1acd0e2434dee7709a2469ab3df1469d3d4c222a4d5fbed15cff"
+    },
+    {
+      "name": "framing",
+      "request": {
+        "fromId": "00000000-0000-4000-8000-000000000028",
+        "toId": "00000000-0000-4000-8000-000000000039",
+        "relation": "a|b:\"c\"/d"
+      },
+      "canonical": {
+        "fromId": "00000000-0000-4000-8000-000000000028",
+        "toId": "00000000-0000-4000-8000-000000000039",
+        "relation": "a|b:\"c\"/d"
+      },
+      "tupleHash": "9585aa3d0b937896e11ce239dd543ddac6533daa603ea70e737b73c57f7be41b"
+    },
+    {
+      "name": "uppercase-uuid",
+      "request": {
+        "fromId": "DEADBEEF-DEAD-4BEE-8BEE-ABCDEFABCDEF",
+        "toId": "FEEDFACE-BEAD-4BEE-8DEA-FEDCBAFEDCBA",
+        "relation": "same-reference"
+      },
+      "canonical": {
+        "fromId": "deadbeef-dead-4bee-8bee-abcdefabcdef",
+        "toId": "feedface-bead-4bee-8dea-fedcbafedcba",
+        "relation": "same-reference"
+      },
+      "tupleHash": "603cb32482d97c70941f90c15b0f734c1512222512d387365429da305fb1722a"
+    }
+  ],
+  "negative": [
+    {
+      "name": "empty",
+      "request": {
+        "fromId": "00000000-0000-4000-8000-000000000028",
+        "toId": "00000000-0000-4000-8000-000000000039",
+        "relation": ""
+      }
+    },
+    {
+      "name": "blank",
+      "request": {
+        "fromId": "00000000-0000-4000-8000-000000000028",
+        "toId": "00000000-0000-4000-8000-000000000039",
+        "relation": "   "
+      }
+    },
+    {
+      "name": "leading",
+      "request": {
+        "fromId": "00000000-0000-4000-8000-000000000028",
+        "toId": "00000000-0000-4000-8000-000000000039",
+        "relation": " related"
+      }
+    },
+    {
+      "name": "trailing",
+      "request": {
+        "fromId": "00000000-0000-4000-8000-000000000028",
+        "toId": "00000000-0000-4000-8000-000000000039",
+        "relation": "related "
+      }
+    },
+    {
+      "name": "unicode-leading",
+      "request": {
+        "fromId": "00000000-0000-4000-8000-000000000028",
+        "toId": "00000000-0000-4000-8000-000000000039",
+        "relation": "\u2003related"
+      }
+    },
+    {
+      "name": "unicode-trailing",
+      "request": {
+        "fromId": "00000000-0000-4000-8000-000000000028",
+        "toId": "00000000-0000-4000-8000-000000000039",
+        "relation": "related\u00a0"
+      }
+    },
+    {
+      "name": "C0",
+      "request": {
+        "fromId": "00000000-0000-4000-8000-000000000028",
+        "toId": "00000000-0000-4000-8000-000000000039",
+        "relation": "a\nb"
+      }
+    },
+    {
+      "name": "C1",
+      "request": {
+        "fromId": "00000000-0000-4000-8000-000000000028",
+        "toId": "00000000-0000-4000-8000-000000000039",
+        "relation": "a\u0085b"
+      }
+    },
+    {
+      "name": "DEL",
+      "request": {
+        "fromId": "00000000-0000-4000-8000-000000000028",
+        "toId": "00000000-0000-4000-8000-000000000039",
+        "relation": "a\u007fb"
+      }
+    },
+    {
+      "name": "high-surrogate",
+      "request": {
+        "fromId": "00000000-0000-4000-8000-000000000028",
+        "toId": "00000000-0000-4000-8000-000000000039",
+        "relation": "\ud800"
+      }
+    },
+    {
+      "name": "low-surrogate",
+      "request": {
+        "fromId": "00000000-0000-4000-8000-000000000028",
+        "toId": "00000000-0000-4000-8000-000000000039",
+        "relation": "\udc00"
+      }
+    },
+    {
+      "name": "codepoint-boundary",
+      "request": {
+        "fromId": "00000000-0000-4000-8000-000000000028",
+        "toId": "00000000-0000-4000-8000-000000000039",
+        "relation": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    },
+    {
+      "name": "self-link",
+      "request": {
+        "fromId": "00000000-0000-4000-8000-000000000028",
+        "toId": "00000000-0000-4000-8000-000000000028",
+        "relation": "related"
+      }
+    },
+    {
+      "name": "short-java-uuid",
+      "request": {
+        "fromId": "1-1-1-1-1",
+        "toId": "00000000-0000-4000-8000-000000000039",
+        "relation": "related"
+      }
+    },
+    {
+      "name": "identity-override",
+      "request": {
+        "fromId": "00000000-0000-4000-8000-000000000028",
+        "toId": "00000000-0000-4000-8000-000000000039",
+        "relation": "related",
+        "ownerId": "00000000-0000-4000-8000-000000000028"
+      }
+    }
+  ]
+}

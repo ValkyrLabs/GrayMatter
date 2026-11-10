@@ -1,0 +1,85 @@
+{
+  "contractVersion": "graymatter-memory-association/v1",
+  "semantics": "record-identity-navigation",
+  "hashAlgorithm": "sha256-length-prefixed-utf8/v1",
+  "hashFields": [
+    "graymatter-memory-association/v1",
+    "lowercase fromId UUID",
+    "lowercase toId UUID",
+    "exact relation UTF-8"
+  ],
+  "framing": "For each field in order: unsigned 32-bit big-endian byte length followed by UTF-8 bytes, then SHA-256 lowercase hex of concatenation.",
+  "relationPolicy": "1..128 Unicode code points, <=512 UTF-8 bytes. Preserve exact valid bytes/case; no normalization or silent trimming. Reject blanks, leading/trailing Unicode White_Space, C0/C1 controls including DEL, and unpaired UTF-16 surrogate code units.",
+  "endpoints": {
+    "capability": "GET /graymatter/memory/associations/capabilities",
+    "create": "POST /graymatter/memory/associations",
+    "read": "GET /graymatter/memory/associations/{associationRef}"
+  },
+  "request": {
+    "fromId": "UUID",
+    "toId": "UUID",
+    "relation": "string"
+  },
+  "requestPolicy": "Strict exactly three fields, no duplicate JSON keys, nested data or authority. Reject self-link. Lowercase canonical UUIDs in responses/hash.",
+  "capability": {
+    "contractVersion": "graymatter-memory-association/v1",
+    "supported": true,
+    "semantics": "record-identity-navigation",
+    "tupleHashAlgorithm": "sha256-length-prefixed-utf8/v1",
+    "cascadeDelete": true,
+    "maxRelationCodePoints": 128,
+    "maxRelationUtf8Bytes": 512
+  },
+  "receipt": {
+    "contractVersion": "graymatter-memory-association/v1",
+    "status": "recorded",
+    "associationRef": "UUID",
+    "fromId": "UUID",
+    "toId": "UUID",
+    "relation": "string",
+    "tupleHash": "64 lower hex",
+    "recordedAt": "RFC3339 offset date-time",
+    "replayed": "boolean"
+  },
+  "statuses": {
+    "freshPost": 201,
+    "existingPost": 200,
+    "read": 200
+  },
+  "persistentModel": "MemoryAssociation (normal generated entity/repository/service, not x-thorapi-nonCrud; raw generic HTTP CRUD/read must be denied)",
+  "table": "memory_association",
+  "persistentFields": {
+    "contractVersion": "string64",
+    "fromId": "UUID nonnull",
+    "toId": "UUID nonnull",
+    "relation": "string512 nonnull",
+    "tupleHash": "hex64",
+    "scopeKeyHash": "hex64",
+    "writeKeyHash": "hex64 unique",
+    "recordedAt": "OffsetDateTime"
+  },
+  "generatedFields": "ThorAPI owns id, ownerId and audit fields; do not redefine them in canonical schema.",
+  "identity": "Server random generated UUID id exposed as associationRef; writeKeyHash frames authenticated owner + canonical scope + tupleHash + both server-owned source incarnation identities (source owner and original creation timestamp). The client supplies no identity/scope/key. Same authorized tuple reuses same row/ref after text correction; deletion/recreation is a different incarnation.",
+  "foreignKeys": "from_id and to_id -> same-schema actual memory_entry.id, both physical ON DELETE CASCADE; named fk_memassoc_from and fk_memassoc_to. Probe real target table/column/catalog/schema and deleteRule, not name alone. Require constraints/unique before capability supported or write acknowledgement in Lite, Cloud tenant and CORE/main.",
+  "schemaEndpointExtension": "x-graymatter-association-endpoint: MemoryEntry on each UUID endpoint; x-graymatter-association-delete-rule: CASCADE on model. Keep free-form label separate from GraphLink relationType/semanticKind.",
+  "authorization": "Authenticate first. Lite source rows must both belong to current persisted PrincipalRecord. Cloud resolve scope/server actor, generated READ on both sources plus current generated source/association create entitlement, same canonical source tenant plane. Edge owner remains creating principal, even for shared endpoints. Every existing replay and GET rechecks owner/scope and both endpoints, trashed/expired/lifecycle. Do not cache authority or automatically restore grants.",
+  "commit": "Source locks ordered UUID and refresh+reauthorize in same real transaction as association insert/reuse; DB unique protects races; return receipt only after commit. Generic/nested association record JSON writes/reads and admin JsonCrud must not bypass current endpoint policy. Never enumerate foreign edges.",
+  "mcp": "Preserve private memory_link 3-string shape and public catalog freeze. Capability fixed path before any write; POST once with no auth/schema reissue, forbid redirects and origin changes; exact same-origin receipt GET after POST; verify exact tuple/hash/ref/time/protocol before status linked. Unsupported capability can report not sent. Any uncertain POST/readback result is unverified, never not-recorded or linked. No denied IDs/labels/error bodies echoed.",
+  "readReplayed": true,
+  "tests": [
+    "fresh/current replay receipts",
+    "reversed direction distinct",
+    "self/invalid/Unicode/surrogate framing",
+    "real parallel duplicates one row",
+    "current authority/revocation",
+    "cross-owner and tenant isolation",
+    "source correction preserves identity association",
+    "endpoint forget deletes every incident edge across owners",
+    "same UUID recreation cannot revive old edge/ref",
+    "process restart exact readback",
+    "raw/nested generic CRUD bypass denial",
+    "actual FK and unique metadata",
+    "incomplete HTTP and reply never positive",
+    "no legacy supersession/evidence effect"
+  ]
+}

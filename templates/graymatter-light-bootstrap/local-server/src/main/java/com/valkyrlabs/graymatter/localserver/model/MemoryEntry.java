@@ -45,6 +45,10 @@ public class MemoryEntry {
     @Column(name = "source_object_id", length = 64)
     private String sourceObjectId;
 
+    // Null on original and pre-upgrade records so their receipt fingerprints stay valid.
+    @Column(name = "revision_nonce")
+    private UUID revisionNonce;
+
     @Column(nullable = false, updatable = false)
     private Instant createdAt;
 
@@ -85,6 +89,14 @@ public class MemoryEntry {
     @PreUpdate
     void preUpdate() {
         this.modifiedAt = Instant.now();
+    }
+
+    public UUID getRevisionNonce() { return revisionNonce; }
+
+    public void revise(String text, String tags) {
+        this.text = text;
+        this.tags = tags;
+        this.revisionNonce = UUID.randomUUID();
     }
 
     public UUID getId() {

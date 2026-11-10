@@ -44,7 +44,7 @@ Environment:
   GRAYMATTER_MCP_PORT        HTTP MCP port (default 3333).
   GRAYMATTER_DATA_DIR        Durable H2 directory (defaults under .graymatter-lite).
 
-The builder uses system Java 17+, Maven, and Node 20+ when available. Missing
+The builder uses compatible system Java 17-24, Maven, and Node 20+ when available. Missing
 toolchains are downloaded into .vaix/runtime and never installed system-wide.
 USAGE
 }
@@ -66,35 +66,72 @@ thor_java_major() {
   "$1" -version 2>&1 | awk -F '[\".]' '/version/ { if ($2 == "1") print $3; else print $2; exit }'
 }
 
-thor_system_java() {
-  local thor_java="" thor_home="" thor_major=""
-  for thor_java in "${JAVA_HOME:-}/bin/java" "$(command -v java || true)"; do
-    [[ -n "$thor_java" && -x "$thor_java" ]] || continue
-    thor_major="$(thor_java_major "$thor_java")"
-    if [[ "$thor_major" =~ ^[0-9]+$ ]] && (( thor_major >= thor_jdk_major )); then
-      printf '%s\n' "$thor_java"
-      return 0
-    fi
-  done
-  if [[ -x /usr/libexec/java_home ]]; then
-    thor_home="$(/usr/libexec/java_home -v "${thor_jdk_major}+" 2>/dev/null || /usr/libexec/java_home 2>/dev/null || true)"
-    thor_java="${thor_home}/bin/java"
-    if [[ -x "$thor_java" ]]; then
-      thor_major="$(thor_java_major "$thor_java")"
-      if [[ "$thor_major" =~ ^[0-9]+$ ]] && (( thor_major >= thor_jdk_major )); then
-        printf '%s\n' "$thor_java"
-      fi
-    fi
+# Spring Boot 3.4.5 supports Java 17 through 24. A newer host JDK can
+# otherwise fail while Spring reads even java.io.Serializable's class file.
+thor_java_compatible() {
+  local thor_major=""
+  [[ -n "$1" && -x "$1" ]] || return 1
+  thor_major="$(thor_java_major "$1" || true)"
+  [[ "$thor_major" =~ ^[0-9]+$ ]] && (( thor_major >= thor_jdk_major && thor_major <= 24 ))
+}
+
+thor_macos_java_home() {
+  [[ -x /usr/libexec/java_home ]] || return 0
+  /usr/libexec/java_home -F -v "$1" 2>/dev/null || true
+}
+
+# Version-manager shims and symlinks are not themselves JAVA_HOME. Ask the JVM
+# for its physical home before Maven/JDK tools derive their paths from bin/java.
+thor_java_path() {
+  local thor_home=""
+  thor_home="$("$1" -XshowSettings:properties -version 2>&1 | awk '/^[[:space:]]*java.home = / { sub(/^[^=]*=[[:space:]]*/, ""); print; exit }' || true)"
+  if [[ -n "$thor_home" ]] && thor_java_compatible "${thor_home}/bin/java"; then
+    printf '%s\n' "${thor_home}/bin/java"
+  else
+    printf '%s\n' "$1"
   fi
 }
 
+thor_system_java() {
+  local thor_java="" thor_home="" thor_env_java="" thor_major=""
+  if [[ -n "${JAVA_HOME:-}" ]]; then thor_env_java="${JAVA_HOME}/bin/java"; fi
+  for thor_java in "$thor_env_java" "$(command -v java || true)"; do
+    if thor_java_compatible "$thor_java"; then
+      thor_java_path "$thor_java"
+      return 0
+    fi
+  done
+  # Exact versions avoid java_home's default choosing an unsupported newer JDK.
+  for ((thor_major=24; thor_major>=thor_jdk_major; thor_major--)); do
+    thor_home="$(thor_macos_java_home "$thor_major")"
+    [[ -n "$thor_home" ]] || continue
+    thor_java="${thor_home}/bin/java"
+    if thor_java_compatible "$thor_java"; then
+      thor_java_path "$thor_java"
+      return 0
+    fi
+  done
+  return 0
+}
+
 thor_cached_java() {
-  find "${thor_state_dir}/runtime/jdk-${thor_jdk_major}" -type f -path '*/bin/java' -perm -111 2>/dev/null \
-    | sort | head -n 1
+  local thor_java="" thor_cache="${thor_state_dir}/runtime/jdk-${thor_jdk_major}"
+  [[ -d "$thor_cache" ]] || return 0
+  while IFS= read -r thor_java; do
+    if thor_java_compatible "$thor_java"; then
+      thor_java_path "$thor_java"
+      return 0
+    fi
+  done < <(find "$thor_cache" -type f -path '*/bin/java' -perm -111 2>/dev/null | sort)
+  return 0
 }
 
 thor_ensure_java() {
   local thor_java=""
+  case "$thor_jdk_major" in
+    17|18|19|20|21|22|23|24) ;;
+    *) thor_die "VAIX_JAVA_MAJOR must be a supported Java version from 17 through 24." ;;
+  esac
   thor_java="$(thor_system_java)"
   if [[ -n "$thor_java" ]]; then
     printf '%s\n' "$thor_java"
@@ -106,7 +143,7 @@ thor_ensure_java() {
     return
   fi
 
-  command -v curl >/dev/null 2>&1 || thor_die "curl is required to download Java ${thor_jdk_major}."
+  command -v curl >/dev/null 2>&1 || thor_die "Install Java 17 through 24, or install curl to download a private Java ${thor_jdk_major} runtime."
   command -v tar >/dev/null 2>&1 || thor_die "tar is required to unpack Java ${thor_jdk_major}."
   local thor_os="" thor_arch="" thor_url="" thor_tmp="" thor_home=""
   case "$(uname -s)" in
@@ -249,7 +286,8 @@ thor_generate() {
     --out-dir "$thor_openapi_dir"
   )
   local thor_extension=""
-  for thor_extension in "${thor_extensions[@]}"; do
+  # macOS Bash 3.2 treats an empty array as unbound under nounset.
+  for thor_extension in ${thor_extensions[@]+"${thor_extensions[@]}"}; do
     [[ -f "$thor_extension" ]] || thor_die "extension bundle not found: $thor_extension"
     thor_pipeline_args+=(--extension "$(cd "$(dirname "$thor_extension")" && pwd)/$(basename "$thor_extension")")
   done
@@ -278,6 +316,11 @@ thor_generate() {
   for thor_template_patch in "${thor_root}/openapi/generator/patches/"*.patch; do
     patch -s -p0 -d "$thor_codegen_dir" <"$thor_template_patch"
   done
+
+  # ThorAPI 1.0.3 snapshots ship different include lists. Preserve upstream
+  # entries and apply only the required GrayMatter client layout adjustments.
+  "$(thor_ensure_node)" "${thor_root}/openapi/generator/patches/thorapi-1.0.3-tsconfig.cjs" \
+    "${thor_codegen_dir}/templates/typescript-redux-query/tsconfig.json.mustache"
 
   "$thor_java" -Dloader.main=org.openapitools.codegen.OpenAPIGenerator \
     -cp "$thor_exec_jar" org.springframework.boot.loader.launch.PropertiesLauncher generate \
@@ -504,6 +547,12 @@ thor_test() (
     -u GRAYMATTER_DATA_DIR \
     "$thor_maven" -q -f "${thor_root}/templates/graymatter-light-bootstrap/local-server/pom.xml" test
   if [[ -d "${thor_root}/tests" ]]; then
+    if [[ -f "${thor_root}/tests/vaix_java.test.mjs" ]]; then
+      "$thor_node" --test "${thor_root}/tests/vaix_java.test.mjs"
+    fi
+    if [[ -f "${thor_root}/tests/vaix_doctor.test.mjs" ]]; then
+      "$thor_node" --test "${thor_root}/tests/vaix_doctor.test.mjs"
+    fi
     "$thor_root/tests/gm_light_bootstrap_test.sh"
     "$thor_root/tests/gm_profile_test.sh"
     "$thor_root/tests/package_local_server_test.sh"
@@ -523,22 +572,85 @@ thor_test() (
 
 thor_doctor() {
   thor_load_admin_env
-  curl --fail --silent --show-error "http://127.0.0.1:${thor_backend_port}/actuator/health" | grep -q '"status":"UP"' \
-    || thor_die "backend health check failed"
-  local thor_status="" thor_memories="" thor_packs=""
-  thor_status="$(curl --fail --silent --show-error \
-    -u "${GRAYMATTER_LIGHT_USERNAME}:${GRAYMATTER_LIGHT_PASSWORD}" \
-    "http://127.0.0.1:${thor_backend_port}/v1/memory/status")"
-  thor_memories="$(printf '%s' "$thor_status" | jq -r '.metrics[]? | select(.id == "memory.entries") | .value' | head -n 1)"
-  thor_packs="$(curl --fail --silent --show-error \
-    -u "${GRAYMATTER_LIGHT_USERNAME}:${GRAYMATTER_LIGHT_PASSWORD}" \
-    "http://127.0.0.1:${thor_backend_port}/v1/knowledge-packs" | jq 'length')"
-  [[ "${thor_memories:-0}" -ge 12 ]] || thor_die "starter H2 memory is missing"
-  [[ "${thor_packs:-0}" -ge 1 ]] || thor_die "starter KnowledgePack is missing"
-  curl --fail --silent --show-error "http://127.0.0.1:${thor_mcp_port}/health" >/dev/null \
-    || thor_die "HTTP MCP health check failed"
-  printf 'GrayMatter Lite doctor: ready (%s memories, %s KnowledgePack, dashboard auth and MCP healthy).\n' \
-    "$thor_memories" "$thor_packs"
+  local thor_node=""
+  thor_node="$(thor_ensure_node)"
+  GRAYMATTER_LITE_PORT="$thor_backend_port" GRAYMATTER_MCP_PORT="$thor_mcp_port" \
+    "$thor_node" --input-type=module <<'JS'
+const signal = AbortSignal.timeout(10000);
+const recovery = 'Run ./vaix up, inspect the local service logs, then retry ./vaix doctor.';
+function endpoint(port) {
+  if (!/^[0-9]+$/.test(port) || Number(port) < 1 || Number(port) > 65535) {
+    throw new Error('Lite and MCP ports must be numbers between 1 and 65535.');
+  }
+  return `http://127.0.0.1:${port}`;
+}
+async function request(url, label, options = {}, allowEmpty = false) {
+  let response;
+  let text;
+  try {
+    response = await fetch(url, { ...options, redirect: 'error', signal });
+    text = await response.text();
+  } catch {
+    throw new Error(`${label} timed out or could not connect. ${recovery}`);
+  }
+  if (!response.ok) {
+    const hint = response.status === 401 || response.status === 403
+      ? 'Check the local account with ./vaix credentials; hosted signup is not required.' : recovery;
+    throw new Error(`${label} returned HTTP ${response.status}. ${hint}`);
+  }
+  if (allowEmpty && !text.trim()) return { response, body: null };
+  try { return { response, body: JSON.parse(text) }; }
+  catch { throw new Error(`${label} did not return valid JSON. ${recovery}`); }
+}
+try {
+  const backend = endpoint(process.env.GRAYMATTER_LITE_PORT);
+  const mcp = `${endpoint(process.env.GRAYMATTER_MCP_PORT)}/mcp`;
+  const credentials = `${process.env.GRAYMATTER_LIGHT_USERNAME}:${process.env.GRAYMATTER_LIGHT_PASSWORD}`;
+  const headers = { authorization: `Basic ${Buffer.from(credentials).toString('base64')}` };
+  const health = await request(`${backend}/actuator/health`, 'Lite backend health');
+  if (health.body?.status !== 'UP') throw new Error(`Lite backend is not healthy. ${recovery}`);
+  const status = await request(`${backend}/v1/memory/status`, 'Local memory status', { headers });
+  const metrics = Array.isArray(status.body?.metrics) ? status.body.metrics : [];
+  const memories = Number(metrics.find(metric => metric?.id === 'memory.entries')?.value);
+  if (!Number.isInteger(memories) || memories < 12) throw new Error('Starter H2 memory is missing. Retry ./vaix setup.');
+  const packs = await request(`${backend}/v1/knowledge-packs`, 'Starter KnowledgePacks', { headers });
+  if (!Array.isArray(packs.body) || packs.body.length < 1) throw new Error('Starter KnowledgePack is missing. Retry ./vaix setup.');
+
+  const rpcHeaders = { 'content-type': 'application/json', accept: 'application/json, text/event-stream' };
+  let id = 0;
+  async function rpc(method, params, label) {
+    const requestId = ++id;
+    const result = await request(mcp, label, { method: 'POST', headers: rpcHeaders,
+      body: JSON.stringify({ jsonrpc: '2.0', id: requestId, method, params }) });
+    if (result.body?.jsonrpc !== '2.0' || result.body.id !== requestId || result.body.error
+        || !Object.hasOwn(result.body, 'result')) throw new Error(`${label} failed. ${recovery}`);
+    return result;
+  }
+  const initialized = await rpc('initialize', { protocolVersion: '2024-11-05', capabilities: {},
+    clientInfo: { name: 'graymatter-lite-doctor', version: '1' } }, 'MCP initialization');
+  if (typeof initialized.body.result?.protocolVersion !== 'string' || !initialized.body.result?.capabilities?.tools) {
+    throw new Error(`MCP initialization did not enable tools. ${recovery}`);
+  }
+  rpcHeaders['mcp-protocol-version'] = initialized.body.result.protocolVersion;
+  const session = initialized.response.headers.get('mcp-session-id');
+  if (session) rpcHeaders['mcp-session-id'] = session;
+  await request(mcp, 'MCP initialized notification', { method: 'POST', headers: rpcHeaders,
+    body: JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' }) }, true);
+  const listed = await rpc('tools/list', {}, 'MCP tool discovery');
+  for (const name of ['memory_put', 'memory_query', 'memory_health']) {
+    if (!Array.isArray(listed.body.result?.tools) || !listed.body.result.tools.some(tool => tool?.name === name)) {
+      throw new Error(`MCP tool ${name} is missing. ${recovery}`);
+    }
+  }
+  const checked = await rpc('tools/call', { name: 'memory_health', arguments: {} }, 'MCP memory_health');
+  if (!checked.body.result || checked.body.result.isError || checked.body.result.structuredContent?.ok === false
+      || checked.body.result._meta?.openai?.recovery) throw new Error(`MCP memory_health failed. ${recovery}`);
+  console.log(`GrayMatter Lite doctor: ready (${memories} memories, ${packs.body.length} KnowledgePack, local sign-in and MCP memory tools verified).`);
+} catch (error) {
+  console.error(`vaix: ${error.message}`);
+  process.exitCode = 1;
+}
+JS
 }
 
 thor_docker() {

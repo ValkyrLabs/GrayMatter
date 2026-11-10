@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+BUNDLE="${GRAYMATTER_SKILL_BUNDLE:-${ROOT}/graymatter.skill}"
+
+if [[ -x "${ROOT}/scripts/gm-activate" && -f "${ROOT}/mcp-server/index.js" ]]; then
+  echo "GrayMatter runtime files are already present."
+  exit 0
+fi
+
+if [[ ! -f "$BUNDLE" ]]; then
+  echo "GrayMatter runtime files are missing and ${BUNDLE} was not found." >&2
+  echo "Reinstall from the GrayMatter release bundle or clone the full repository." >&2
+  exit 1
+fi
+
+command -v unzip >/dev/null 2>&1 || {
+  echo "GrayMatter bootstrap requires unzip to restore runtime files." >&2
+  exit 1
+}
+
+bundle_listing="$(unzip -Z1 "$BUNDLE")"
+if ! grep -qx 'graymatter/SKILL.md' <<<"$bundle_listing"; then
+  echo "graymatter.skill does not look like a GrayMatter skill bundle" >&2
+  exit 1
+fi
+
+tmp="$(mktemp -d "${TMPDIR:-/tmp}/graymatter-bootstrap.XXXXXX")"
+trap 'rm -rf "$tmp"' EXIT
+unzip -q "$BUNDLE" -d "$tmp"
+
+if [[ ! -d "$tmp/graymatter" ]]; then
+  echo "graymatter.skill is missing the graymatter/ payload directory" >&2
+  exit 1
+fi
+
+(
+  cd "$tmp/graymatter"
+  find . -type f -print | while IFS= read -r rel; do
+    rel="${rel#./}"
+    case "$rel" in
+      ""|/*|../*|*/../*)
+        echo "Refusing to extract unsafe bundle path: $rel" >&2
+        exit 1
+        ;;
+    esac
+    mkdir -p "$ROOT/$(dirname "$rel")"
+    cp "$rel" "$ROOT/$rel"
+  done
+)
+
+find "$ROOT/scripts" -type f -maxdepth 1 -exec chmod +x {} + 2>/dev/null || true
+[[ -f "$ROOT/graymatter-bootstrap" ]] && chmod +x "$ROOT/graymatter-bootstrap"
+[[ -f "$ROOT/templates/graymatter-light-bootstrap/local-server/bin/graymatter-local-server" ]] && \
+  chmod +x "$ROOT/templates/graymatter-light-bootstrap/local-server/bin/graymatter-local-server"
+
+echo "GrayMatter runtime files restored from graymatter.skill"

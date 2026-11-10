@@ -1,0 +1,18 @@
+{
+  "question": "May the agent confidently answer this week's canary-window question from the available context?",
+  "probeSha256": "ae9da9b2838d875e658a711af15ed2cffcf22a29db7c4bdbfa5f90b9cfc4e7f6",
+  "captures": {
+    "before": {"file": "2026-11-06-before.json", "sha256": "b2fad0b258e7dd0ac3681f1dfda63db5c7d5de19fae8bc30c4bc65be41ba8b58"},
+    "after": {"file": "2026-11-06-after.json", "sha256": "3ca444418ba2935281634247b91c9e8dc245c6fab9aaba75c4e8286c360f39af"},
+    "current": {"file": "2026-11-06-weekday-policy.json", "sha256": "552312ea1c77172e52b1ede951428a86a4bcde2d47727fed7ae6c1b173000c91"}
+  },
+  "cases": [
+    {"name":"single", "sourceKeys":["wed"], "topK":1, "tokenBudget":2000, "expected":"permit", "reason":"The only source supports Wednesday."},
+    {"name":"untagged-contradiction", "sourceKeys":["wed","thu"], "topK":2, "tokenBudget":2000, "expected":"withhold", "reason":"Wednesday and Thursday compete with equal authority even without a tag."},
+    {"name":"tagged-contradiction", "sourceKeys":["wed","thu"], "topK":2, "tokenBudget":2000, "expected":"withhold", "reason":"The Thursday conflict is marked unresolved."},
+    {"name":"tagged-below-cut", "sourceKeys":["wed","thu"], "topK":1, "tokenBudget":2000, "expected":"withhold", "reason":"The unresolved Thursday source remains relevant even outside the delivery limit."},
+    {"name":"unrelated-marker", "sourceKeys":["wed","billing"], "topK":1, "tokenBudget":2000, "expected":"permit", "reason":"The unresolved billing note does not dispute Wednesday."},
+    {"name":"exception-beyond-budget", "sourceKeys":["exception"], "topK":1, "tokenBudget":128, "expected":"withhold", "reason":"The 128-byte budget cannot deliver the Thursday exception at the end of the source.",
+     "retry":{"tokenBudget":4096, "expected":"permit", "requiredSource":"exception", "reason":"The larger budget fits the complete source, including this week's exception."}}
+  ]
+}

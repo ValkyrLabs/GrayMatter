@@ -130,7 +130,9 @@ test('public tool surface is exact, strict, OAuth-scoped, and correctly annotate
     'memory_save',
     'memory_update',
     'memory_forget',
+    'context_discover_typed_path',
     'context_compile',
+    'context_hydrate',
     'procedure_search',
     'retrieval_receipt_get'
   ]);
@@ -150,6 +152,19 @@ test('public tool surface is exact, strict, OAuth-scoped, and correctly annotate
   const contextCompile = publicTools.find((tool) => tool.name === 'context_compile');
   assert.equal(contextCompile.inputSchema.properties.filters, undefined);
   assert.equal(contextCompile.inputSchema.required.includes('filters'), false);
+  assert.equal(contextCompile.inputSchema.properties.retrievalReceiptRef.type, 'string');
+  assert.equal(contextCompile.inputSchema.properties.includeTypedPathEndpoints.default, false);
+  assert.deepEqual(contextCompile.inputSchema.required, ['task']);
+  const discovery = publicTools.find(tool => tool.name === 'context_discover_typed_path');
+  assert.deepEqual(Object.keys(discovery.inputSchema.properties), ['query', 'seedSource', 'maxLatencyMs', 'maxCredits']);
+  assert.deepEqual(discovery.inputSchema.properties.seedSource.enum, ['media_filename', 'content_body']);
+  assert.equal(discovery.inputSchema.properties.seedSource.default, 'media_filename');
+  assert.deepEqual(discovery.securitySchemes[0].scopes, ['context:read', 'memory:read']);
+  assert.equal(discovery.annotations.readOnlyHint, false);
+  assert.equal(discovery.annotations.idempotentHint, false);
+  const hydration = publicTools.find(tool => tool.name === 'context_hydrate');
+  assert.deepEqual(Object.keys(hydration.inputSchema.properties), ['contextPageRef', 'maxTokens']);
+  assert.equal(hydration.annotations.readOnlyHint, false);
 });
 
 test('public context_compile rejects undocumented generic filters', async (t) => {
@@ -173,37 +188,31 @@ test('public context_compile rejects undocumented generic filters', async (t) =>
   assert.match(response.body.result.structuredContent.error.message, /filters is not a supported argument/i);
 });
 
-test('every public descriptor tells clients not to substitute searches for unsupported reviewer requests', () => {
-  // Live ChatGPT attempted an in-scope text search for a requested tenantId
-  // override. That remained tenant-safe but failed the submitted no-call case.
+test('public descriptors expose factual operation limits without behavioral instructions', () => {
   for (const tool of publicTools) {
-    assert.match(tool.description, /Do not invoke any GrayMatter tool for requests to override tenant/);
-    assert.match(tool.description, /scope comes from the signed-in account/);
-    assert.match(tool.description, /Do not reinterpret such a request as an authorized text search/);
-    assert.match(tool.description, /delete an unspecified record, ask the user to identify it/);
-    assert.match(tool.description, /do not search for deletion candidates or select a target yourself/);
+    assert.match(tool.description, /Scope is fixed by the authenticated connection/);
+    assert.match(tool.description, /Identity or ACL overrides and selection of unspecified deletion targets are unsupported/);
+    assert.doesNotMatch(tool.description, /\b(?:Call|Never|Do not|Prefer|ask the user|before asking|before beginning|you must|always)\b/i);
+    assert.doesNotMatch(tool.description, /https?:|SKILL\.md|memory_search|memory_get|context_compile|retrieval_receipt_get/);
+    assert.match(tool.description, /^[\x20-\x7e]+$/);
   }
 });
 
-test('memory descriptors preserve requested provenance when broadening a topic search', () => {
-  for (const name of ['memory_search', 'memory_get']) {
-    const description = publicTools.find((tool) => tool.name === name).description;
-    assert.match(description, /preserve all identifying qualifiers/);
-    assert.match(description, /seeded versus newly created/);
-    assert.match(description, /verify those qualifiers against returned metadata and memory_get/);
-    assert.match(description, /Do not substitute a newer or similarly worded record/);
-    assert.match(description, /report no verified match if the evidence is insufficient/);
-  }
+test('memory descriptors state provenance and matching inputs without cross-tool behavioral instructions', () => {
+  const search = publicTools.find(tool => tool.name === 'memory_search').description;
+  const get = publicTools.find(tool => tool.name === 'memory_get').description;
+  assert.match(search, /supplied query, type, tag, and source filters/);
+  assert.match(get, /known UUID/);
+  assert.match(get, /classification and provenance fields/);
+  assert.match(get, /does not search for memories or select a record from a topic description/);
+  assert.doesNotMatch(search + get, /memory_search|memory_get|Call after|Call before|Do not substitute/);
 });
 
-test('specific memory matching follows bounded pagination before declaring no verified match', () => {
-  for (const name of ['memory_search', 'memory_get']) {
-    const description = publicTools.find((tool) => tool.name === name).description;
-    assert.match(description, /bounded page, not an exhaustive result set/);
-    assert.match(description, /continue the same query and filters with offset=nextOffset/);
-    assert.match(description, /up to three pages total/);
-    assert.match(description, /disclose that the search is incomplete/);
-  }
+test('memory search descriptor exposes bounded pagination and non-exhaustive coverage', () => {
+  const description = publicTools.find(tool => tool.name === 'memory_search').description;
+  assert.match(description, /bounded result page/);
+  assert.match(description, /continuation offset when available/);
+  assert.match(description, /not a complete memory inventory/);
 });
 
 test('public endpoint publishes protected-resource metadata and challenges unauthenticated calls', async (t) => {
@@ -399,11 +408,21 @@ test('canonical and compatibility MCP routes initialize and discover only public
     assert.match(initialized.body.result.instructions, /do not search for deletion candidates or select a target yourself/);
     assert.match(initialized.body.result.instructions, /preserve all identifying qualifiers/);
     assert.match(initialized.body.result.instructions, /Do not substitute a newer or similarly worded record/);
+    assert.match(initialized.body.result.instructions, /continue the same query and filters with offset=nextOffset/);
+    assert.match(initialized.body.result.instructions, /up to three pages total/);
+    assert.match(initialized.body.result.instructions, /When the user has chosen GrayMatter as primary memory/);
+    assert.match(initialized.body.result.instructions, /Honor explicit-save-only, pause and do-not-save requests immediately/);
+    assert.match(initialized.body.result.instructions, /For first use, an empty search means no matching memory yet/);
+    assert.match(initialized.body.result.instructions, /Do not infer the whole account is empty/);
+    assert.match(initialized.body.result.instructions, /Check relevant existing memories to avoid duplicates/);
+    assert.match(initialized.body.result.instructions, /Confirm persistence only after success; verify an uncertain write before retrying/);
+    assert.match(initialized.body.result.instructions, /Respect retrieval policy, including conflicts and no-results; never bypass withheld context/);
+    assert.match(initialized.body.result.instructions, /Inspect coverage: an incomplete scan cannot establish absence/);
     const listed = await request(port, 'POST', path, rpc('tools/list'), headers);
     assert.deepEqual(listed.body.result.tools.map((tool) => tool.name), publicTools.map((tool) => tool.name));
     for (const tool of listed.body.result.tools) {
-      assert.match(tool.description, /Do not reinterpret such a request as an authorized text search/);
-      assert.match(tool.description, /do not search for deletion candidates or select a target yourself/);
+      assert.match(tool.description, /Identity or ACL overrides and selection of unspecified deletion targets are unsupported/);
+      assert.doesNotMatch(tool.description, /Do not reinterpret|do not search for deletion candidates/);
     }
   }
 });
@@ -532,6 +551,60 @@ test('forget requires confirmation, payload limits fail closed, and upstream det
   const failed = await tool('memory_search', { query: 'trigger upstream error' });
   assert.equal(failed.body.result.structuredContent.error.code, 'UPSTREAM_UNAVAILABLE');
   assert.doesNotMatch(JSON.stringify(failed.body), /never-leak|database secret|password=/);
+});
+
+test('public correction and forget only acknowledge a completed exact-record mutation', async t => {
+  const id = '11111111-1111-4111-8111-111111111111';
+  const otherId = '22222222-2222-4222-8222-222222222222';
+  let status;
+  let payload;
+  const calls = [];
+  const server = publicServer('https://fixture.invalid/v1', {
+    fetch: async (url, options) => {
+      assert.equal(new URL(url).pathname, '/v1/MemoryEntry/' + id);
+      calls.push({ method: options.method, redirect: options.redirect });
+      return new Response(payload === null ? null : JSON.stringify(payload), { status });
+    }
+  });
+  t.after(() => close(server));
+  const port = await listen(server);
+  async function call(tool, args, upstreamStatus, upstreamPayload) {
+    status = upstreamStatus;
+    payload = upstreamPayload;
+    const result = await request(port, 'POST', '/graymatter/mcp', rpc('tools/call',
+      { name: tool, arguments: { id, ...args } }), { authorization: 'Bearer token-a' });
+    return result.body.result;
+  }
+  const correction = { content: 'new content', tags: ['launch', 'decision'] };
+  const updated = { id, text: correction.content, tags: [{ name: 'decision' }, { name: 'launch' }] };
+  const forget = { confirm: true, confirmationText: 'Forget this exact test memory.' };
+  for (const [name, args, responseStatus, response] of [
+    ['memory_update', correction, 200, { ...updated, id: otherId }],
+    ['memory_update', correction, 200, { ...updated, text: 'old content' }],
+    ['memory_update', correction, 200, { id, text: correction.content }],
+    ['memory_update', correction, 200, { ...updated, tags: ['decision', 'extra'] }],
+    ['memory_update', correction, 200, { ...updated, updated: false }],
+    ['memory_update', correction, 202, updated],
+    ['memory_forget', forget, 202, { id, status: 'queued' }],
+    ['memory_forget', forget, 200, { id, forgotten: false }],
+    ['memory_forget', forget, 200, null]
+  ]) {
+    const before = calls.length;
+    const result = await call(name, args, responseStatus, response);
+    assert.equal(result.isError, true);
+    assert.equal(result.structuredContent.ok, false);
+    assert.equal(result.structuredContent.error.retryable, false);
+    assert.match(result.content[0].text, /may have completed/i);
+    assert.equal(calls.length, before + 1, 'never replay an uncertain mutation');
+    assert.equal(calls.at(-1).redirect, 'error');
+  }
+  assert.equal((await call('memory_update', correction, 200, updated)).structuredContent.ok, true);
+  assert.equal((await call('memory_forget', forget, 204, null)).structuredContent.data.forgotten, true);
+  const before = calls.length;
+  const wrongRead = await call('memory_update', { importance: 'high' }, 200, { id: otherId, tags: ['private-other'] });
+  assert.equal(wrongRead.isError, true);
+  assert.deepEqual(calls.slice(before).map(row => row.method), ['GET']);
+  assert.doesNotMatch(JSON.stringify(wrongRead), /private-other/);
 });
 
 test('public credit exhaustion returns a neutral usage-limit error without commerce actions', async (t) => {

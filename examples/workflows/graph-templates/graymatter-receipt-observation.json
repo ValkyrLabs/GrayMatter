@@ -1,0 +1,255 @@
+{
+  "workflow": {
+    "name": "Inspect GrayMatter recall evidence",
+    "description": "Record a SkillOptics observation only when the authorized hosted retrieval receipt allows an answer.",
+    "status": "ready",
+    "role": "user",
+    "definitionKey": "graymatter-receipt-observation",
+    "definitionVersion": "1.2.0",
+    "continuousExecutionEnabled": false,
+    "externalSendsEnabled": false,
+    "defaultBillable": false,
+    "launchInputSchema": "{\"type\":\"object\",\"required\":[\"receiptRef\"],\"additionalProperties\":false,\"properties\":{\"receiptRef\":{\"type\":\"string\",\"minLength\":1,\"maxLength\":128,\"pattern\":\"^[A-Za-z0-9][A-Za-z0-9._:/-]*$\"}}}"
+  },
+  "nodes": [
+    {
+      "nodeId": "start",
+      "label": "Start",
+      "type": "start",
+      "position": "{\"x\":0,\"y\":0}",
+      "data": "{}"
+    },
+    {
+      "nodeId": "inspect",
+      "label": "Read authorized receipt",
+      "type": "task",
+      "position": "{\"x\":240,\"y\":0}",
+      "data": "{}"
+    },
+    {
+      "nodeId": "policy",
+      "label": "Check answer policy",
+      "type": "task",
+      "position": "{\"x\":480,\"y\":0}",
+      "data": "{}"
+    },
+    {
+      "nodeId": "observe",
+      "label": "Record receipt observation",
+      "type": "task",
+      "position": "{\"x\":720,\"y\":-90}",
+      "data": "{}"
+    },
+    {
+      "nodeId": "check-observation",
+      "label": "Verify returned observation",
+      "type": "task",
+      "position": "{\"x\":960,\"y\":-90}",
+      "data": "{}"
+    },
+    {
+      "nodeId": "check-ref",
+      "label": "Check canonical observation reference",
+      "type": "task",
+      "position": "{\"x\":1200,\"y\":-140}",
+      "data": "{}"
+    },
+    {
+      "nodeId": "withheld",
+      "label": "Evidence withheld",
+      "type": "end",
+      "position": "{\"x\":720,\"y\":100}",
+      "data": "{}"
+    },
+    {
+      "nodeId": "recorded",
+      "label": "Observation receipt verified",
+      "type": "end",
+      "position": "{\"x\":1440,\"y\":-180}",
+      "data": "{}"
+    },
+    {
+      "nodeId": "mismatch",
+      "label": "Observation mismatch",
+      "type": "end",
+      "position": "{\"x\":1440,\"y\":60}",
+      "data": "{}"
+    }
+  ],
+  "edges": [
+    {
+      "edgeId": "start-inspect",
+      "source": "start",
+      "target": "inspect",
+      "config": {
+        "style": "normal",
+        "onEvent": "success"
+      }
+    },
+    {
+      "edgeId": "inspect-policy",
+      "source": "inspect",
+      "target": "policy",
+      "config": {
+        "style": "normal",
+        "onEvent": "success"
+      }
+    },
+    {
+      "edgeId": "policy-observe",
+      "source": "policy",
+      "target": "observe",
+      "config": {
+        "style": "conditional",
+        "onEvent": "success"
+      },
+      "sourceHandle": "branch-true"
+    },
+    {
+      "edgeId": "policy-withheld",
+      "source": "policy",
+      "target": "withheld",
+      "config": {
+        "style": "conditional",
+        "onEvent": "success"
+      },
+      "sourceHandle": "branch-false"
+    },
+    {
+      "edgeId": "observe-check",
+      "source": "observe",
+      "target": "check-observation",
+      "config": {
+        "style": "normal",
+        "onEvent": "success"
+      }
+    },
+    {
+      "edgeId": "check-refs",
+      "source": "check-observation",
+      "target": "check-ref",
+      "config": {
+        "style": "conditional",
+        "onEvent": "success"
+      },
+      "sourceHandle": "branch-true"
+    },
+    {
+      "edgeId": "check-mismatch",
+      "source": "check-observation",
+      "target": "mismatch",
+      "config": {
+        "style": "conditional",
+        "onEvent": "success"
+      },
+      "sourceHandle": "branch-false"
+    },
+    {
+      "edgeId": "ref-recorded",
+      "source": "check-ref",
+      "target": "recorded",
+      "config": {
+        "style": "conditional",
+        "onEvent": "success"
+      },
+      "sourceHandle": "branch-true"
+    },
+    {
+      "edgeId": "ref-mismatch",
+      "source": "check-ref",
+      "target": "mismatch",
+      "config": {
+        "style": "conditional",
+        "onEvent": "success"
+      },
+      "sourceHandle": "branch-false"
+    }
+  ],
+  "modules": [
+    {
+      "nodeId": "inspect",
+      "className": "com.valkyrlabs.workflow.modules.graymatter.OmegaReceiptModule",
+      "name": "Read authorized receipt",
+      "displayName": "Read authorized receipt",
+      "execModuleConfig": {
+        "version": "1.0.0",
+        "timeoutMs": 30000,
+        "executionConfig": {
+          "mode": 0,
+          "idempotent": true
+        },
+        "payloadConfig": {
+          "parameters": "{\"operation\":\"receipt\"}"
+        }
+      }
+    },
+    {
+      "nodeId": "policy",
+      "className": "com.valkyrlabs.workflow.modules.control.ConditionalBranchModule",
+      "name": "Check answer policy",
+      "displayName": "Check answer policy",
+      "execModuleConfig": {
+        "version": "1.0.0",
+        "timeoutMs": 30000,
+        "executionConfig": {
+          "mode": 0,
+          "idempotent": true
+        },
+        "payloadConfig": {
+          "parameters": "{\"conditionMode\":\"expression\",\"condition\":\"=AND(omegaReceiptResult.status=\\\"ok\\\",omegaReceiptResult.answerPolicy=\\\"allow_answer\\\",omegaReceiptResult.recommendedAction=\\\"answer\\\",omegaReceiptResult.itemCount>0)\",\"trueTaskId\":\"observe\",\"falseNodeId\":\"withheld\",\"trueLabel\":\"receipt_usable\",\"falseLabel\":\"evidence_withheld\"}"
+        }
+      }
+    },
+    {
+      "nodeId": "observe",
+      "className": "com.valkyrlabs.workflow.modules.skilloptics.SkillObserveOutcomeModule",
+      "name": "Record receipt observation",
+      "displayName": "Record receipt observation",
+      "execModuleConfig": {
+        "version": "1.0.0",
+        "timeoutMs": 30000,
+        "executionConfig": {
+          "mode": 0,
+          "idempotent": true
+        },
+        "payloadConfig": {
+          "parameters": "{\"sourceType\":\"bifrost\",\"eventType\":\"retrieval_answer_permitted\",\"evidenceClass\":\"replay\",\"outcome\":\"unknown\",\"field_mappings\":[{\"source_field\":\"omegaReceiptResult.retrievalReceiptRef\",\"target_field\":\"sourceRef\"}]}"
+        }
+      }
+    },
+    {
+      "nodeId": "check-observation",
+      "className": "com.valkyrlabs.workflow.modules.control.ConditionalBranchModule",
+      "name": "Verify returned observation",
+      "displayName": "Verify returned observation",
+      "execModuleConfig": {
+        "version": "1.0.0",
+        "timeoutMs": 30000,
+        "executionConfig": {
+          "mode": 0,
+          "idempotent": true
+        },
+        "payloadConfig": {
+          "parameters": "{\"conditionMode\":\"expression\",\"condition\":\"=AND(EXACT(skillObservationReceipt.status,\\\"normalized\\\"),EXACT(skillObservationReceipt.sourceType,\\\"bifrost\\\"),EXACT(skillObservationReceipt.eventType,\\\"retrieval_answer_permitted\\\"),EXACT(skillObservationReceipt.evidenceClass,\\\"replay\\\"),EXACT(skillObservationReceipt.outcome,\\\"unknown\\\"),EXACT(skillObservationReceipt.sourceRef,omegaReceiptResult.retrievalReceiptRef),ISNUMBER(skillObservationReceipt.outcomeVersion),skillObservationReceipt.outcomeVersion=1,EXACT(skillObservationReceipt.observationRef,observationRef),COUNTA(observationRefs)=1,EXACT(observationRef,observationRefs))\",\"falseNodeId\":\"mismatch\",\"trueLabel\":\"observation_fields_match\",\"falseLabel\":\"observation_mismatch\",\"trueTaskId\":\"check-ref\"}"
+        }
+      }
+    },
+    {
+      "nodeId": "check-ref",
+      "className": "com.valkyrlabs.workflow.modules.control.ConditionalBranchModule",
+      "name": "Check canonical observation reference",
+      "displayName": "Check canonical observation reference",
+      "execModuleConfig": {
+        "version": "1.0.0",
+        "timeoutMs": 30000,
+        "executionConfig": {
+          "mode": 0,
+          "idempotent": true
+        },
+        "payloadConfig": {
+          "parameters": "{\"conditionMode\":\"field\",\"field\":\"observationRef\",\"operator\":\"regex\",\"value\":\"skillobs-[0-9a-f]{40}\",\"trueNodeId\":\"recorded\",\"falseNodeId\":\"mismatch\",\"trueLabel\":\"observation_verified\",\"falseLabel\":\"observation_mismatch\"}"
+        }
+      }
+    }
+  ]
+}

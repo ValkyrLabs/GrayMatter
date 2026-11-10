@@ -194,8 +194,10 @@ public final class GrayMatterSchemaPipeline {
             if (!template.contains(each) || !template.contains(end)) {
                 throw new IOException("ThorAPI CRUD include has an unsupported structure");
             }
-            template = template.replace(each, each + "\n{{^schema.x-thorapi-nonCrud}}")
-                .replace(end, "{{/schema.x-thorapi-nonCrud}}\n" + end);
+            // Server-owned records still need generated persistence and authorization, but
+            // generic CRUD must not bypass their owning command's cross-object policy.
+            template = template.replace(each, each + "\n{{^schema.x-thorapi-nonCrud}}\n{{^schema.x-graymatter-server-managed}}")
+                .replace(end, "{{/schema.x-graymatter-server-managed}}\n{{/schema.x-thorapi-nonCrud}}\n" + end);
             Files.writeString(destination, template, StandardCharsets.UTF_8);
         }
     }

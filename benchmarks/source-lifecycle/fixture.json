@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "query": "Parcel counter",
+  "namespace": ["synthetic", "source-lifecycle"],
+  "rows": {
+    "original": "Parcel counter opens at nine.",
+    "corrected": "Parcel counter opens at ten.",
+    "late": "Parcel counter opens at eleven.",
+    "neighbor": "Parcel counter accepts prepaid returns."
+  },
+  "type": "context",
+  "tags": ["synthetic"],
+  "topK": 2,
+  "receiptBudget": 4096,
+  "scenarios": {
+    "correction-deletion": ["seed target and neighbor", "issue original receipt and capture client copy", "correct target", "read prior receipt", "issue corrected receipt", "delete current target", "read both prior receipts", "read fresh neighbor"],
+    "stale-correction": ["two clients read target A", "first client writes B", "second client writes C using its original observation", "read persisted target"],
+    "two-writers": ["two clients read target A", "submit correction B and correction C without awaiting either", "record each native result and final persisted state"],
+    "stale-delete": ["two clients read target A", "first client writes B", "second client deletes using its original observation", "read persisted target"],
+    "restore-identical": ["read target A and issue receipt", "write B", "restore A with current precondition", "read original receipt", "attempt delayed write C with original precondition", "read persisted target"]
+  },
+  "expectations": {
+    "ordinaryCorrection": "Direct reads and fresh search return the corrected source under the original key. The unrelated source survives.",
+    "ordinaryDeletion": "Direct reads no longer find the deleted key, fresh search excludes it, and the unrelated source survives.",
+    "issuedReceipt": "After its source changes or disappears, an old Lite receipt should disclose no text when hydrated or recompressed, including its unchanged neighbor. An independent receipt for the neighbor remains usable.",
+    "staleClients": "Report whether each native operation accepts or rejects the delayed client. Do not supply application-side conflict resolution.",
+    "restoreIdentical": "Record both old receipt validity and the delayed write after identical bytes are restored. A content commitment and a monotonic revision can differ here."
+  }
+}

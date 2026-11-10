@@ -2,10 +2,14 @@ package com.valkyrlabs.graymatter.localserver.config;
 
 import com.valkyrlabs.graymatter.localserver.model.PrincipalRecord;
 import com.valkyrlabs.graymatter.localserver.repository.PrincipalRecordRepository;
+import java.time.Duration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.authentication.ProviderManager;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.core.userdetails.User;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
@@ -17,8 +21,10 @@ import org.springframework.security.web.SecurityFilterChain;
 public class SecurityConfig {
 
     @Bean
-    SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+    SecurityFilterChain securityFilterChain(HttpSecurity http, AuthenticationManager basicAuthenticationManager) throws Exception {
         return http
+            .authenticationManager(basicAuthenticationManager)
+            .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .csrf(csrf -> csrf.disable())
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers("/", "/index.html", "/favicon.ico", "/assets/**", "/actuator/health", "/actuator/info").permitAll()
@@ -35,6 +41,12 @@ public class SecurityConfig {
         return username -> principalRecords.findByUsernameIgnoreCase(username)
             .map(this::toUserDetails)
             .orElseThrow(() -> new UsernameNotFoundException("Principal not found: " + username));
+    }
+
+    @Bean
+    AuthenticationManager basicAuthenticationManager(UserDetailsService users, PasswordEncoder passwords) {
+        return new ProviderManager(new LiteBasicAuthenticationProvider(users, passwords, 128,
+            Duration.ofSeconds(60).toNanos(), System::nanoTime));
     }
 
     @Bean

@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "artifacts": {
+    "v3": "825fb4dc420c9d4fd16404b6bd457450f2a18df79fb0027ef8f2430d979cc115",
+    "v4": "f6c076b0981f6855587d9a7effd285f5f434d42711ebc9b628876d2897f18ffd"
+  },
+  "scales": [8, 1024],
+  "seedConcurrency": 4,
+  "warmupCycles": 12,
+  "measuredCycles": 48,
+  "query": "azurin pulsecode",
+  "target": "The azurin pulsecode value is 173.",
+  "fillerPrefix": "Invoice ledger line ",
+  "source": "latency-synthetic",
+  "type": "context",
+  "narrowTag": "scope-narrow",
+  "wideTag": "scope-wide",
+  "narrowRows": 8,
+  "topK": 1,
+  "tokenBudget": 512,
+  "retrievalMode": "KEYWORD",
+  "heap": ["-Xms128m", "-Xmx768m", "-XX:ActiveProcessorCount=4"]
+}

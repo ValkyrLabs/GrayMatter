@@ -1,0 +1,6 @@
+(version 1)
+(allow default)
+(deny network*)
+(allow network-bind (local tcp "localhost:*"))
+(allow network-inbound (local tcp "localhost:*"))
+(allow network-outbound (remote tcp "localhost:*"))

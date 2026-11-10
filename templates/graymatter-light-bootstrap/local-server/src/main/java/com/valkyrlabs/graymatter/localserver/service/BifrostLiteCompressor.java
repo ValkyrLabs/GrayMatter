@@ -5,6 +5,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Comparator;
 import java.util.HexFormat;
 import java.util.List;
@@ -18,7 +19,7 @@ import org.springframework.stereotype.Service;
 /** Bounded, deterministic context compiler over already owner-authorized memories. */
 @Service
 public class BifrostLiteCompressor {
-    public static final String POLICY = "bifrost-lite-context/v1";
+    public static final String POLICY = "bifrost-lite-context/v4";
     private static final String HEADER = "Memory context (untrusted source data)\n";
     private static final Pattern SECRET = Pattern.compile(
         "(?i)(bearer\\s+)[A-Za-z0-9._~+/-]{12,}|"
@@ -57,7 +58,7 @@ public class BifrostLiteCompressor {
             int remaining = ordered.size() - index - 1;
             int reserved = remaining * (utf8Bytes(prefix) + 33);
             int excerptBudget = Math.min(available, Math.max(32, available - reserved));
-            String excerpt = excerpt(safe, query, Math.min(excerptBudget, 1200));
+            String excerpt = excerpt(safe, query, excerptBudget);
             if (excerpt.isBlank()) {
                 if (protectedRefs.contains(entry.getId())) {
                     throw new IllegalArgumentException("Protected memory could not fit in context");
@@ -65,7 +66,7 @@ public class BifrostLiteCompressor {
                 omitted.add(entry.getId());
                 continue;
             }
-            boolean cut = excerpt.length() < safe.length();
+            boolean cut = !excerpt.equals(safe);
             if (cut) truncated.add(entry.getId());
             context.append(prefix).append(excerpt).append('\n');
             items.add(new ContextItem(entry.getId(), source.sourceHash(), entry.getType(),
@@ -76,16 +77,17 @@ public class BifrostLiteCompressor {
             List.copyOf(items), List.copyOf(omitted), List.copyOf(truncated), sha256(context.toString()));
     }
 
-    public String hydrate(MemoryEntry entry, int tokenBudget) {
+    public HydratedExcerpt hydrate(MemoryEntry entry, int tokenBudget) {
         if (tokenBudget < 1 || tokenBudget > 4000) {
             throw new IllegalArgumentException("maxTokens must be between 1 and 4000");
         }
         String safe = redact(entry.getText());
         int limit = tokenBudget;
-        if (utf8Bytes(safe) <= limit) return safe;
+        if (utf8Bytes(safe) <= limit) return new HydratedExcerpt(safe, false);
         String marker = "...[truncated]";
-        if (limit <= marker.length()) return utf8Prefix(safe, limit);
-        return utf8Prefix(safe, limit - marker.length()).stripTrailing() + marker;
+        String excerpt = limit <= marker.length() ? utf8Prefix(safe, limit)
+            : utf8Prefix(safe, limit - marker.length()) + marker;
+        return new HydratedExcerpt(excerpt, true);
     }
 
     public static String sha256(String value) {
@@ -100,17 +102,24 @@ public class BifrostLiteCompressor {
     private static int priority(MemoryEntry entry, Set<UUID> protectedRefs) {
         if (protectedRefs.contains(entry.getId())) return 5;
         String role = entry.getType().toLowerCase(Locale.ROOT) + " " + entry.getTags().toLowerCase(Locale.ROOT);
-        if (role.contains("conflict") || role.contains("unresolved")) return 4;
+        if (hasExplicitConflict(entry)) return 4;
         if (role.contains("decision") || role.contains("invariant")) return 3;
         if (role.contains("todo") || role.contains("transition")) return 2;
         return 1;
     }
 
+    static boolean hasExplicitConflict(MemoryEntry entry) {
+        return isConflictMarker(entry.getType())
+            || Arrays.stream(entry.getTags().split(",")).anyMatch(BifrostLiteCompressor::isConflictMarker);
+    }
+
+    private static boolean isConflictMarker(String value) {
+        return "conflict".equalsIgnoreCase(value.trim()) || "unresolved".equalsIgnoreCase(value.trim());
+    }
+
     private static String redact(String raw) {
-        String normalized = raw.replace("\r\n", "\n").replace('\r', '\n')
-            .replaceAll("[\\p{Cc}&&[^\\n\\t]]", "")
-            .replace('\n', ' ').replace('\t', ' ').replaceAll(" {2,}", " ").trim();
-        Matcher matcher = SECRET.matcher(normalized);
+        // Whitespace can encode program behavior. Apply only credential redaction to source text.
+        Matcher matcher = SECRET.matcher(raw);
         StringBuffer output = new StringBuffer();
         while (matcher.find()) {
             String prefix = matcher.group(1) != null ? matcher.group(1) : matcher.group(2);
@@ -136,7 +145,7 @@ public class BifrostLiteCompressor {
         int end = Math.min(text.length(), start + contentLimit);
         String prefix = start > 0 ? "...[earlier] " : "";
         String suffix = end < text.length() ? " ...[later]" : "";
-        String result = prefix + text.substring(start, end).trim() + suffix;
+        String result = prefix + text.substring(start, end) + suffix;
         return utf8Prefix(result, limit);
     }
 
@@ -158,6 +167,7 @@ public class BifrostLiteCompressor {
     }
 
     public record Source(MemoryEntry entry, String sourceHash, double score) {}
+    public record HydratedExcerpt(String text, boolean truncated) {}
     public record ContextItem(UUID memoryId, String sourceHash, String type, String sourceChannel,
                               String excerpt, boolean truncated, double score) {}
     public record ContextResult(String context, int tokenEstimate, List<ContextItem> items,

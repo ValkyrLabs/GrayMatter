@@ -58,6 +58,21 @@ JS
 cat > "$TMP_DIR/verify-mcp.cjs" <<'JS'
 const assert = require('node:assert/strict');
 const endpoint='http://127.0.0.1:'+process.env.GRAYMATTER_MCP_PORT+'/mcp';
+const fs=require('node:fs');
+const marker='native-standalone-no-signup-reconnect-marker';
+const savedIdFile=__dirname+'/stored-memory-id.txt';
+function payload(result) {
+  const value=result.structuredContent ?? JSON.parse(result.content.find(item=>item.type==='text').text);
+  assert.notEqual(value?.ok,false,'A recovery result is not a successful memory operation');
+  return value;
+}
+function storedEntries(value, entries=[]) {
+  if (!value || typeof value!=='object') return entries;
+  if (typeof value.id==='string' && value.text===marker) entries.push(value);
+  for (const nested of Object.values(value)) if (nested && typeof nested==='object') storedEntries(nested,entries);
+  return entries;
+}
+
 let id=1;
 async function rpc(method,params) {
   const response=await fetch(endpoint,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({jsonrpc:'2.0',id:id++,method,params})});
@@ -68,10 +83,13 @@ async function rpc(method,params) {
   const list=await rpc('tools/list',{});for(const name of ['memory_put','memory_query'])assert(list.tools.some(t=>t.name===name));
   if(process.argv[2]==='write') {
     const written=await rpc('tools/call',{name:'memory_put',arguments:{type:'context',content:'native-standalone-no-signup-reconnect-marker'}});
-    assert(JSON.stringify(written).includes('native-standalone-no-signup-reconnect-marker'));
+    const entry=storedEntries(payload(written))[0];assert(entry,'Write must return the actual stored memory entry');
+    assert.match(entry.id,/^[a-f0-9]{8}-[a-f0-9-]{27}$/i);
+    fs.writeFileSync(savedIdFile,entry.id,{mode:0o600});
   }
   const found=await rpc('tools/call',{name:'memory_query',arguments:{query:'native-standalone-no-signup-reconnect-marker',limit:5}});
-  assert(JSON.stringify(found).includes('native-standalone-no-signup-reconnect-marker'));
+  const expectedId=fs.readFileSync(savedIdFile,'utf8');
+  assert(storedEntries(payload(found)).some(entry=>entry.id===expectedId),'Recall must return the same stored ID and text; echoing the query is insufficient');
 })().catch(error=>{console.error(error);process.exitCode=1;});
 JS
 node "$TMP_DIR/verify-mcp.cjs" write

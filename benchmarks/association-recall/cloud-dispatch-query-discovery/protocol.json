@@ -1,0 +1,12 @@
+{
+  "status": "owning-http-member-discovery-qualified",
+  "candidatePatchSha256": "267540934736a9bb734e15a11a09345ef157dee74f2aaf5e5c752073435f745e",
+  "sourceSha256": "f7c35a991baad0223b7656b26085769250304d6388d0e028c511255e9d907cc2",
+  "priorPairedBenchmarkManifestSha256": "56606effefcf90705407c6dc63fda4a82c11d6caff7971af84bb422f8452b091",
+  "nativeTrials": 2,
+  "authorityControls": 6,
+  "owningTestsPassed": 72,
+  "owningNativeReportSha256": "3a70fc88728d2b6562ccc01ce23f467c80d631212e5e66efc9886725da5f8576",
+  "generatedSchemaSha256": "12e6999f84fb878373875588e43c714b85fbd682673e60048d7266b3ed7e27a8",
+  "scope": "canonical offline VAIX with sealed Maven dependencies, loopback-only OS profile, H2 and MockMvc"
+}

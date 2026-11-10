@@ -2,12 +2,18 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-OUT="${GRAYMATTER_PLUGIN_PACKAGE_OUT:-$ROOT/graymatter.skill}"
+OUT="${GRAYMATTER_PACKAGE_OUT:-${GRAYMATTER_PLUGIN_PACKAGE_OUT:-$ROOT/graymatter.skill}}"
 
 REQUIRED=(
   .codex-plugin/plugin.json
   .app.json
   .mcp.json
+  SKILL.md
+  LICENSE
+  graymatter-bootstrap
+  graymatter-bootstrap.ps1
+  install.sh
+  install.ps1
   vaix
   deploy/docker-compose.lite.yml
   openapi/bundles/00-graymatter-core.yaml
@@ -17,6 +23,7 @@ REQUIRED=(
   openapi/generator/patches/thorapi-1.0.3-java-spring-application.patch
   openapi/generator/patches/thorapi-1.0.3-java-spring-pageable-repository.patch
   openapi/generator/patches/thorapi-1.0.3-java-spring-repository.patch
+  openapi/generator/patches/thorapi-1.0.3-tsconfig.cjs
   openapi/generator/patches/thorapi-1.0.3-typescript-client-layout.patch
   tools/schema-pipeline/pom.xml
   tools/schema-pipeline/src/main/java/com/valkyrlabs/graymatter/codegen/GrayMatterSchemaPipeline.java
@@ -29,18 +36,25 @@ REQUIRED=(
   skills/graymatter-memory/agents/openai.yaml
   skills/graymatter-context/SKILL.md
   skills/graymatter-context/agents/openai.yaml
+  mcp-server/README.md
+  mcp-server/Dockerfile
+  mcp-server/index.js
+  mcp-server/package.json
   docs/agent-discovery.md
+  docs/contribution-evidence.md
   docs/awesome-codex-plugins.md
   docs/graymatter-light.md
   docs/graymatter-lite.md
   docs/schema-regeneration.md
   docs/local-models.md
   docs/knowledge-packs.md
+  docs/private-procedure-execution.md
   docs/omegarag-release-evidence.md
   docs/chatgpt-onboarding.md
   docs/openai-app-directory-submission.md
   docs/privacy-policy.md
   docs/reviewer-test-credentials.md
+  docs/server-capabilities.md
   docs/thorapi-integration.md
   openai-app/submission-manifest.json
   SUBMISSION_CHECKLIST.md
@@ -49,111 +63,151 @@ REQUIRED=(
   CONTRIBUTING.md
   SUPPORT.md
   CODE_OF_CONDUCT.md
-  mcp-server/index.js
-  mcp-server/Dockerfile
-  mcp-server/package.json
-  scripts/gm-activate
-  scripts/gm-activate.ps1
-  scripts/gm-auth.mjs
-  scripts/gm-connection.mjs
-  scripts/gm-install.mjs
-  scripts/gm-macos-signin.js
-  scripts/gm-windows-credential.ps1
   scripts/gm-activation-fastlane
   scripts/gm-invariant-preflight
-  scripts/gm-contribution-report
+  mcp-server/lib/lite-lifecycle.cjs
+  mcp-server/lib/memory-association.cjs
   mcp-server/lib/memory-scan.cjs
   mcp-server/lib/contribution-report.cjs
-  docs/contribution-evidence.md
+  mcp-server/lib/public-context-compile.cjs
+  mcp-server/lib/public-typed-path-discovery.cjs
+  mcp-server/lib/procedure-execution.cjs
+  mcp-server/lib/procedure-discovery.cjs
+  mcp-server/lib/procedure-inspection.cjs
+  mcp-server/lib/procedure-result.cjs
+  mcp-server/lib/procedure-evidence.cjs
+  mcp-server/lib/procedure-shadow-replay.cjs
+  scripts/gm-procedure-execute
+  scripts/gm-contribution-report
   scripts/gm-startup-preflight
   scripts/gm-client
+  scripts/gm-query
   scripts/gm-read
-  scripts/gm-doctor
+  scripts/gm-retrieval-receipt
+  scripts/graymatter-prod-acceptance.sh
+  scripts/gm-graph
+  scripts/gm-write
+  scripts/gm-record
+  scripts/gm-profile
+  scripts/gm-profile-lib
+  scripts/gm-login
+  scripts/gm-install.mjs
+  scripts/gm-auth.mjs
+  scripts/gm-connection.mjs
+  scripts/gm-macos-signin.js
+  scripts/gm-windows-credential.ps1
+  scripts/gm-activate
+  scripts/gm-activate.ps1
   scripts/gm-install-check
-  scripts/gm-mcp-contract
+  scripts/gm-doctor
+  scripts/gm-smoke
+  scripts/gm-status
+  scripts/smoke-test-public-mcp.sh
   scripts/gm-agent-smoke-matrix
   scripts/gm-release-evidence
   scripts/gm-signature-history
   scripts/gm-omegabench-corpus
   scripts/gm-omegabench-evidence
   scripts/gm-objective-evidence
-  scripts/graymatter-prod-acceptance.sh
-  scripts/gm-status
+  scripts/gm-self-update
   scripts/gm-schema-cache-lib
   scripts/gm-mcp-launcher
   scripts/gm-mcp-launcher.mjs
-  scripts/smoke-test-public-mcp.sh
-  scripts/gm-write
-  scripts/gm-record
-  scripts/gm-profile
-  scripts/gm-profile-lib
+  scripts/gm-openapi-sync
+  scripts/gm-openapi-summary
+  scripts/gm-mcp-contract
+  scripts/gm-entity
+  scripts/gm-register-agent
+  scripts/gm-fallback-append
+  scripts/gm-replay-deferred
   scripts/gm-source-authority
+  scripts/gm-hook-event
+  scripts/gm-light-bootstrap
+  scripts/gm-light-up
+  scripts/gm-light-env
   scripts/gm-light-smoke
+  scripts/gm-light-json-smoke
   scripts/gm-knowledge-pack-import
   scripts/package-graymatter
+  scripts/package-local-server
   scripts/package_graymatter.sh
   scripts/graymatter_api.sh
-  templates/graymatter-light-bootstrap/api.hbs.yaml
-  templates/graymatter-light-bootstrap/local-server/bin/graymatter-local-server
-  templates/graymatter-light-bootstrap/local-server/manifest.json
+  examples/graymatter-light-thorapi-bundle.yaml
+  examples/memoryentry-basic.json
+  examples/memoryentry-decision.json
+  examples/memoryentry-todo.json
+  examples/memoryentry-artifact.json
+  examples/graymatter-light-memoryentry.yaml
+  examples/swarm-workflow-execution-receipt.v1.json
+  examples/workflows/README.md
+  examples/workflows/graph-templates/graymatter-receipt-observation.json
   references/contracts/mcp/graymatter_mcp_contract_v1.json
   references/contracts/mcp/graymatter_mcp_tools_v1.json
   references/contracts/mcp/graymatter_omegarag_agent_abi_v1.json
+  references/contracts/swarm/graymatter_swarm_workflow_execution_receipt_v1.schema.json
   references/contracts/release/graymatter_omegarag_release_policy_v1.json
   references/contracts/release/graymatter_omegarag_prd_inventory_v1.json
   references/mcp/memory-tool-contract.v1.json
+  references/mcp/memory-association.v1.json
+  references/public-release-checklist.md
+  references/multi-agent-conventions.md
+  release/graymatter-release-public.pem
 )
 
+source_path_for() {
+  printf '%s\n' "$ROOT/$1"
+}
+
+TEMPLATE_FILES=()
+while IFS= read -r rel; do
+  TEMPLATE_FILES+=("$rel")
+done < <(cd "$ROOT" && find templates/graymatter-light-bootstrap -type f \
+  ! -path 'templates/graymatter-light-bootstrap/local-server/target/*' \
+  | sort)
+
 command -v zip >/dev/null 2>&1 || {
-  echo "plugins/graymatter/scripts/package-graymatter requires zip" >&2
+  echo "scripts/package-graymatter requires zip" >&2
   exit 1
 }
 
 missing=()
-for rel in "${REQUIRED[@]}"; do
-  [[ -f "$ROOT/$rel" ]] || missing+=("$rel")
+for rel in "${REQUIRED[@]}" "${TEMPLATE_FILES[@]}"; do
+  [[ -f "$(source_path_for "$rel")" ]] || missing+=("$rel")
 done
 if [[ ${#missing[@]} -gt 0 ]]; then
-  echo "Missing required plugin files:" >&2
+  echo "Missing required files:" >&2
   printf '  - %s\n' "${missing[@]}" >&2
   exit 1
 fi
 
-if find "$ROOT" -type l -print -quit | grep -q .; then
-  echo "Symlinks are not allowed in the GrayMatter plugin package" >&2
-  find "$ROOT" -type l -print >&2
-  exit 1
-fi
+for rel in "${REQUIRED[@]}" "${TEMPLATE_FILES[@]}"; do
+  if [[ -L "$(source_path_for "$rel")" ]]; then
+    echo "Symlink not allowed in package: $rel" >&2
+    exit 1
+  fi
+done
 
-grep -q 'name: graymatter' "$ROOT/skills/graymatter/SKILL.md" || {
-  echo "GrayMatter skill is missing expected name frontmatter" >&2
+grep -q 'name: graymatter' "$ROOT/SKILL.md" || {
+  echo "SKILL.md is missing expected name frontmatter" >&2
+  exit 1
+}
+grep -q 'description:' "$ROOT/SKILL.md" || {
+  echo "SKILL.md is missing expected description frontmatter" >&2
   exit 1
 }
 
-TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/graymatter-plugin.XXXXXX")"
+TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/graymatter-skill.XXXXXX")"
 trap 'rm -rf "$TMP_DIR"' EXIT
 mkdir -p "$TMP_DIR/graymatter"
 
-while IFS= read -r rel; do
+for rel in "${REQUIRED[@]}" "${TEMPLATE_FILES[@]}"; do
   mkdir -p "$TMP_DIR/graymatter/$(dirname "$rel")"
-  cp "$ROOT/$rel" "$TMP_DIR/graymatter/$rel"
+  cp "$(source_path_for "$rel")" "$TMP_DIR/graymatter/$rel"
   if [[ "$rel" == scripts/* ]]; then
     chmod 755 "$TMP_DIR/graymatter/$rel"
   fi
   touch -t 198001010000 "$TMP_DIR/graymatter/$rel"
-done < <(
-  cd "$ROOT"
-  find . -type f \
-    ! -path './graymatter.skill' \
-    ! -path './node_modules/*' \
-    ! -path './tmp/*' \
-    ! -path './dist/*' \
-    ! -path './tools/schema-pipeline/target/*' \
-    ! -path './templates/graymatter-light-bootstrap/local-server/target/*' \
-    ! -path './.git/*' \
-    | sed 's#^\./##' \
-    | sort
-)
+done
 
 # zip records directory entries as well as files. Normalize their timestamps so
 # repeated builds from identical source produce byte-for-byte identical output.
@@ -162,12 +216,27 @@ find "$TMP_DIR/graymatter" -type d -exec touch -t 198001010000 {} +
 rm -f "$OUT"
 (cd "$TMP_DIR" && zip -X -q -r "$OUT" graymatter)
 
-zip_listing="$(unzip -Z1 "$OUT")"
-for rel in "${REQUIRED[@]}"; do
-  grep -Fxq "graymatter/$rel" <<<"$zip_listing" || {
-    echo "Packaged archive missing required file: $rel" >&2
-    exit 1
-  }
-done
+packaged=()
+while IFS= read -r rel; do
+  case "$rel" in
+    */) ;;
+    *) packaged+=("$rel") ;;
+  esac
+done < <(zipinfo -1 "$OUT" | sort)
+expected_file="$TMP_DIR/expected.txt"
+for rel in "${REQUIRED[@]}" "${TEMPLATE_FILES[@]}"; do
+  printf 'graymatter/%s\n' "$rel"
+done | sort >"$expected_file"
+
+if ! diff -u "$expected_file" <(printf '%s\n' "${packaged[@]}") >/dev/null; then
+  echo "Packaged archive contents did not match expected manifest" >&2
+  echo "Expected:" >&2
+  sed 's/^/  /' "$expected_file" >&2
+  echo "Actual:" >&2
+  printf '%s\n' "${packaged[@]}" | sed 's/^/  /' >&2
+  exit 1
+fi
 
 printf 'Packaged %s\n' "$OUT"
+printf 'Archive contents verified:\n'
+printf '  - %s\n' "${packaged[@]}"

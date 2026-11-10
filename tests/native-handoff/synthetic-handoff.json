@@ -1,0 +1,193 @@
+{
+  "workflow": {
+    "name": "Receipt-gated synthetic invoice statement",
+    "description": "Find invoice customer references missing from the visible customer snapshot.",
+    "status": "ready",
+    "role": "user",
+    "definitionKey": "{{DEFINITION_KEY}}",
+    "definitionVersion": "1.0.0",
+    "mode": "manual",
+    "visibility": "private",
+    "continuousExecutionEnabled": false,
+    "externalSendsEnabled": false,
+    "defaultBillable": false,
+    "launchInputSchema": "{\"type\":\"object\",\"required\":[\"task\",\"receiptRef\"],\"properties\":{\"task\":{\"type\":\"object\",\"title\":\"Invoice and customer snapshot\"},\"receiptRef\":{\"type\":\"string\",\"minLength\":1,\"maxLength\":128}},\"x-valkyr-business-result\":{\"contract\":\"invoice-customer-reconciliation/v1\",\"field\":\"reconciliationReport\"}}"
+  },
+  "nodes": [
+    {
+      "nodeId": "start",
+      "label": "Start",
+      "type": "start",
+      "position": "{\"x\": 0, \"y\": 0}",
+      "data": "{}"
+    },
+    {
+      "nodeId": "join",
+      "label": "Match customers to invoices",
+      "type": "task",
+      "position": "{\"x\": 280, \"y\": 0}",
+      "data": "{}"
+    },
+    {
+      "nodeId": "report",
+      "label": "List unmatched invoices",
+      "type": "task",
+      "position": "{\"x\": 560, \"y\": 0}",
+      "data": "{}"
+    },
+    {
+      "nodeId": "end",
+      "label": "Finish",
+      "type": "end",
+      "position": "{\"x\": 840, \"y\": 0}",
+      "data": "{}"
+    },
+    {
+      "nodeId": "inspect",
+      "label": "Read authorized receipt",
+      "type": "task",
+      "position": "{\"x\":240,\"y\":0}",
+      "data": "{}"
+    },
+    {
+      "nodeId": "policy",
+      "label": "Check answer policy",
+      "type": "task",
+      "position": "{\"x\":480,\"y\":0}",
+      "data": "{}"
+    },
+    {
+      "nodeId": "withheld",
+      "label": "Evidence withheld",
+      "type": "end",
+      "position": "{\"x\":720,\"y\":100}",
+      "data": "{}"
+    }
+  ],
+  "edges": [
+    {
+      "edgeId": "join-report",
+      "source": "join",
+      "target": "report",
+      "config": {
+        "style": "normal",
+        "onEvent": "success"
+      }
+    },
+    {
+      "edgeId": "report-end",
+      "source": "report",
+      "target": "end",
+      "config": {
+        "style": "normal",
+        "onEvent": "success"
+      }
+    },
+    {
+      "edgeId": "start-inspect",
+      "source": "start",
+      "target": "inspect",
+      "config": {
+        "style": "normal",
+        "onEvent": "success"
+      }
+    },
+    {
+      "edgeId": "inspect-policy",
+      "source": "inspect",
+      "target": "policy",
+      "config": {
+        "style": "normal",
+        "onEvent": "success"
+      }
+    },
+    {
+      "edgeId": "policy-join",
+      "source": "policy",
+      "target": "join",
+      "config": {
+        "style": "conditional",
+        "onEvent": "success"
+      },
+      "sourceHandle": "branch-true"
+    },
+    {
+      "edgeId": "policy-withheld",
+      "source": "policy",
+      "target": "withheld",
+      "config": {
+        "style": "conditional",
+        "onEvent": "success"
+      },
+      "sourceHandle": "branch-false"
+    }
+  ],
+  "modules": [
+    {
+      "nodeId": "join",
+      "className": "com.valkyrlabs.workflow.modules.transform.JoinModule",
+      "name": "Match customers to invoices",
+      "displayName": "Match customers to invoices",
+      "execModuleConfig": {
+        "version": "1.0.0",
+        "executionConfig": {
+          "mode": 0,
+          "idempotent": true
+        },
+        "payloadConfig": {
+          "parameters": "{\"left_source\":\"task.invoices\",\"right_source\":\"task.customers\",\"left_key\":\"customerId\",\"right_key\":\"id\",\"join_type\":\"left\",\"prefix_left\":\"invoice_\",\"prefix_right\":\"customer_\",\"output_field\":\"joinedInvoices\",\"max_output_records\":128}"
+        }
+      }
+    },
+    {
+      "nodeId": "report",
+      "className": "com.valkyrlabs.workflow.modules.operations.InvoiceReferenceReportModule",
+      "name": "List unmatched invoices",
+      "displayName": "List unmatched invoices",
+      "execModuleConfig": {
+        "version": "1.0.0",
+        "executionConfig": {
+          "mode": 0,
+          "idempotent": true
+        },
+        "payloadConfig": {
+          "parameters": "{}"
+        }
+      }
+    },
+    {
+      "nodeId": "inspect",
+      "className": "com.valkyrlabs.workflow.modules.graymatter.OmegaReceiptModule",
+      "name": "Read authorized receipt",
+      "displayName": "Read authorized receipt",
+      "execModuleConfig": {
+        "version": "1.0.0",
+        "timeoutMs": 30000,
+        "executionConfig": {
+          "mode": 0,
+          "idempotent": true
+        },
+        "payloadConfig": {
+          "parameters": "{\"operation\":\"receipt\"}"
+        }
+      }
+    },
+    {
+      "nodeId": "policy",
+      "className": "com.valkyrlabs.workflow.modules.control.ConditionalBranchModule",
+      "name": "Check answer policy",
+      "displayName": "Check answer policy",
+      "execModuleConfig": {
+        "version": "1.0.0",
+        "timeoutMs": 30000,
+        "executionConfig": {
+          "mode": 0,
+          "idempotent": true
+        },
+        "payloadConfig": {
+          "parameters": "{\"conditionMode\":\"expression\",\"condition\":\"=AND(omegaReceiptResult.status=\\\"ok\\\",omegaReceiptResult.answerPolicy=\\\"allow_answer\\\",omegaReceiptResult.recommendedAction=\\\"answer\\\",omegaReceiptResult.itemCount>0)\",\"trueTaskId\":\"join\",\"falseNodeId\":\"withheld\",\"trueLabel\":\"receipt_usable\",\"falseLabel\":\"evidence_withheld\"}"
+        }
+      }
+    }
+  ]
+}

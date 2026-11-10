@@ -2,7 +2,7 @@
 
 An MCP (Model Context Protocol) server that wraps the ValkyrAI `api-0` REST API, exposing GrayMatter durable memory, SwarmOps graph state, and live business schema as tools for Claude.ai, Claude Code, Cursor, and any other MCP-compatible host.
 
-When chosen by the user, GrayMatter is the primary durable memory system for the agent. Active hosts should retrieve relevant context before planning or editing and, when automatic saving is authorized, preserve new durable preferences and decisions during work. Hosted ChatGPT uses the onboarding, memory, and context skills with the eight public tools; installation does not add a global task hook or change built-in memory settings. Follow the [ChatGPT onboarding journey](../docs/chatgpt-onboarding.md). Protected local replay remains available only in hosts that support it.
+When chosen by the user, GrayMatter is the primary durable memory system for the agent. Active hosts should retrieve relevant context before planning or editing and, when automatic saving is authorized, preserve new durable preferences and decisions during work. Hosted ChatGPT uses the onboarding, memory, and context skills with the public tools. Follow the [ChatGPT onboarding journey](../docs/chatgpt-onboarding.md). Protected local replay requires a compatible host.
 
 Discovery now reports paginated coverage. `memory_read` can label inspection,
 write verification, or actual reuse, while `memory_contribution_report` joins
@@ -84,6 +84,30 @@ The server also implements `resources/list` and `resources/read` for the Apps SD
 
 ## Available Tools
 
+### Typed endpoint context
+
+On a Cloud backend with query-only discovery, call `context_discover_typed_path`
+with the original query to resolve the fixed `ContentMediaLink.contentData.ContentData`
+relationship. The default `media_filename` starts at a literal `fileName` match.
+Set `seedSource: "content_body"` to start at a literal match in the stored
+`ContentData.contentData` body and follow the relationship to one authorized
+media record. Each route requires an unambiguous currently authorized pair to
+yield a typed receipt locator. Pass the
+original task, the authorized `retrievalReceiptRef`, and
+`includeTypedPathEndpoints: true` to `context_compile`. The result provides a
+page reference and compact previews. Call `context_hydrate` with that
+`contextPageRef` and a bounded `maxTokens` when the task needs both complete
+projections. The owning service checks the signed-in actor, the source
+versions, and the relationship again before hydrating. Both projections
+retain their record line breaks.
+The public tool limits each projection to 4,000 characters and withholds the
+pair if either projection exceeds that limit. The exact typed-path caveat
+accompanies both results and governs what the evidence supports.
+
+Use `context_compile` directly when an authorized typed receipt already exists.
+Set `GRAYMATTER_PUBLIC_MCP_CATALOG=typed-discovery` in the public smoke test
+when checking a deployment with discovery, compile, and hydrate support.
+
 ### OmegaRAG portable agent ABI
 
 `references/contracts/mcp/graymatter_omegarag_agent_abi_v1.json` is the versioned portable ABI for Codex, OpenClaw, ValorIDE, and other agent hosts. Every ABI tool derives identity, tenant, and ACL scope on api-0; callers must never send those fields. The server accounts credit and token use against the retrieval plan or operation budget and treats approval, retry, clarification, and denial as server policy rather than client instructions.
@@ -123,7 +147,7 @@ Default agents receive `graymatter_remember`, `graymatter_recall`, `graymatter_o
 | `memory_get` / `memory_read` | `GET /MemoryEntry/{id}` | Read a `MemoryEntry` by ID. |
 | `memory_query` | `POST /MemoryEntry/query` | Semantic search across GrayMatter memory. Querying type `invariant` is normalized to `type=decision` plus `tag=invariant`, including lexical fallback. Hosted api-0 may consume credits. |
 | `memory_put_batch` | `POST /MemoryEntry/write` per item | Write up to 100 compact MemoryEntry records. |
-| `memory_link` | Portable contract hook | Record or defer a relation between memory records when graph-link persistence is available. |
+| `memory_link` | `/graymatter/memory/associations` | Keeps `fromId`, `toId`, and `relation`. Checks the versioned capability, writes once, and verifies the exact saved receipt through authenticated GET before returning `linked`. |
 | `memory_health` | `GET /memory/status` | Check the configured GrayMatter memory backend. |
 | `memory_replay_deferred` | Local replay hook | Replay filesystem-deferred memory writes through `scripts/gm-replay-deferred`. |
 | `memory_retrieve_with_receipt` | `POST /graymatter-retrieval-receipts` | Search memory and return a Retrieval Receipt with quality, provenance, policy, and recommended action signals. |
@@ -147,6 +171,36 @@ Default agents receive `graymatter_remember`, `graymatter_recall`, `graymatter_o
 | `schema_summary` | `GET /api-docs` | Summarize the live ValkyrAI OpenAPI schema. |
 
 See `../docs/server-capabilities.md` for the broader live api-0 capability map. The generic entity tools are intentionally broad because GrayMatter should use the RBAC-visible business object graph, not just a narrow memory endpoint list.
+
+### Memory association verification
+
+Choose one private profile with local Basic credentials on loopback or a bearer
+session over HTTPS. `memory_link` preserves the exact relation label and records
+a directed navigation association. A current repeated tuple returns the original
+reference. Both endpoints are reauthorized on every call. Source correction keeps
+the association attached to its record identity. Forgetting either endpoint removes
+incident associations on compatible backends.
+
+`MEMORY_LINK_UNSUPPORTED` means the backend lacks the required advertised contract.
+`MEMORY_LINK_CAPABILITY_UNVERIFIED` means the support check failed before dispatch.
+`MEMORY_LINK_UNVERIFIED` means the write or its subsequent readback could not be
+verified. Inspect the selected backend before retrying that outcome. The adapter
+pins the origin and credentials, refuses redirects, and sends one business POST.
+
+The wire contract is in `references/mcp/memory-association.v1.json`. Run the private
+adapter suite with `npm --prefix mcp-server test`. Real generated Lite acceptance
+also runs with `node tests/gm_lite_lifecycle_mcp_test.cjs /path/to/server.jar --associations`.
+See [durable associations](../docs/memory-associations.md) for persistence,
+upgrade evidence, authorization and transaction boundaries.
+
+### Association recall
+
+Pass `includeAssociations: true` to private `memory_retrieve_with_receipt` or
+`graymatter_retrieval_context` to include independently relevant linked memories.
+Use the same flag when calling `lite_context_refresh`. The adapter checks that
+the backend returned the versioned recall policy. The proof identifies the
+association and both source revisions. The existing answer policy governs use
+of the resulting context. [Protocol and evidence](../docs/memory-associations.md)
 
 ## Invariant Preflight
 

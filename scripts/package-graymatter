@@ -2,13 +2,14 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-OUT="${GRAYMATTER_PACKAGE_OUT:-$ROOT/graymatter.skill}"
+OUT="${GRAYMATTER_PACKAGE_OUT:-${GRAYMATTER_PLUGIN_PACKAGE_OUT:-$ROOT/graymatter.skill}}"
 
 REQUIRED=(
   .codex-plugin/plugin.json
   .app.json
   .mcp.json
   SKILL.md
+  LICENSE
   graymatter-bootstrap
   graymatter-bootstrap.ps1
   install.sh
@@ -22,6 +23,7 @@ REQUIRED=(
   openapi/generator/patches/thorapi-1.0.3-java-spring-application.patch
   openapi/generator/patches/thorapi-1.0.3-java-spring-pageable-repository.patch
   openapi/generator/patches/thorapi-1.0.3-java-spring-repository.patch
+  openapi/generator/patches/thorapi-1.0.3-tsconfig.cjs
   openapi/generator/patches/thorapi-1.0.3-typescript-client-layout.patch
   tools/schema-pipeline/pom.xml
   tools/schema-pipeline/src/main/java/com/valkyrlabs/graymatter/codegen/GrayMatterSchemaPipeline.java
@@ -46,6 +48,7 @@ REQUIRED=(
   docs/schema-regeneration.md
   docs/local-models.md
   docs/knowledge-packs.md
+  docs/private-procedure-execution.md
   docs/omegarag-release-evidence.md
   docs/chatgpt-onboarding.md
   docs/openai-app-directory-submission.md
@@ -62,8 +65,19 @@ REQUIRED=(
   CODE_OF_CONDUCT.md
   scripts/gm-activation-fastlane
   scripts/gm-invariant-preflight
+  mcp-server/lib/lite-lifecycle.cjs
+  mcp-server/lib/memory-association.cjs
   mcp-server/lib/memory-scan.cjs
   mcp-server/lib/contribution-report.cjs
+  mcp-server/lib/public-context-compile.cjs
+  mcp-server/lib/public-typed-path-discovery.cjs
+  mcp-server/lib/procedure-execution.cjs
+  mcp-server/lib/procedure-discovery.cjs
+  mcp-server/lib/procedure-inspection.cjs
+  mcp-server/lib/procedure-result.cjs
+  mcp-server/lib/procedure-evidence.cjs
+  mcp-server/lib/procedure-shadow-replay.cjs
+  scripts/gm-procedure-execute
   scripts/gm-contribution-report
   scripts/gm-startup-preflight
   scripts/gm-client
@@ -125,6 +139,8 @@ REQUIRED=(
   examples/memoryentry-artifact.json
   examples/graymatter-light-memoryentry.yaml
   examples/swarm-workflow-execution-receipt.v1.json
+  examples/workflows/README.md
+  examples/workflows/graph-templates/graymatter-receipt-observation.json
   references/contracts/mcp/graymatter_mcp_contract_v1.json
   references/contracts/mcp/graymatter_mcp_tools_v1.json
   references/contracts/mcp/graymatter_omegarag_agent_abi_v1.json
@@ -132,6 +148,7 @@ REQUIRED=(
   references/contracts/release/graymatter_omegarag_release_policy_v1.json
   references/contracts/release/graymatter_omegarag_prd_inventory_v1.json
   references/mcp/memory-tool-contract.v1.json
+  references/mcp/memory-association.v1.json
   references/public-release-checklist.md
   references/multi-agent-conventions.md
   release/graymatter-release-public.pem

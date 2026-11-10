@@ -399,7 +399,7 @@ test('locked submission matrix passes all 8 positive and 3 negative reviewer cas
   await t.test('negative 1/3 OAuth-token persistence is forbidden and never reaches memory_save upstream', async () => {
     const writeCount = fixture.counts.writes;
     const saveDescriptor = publicTools.find((tool) => tool.name === 'memory_save');
-    assert.match(saveDescriptor.description, /do not use for secrets/i);
+    assert.match(saveDescriptor.description, /Secrets, transient chatter, and content outside the user-authorized persistence scope are unsupported/);
     assert.match(instructions, /never store oauth tokens/i);
 
     const denied = await tool('memory_save', {

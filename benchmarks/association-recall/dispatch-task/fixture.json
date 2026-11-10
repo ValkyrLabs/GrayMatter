@@ -1,0 +1,281 @@
+{
+  "version": "dispatch-task-fixture/v1",
+  "cases": [
+    {
+      "id": "direct-1",
+      "family": "direct",
+      "query": "Cypress shipment",
+      "shipmentId": "505298c0-675e-5d6d-a1e2-bcb4a69f3b84",
+      "instruction": "Return a supported dispatch packet with pickupCode, gate and packingSymbol, or abstain.",
+      "rows": [
+        {
+          "key": "anchor",
+          "text": "Cypress shipment dispatch. Cypress shipment verified manifest. Cypress shipment collection.\nFACT {\"gate\":\"gate-dad3\",\"packingSymbol\":\"symbol-e401bf\",\"pickupCode\":\"code-01d26af6\",\"schema\":\"dispatch-fact/v1\",\"shipmentId\":\"505298c0-675e-5d6d-a1e2-bcb4a69f3b84\"}"
+        }
+      ],
+      "links": []
+    },
+    {
+      "id": "direct-2",
+      "family": "direct",
+      "query": "Dunlin shipment",
+      "shipmentId": "340f3a8f-93d4-54f7-8bc6-5a18ed60eb7b",
+      "instruction": "Return a supported dispatch packet with pickupCode, gate and packingSymbol, or abstain.",
+      "rows": [
+        {
+          "key": "anchor",
+          "text": "Dunlin shipment dispatch. Dunlin shipment verified manifest. Dunlin shipment collection.\nFACT {\"gate\":\"gate-ed3a\",\"packingSymbol\":\"symbol-2269c1\",\"pickupCode\":\"code-78ec62c8\",\"schema\":\"dispatch-fact/v1\",\"shipmentId\":\"340f3a8f-93d4-54f7-8bc6-5a18ed60eb7b\"}"
+        }
+      ],
+      "links": []
+    },
+    {
+      "id": "linked-partial-1",
+      "family": "linked-partial",
+      "query": "Elm shipment",
+      "shipmentId": "a4fb78a8-a38d-5e29-9c9d-c85fec53d788",
+      "instruction": "Return a supported dispatch packet with pickupCode, gate and packingSymbol, or abstain.",
+      "rows": [
+        {
+          "key": "anchor",
+          "text": "Elm shipment dispatch. Elm shipment verified manifest. Elm shipment collection.\nFACT {\"gate\":\"gate-0294\",\"pickupCode\":\"code-87e7f2cd\",\"schema\":\"dispatch-fact/v1\",\"shipmentId\":\"a4fb78a8-a38d-5e29-9c9d-c85fec53d788\"}"
+        },
+        {
+          "key": "detail",
+          "text": "Shipment packing details.\nFACT {\"packingSymbol\":\"symbol-b3572b\",\"schema\":\"dispatch-fact/v1\",\"shipmentId\":\"a4fb78a8-a38d-5e29-9c9d-c85fec53d788\"}"
+        }
+      ],
+      "links": [
+        {
+          "from": "anchor",
+          "to": "detail",
+          "relation": "packing note"
+        }
+      ]
+    },
+    {
+      "id": "linked-partial-2",
+      "family": "linked-partial",
+      "query": "Flax shipment",
+      "shipmentId": "f0b59f1b-1816-521d-bf21-abd4c7924250",
+      "instruction": "Return a supported dispatch packet with pickupCode, gate and packingSymbol, or abstain.",
+      "rows": [
+        {
+          "key": "anchor",
+          "text": "Flax shipment dispatch. Flax shipment verified manifest. Flax shipment collection.\nFACT {\"gate\":\"gate-4c4d\",\"pickupCode\":\"code-4aec9ba6\",\"schema\":\"dispatch-fact/v1\",\"shipmentId\":\"f0b59f1b-1816-521d-bf21-abd4c7924250\"}"
+        },
+        {
+          "key": "detail",
+          "text": "Shipment packing details.\nFACT {\"packingSymbol\":\"symbol-3d824a\",\"schema\":\"dispatch-fact/v1\",\"shipmentId\":\"f0b59f1b-1816-521d-bf21-abd4c7924250\"}"
+        }
+      ],
+      "links": [
+        {
+          "from": "anchor",
+          "to": "detail",
+          "relation": "packing note"
+        }
+      ]
+    },
+    {
+      "id": "query-free-1",
+      "family": "query-free",
+      "query": "Garnet shipment",
+      "shipmentId": "5faf57d9-c89b-574f-87d8-fc93457fb836",
+      "instruction": "Return a supported dispatch packet with pickupCode, gate and packingSymbol, or abstain.",
+      "rows": [
+        {
+          "key": "anchor",
+          "text": "Garnet shipment dispatch. Garnet shipment verified manifest. Garnet shipment collection.\nFACT {\"gate\":\"gate-3895\",\"pickupCode\":\"code-01650524\",\"schema\":\"dispatch-fact/v1\",\"shipmentId\":\"5faf57d9-c89b-574f-87d8-fc93457fb836\"}"
+        },
+        {
+          "key": "detail",
+          "text": "Packaging instruction.\nFACT {\"packingSymbol\":\"symbol-3a1a42\",\"schema\":\"dispatch-fact/v1\",\"shipmentId\":\"5faf57d9-c89b-574f-87d8-fc93457fb836\"}"
+        }
+      ],
+      "links": [
+        {
+          "from": "anchor",
+          "to": "detail",
+          "relation": "packing note"
+        }
+      ]
+    },
+    {
+      "id": "query-free-2",
+      "family": "query-free",
+      "query": "Heron shipment",
+      "shipmentId": "b94464bd-a5df-5e54-9de3-0002309e3a9b",
+      "instruction": "Return a supported dispatch packet with pickupCode, gate and packingSymbol, or abstain.",
+      "rows": [
+        {
+          "key": "anchor",
+          "text": "Heron shipment dispatch. Heron shipment verified manifest. Heron shipment collection.\nFACT {\"gate\":\"gate-443a\",\"pickupCode\":\"code-23fb91b3\",\"schema\":\"dispatch-fact/v1\",\"shipmentId\":\"b94464bd-a5df-5e54-9de3-0002309e3a9b\"}"
+        },
+        {
+          "key": "detail",
+          "text": "Packaging instruction.\nFACT {\"packingSymbol\":\"symbol-f0089d\",\"schema\":\"dispatch-fact/v1\",\"shipmentId\":\"b94464bd-a5df-5e54-9de3-0002309e3a9b\"}"
+        }
+      ],
+      "links": [
+        {
+          "from": "anchor",
+          "to": "detail",
+          "relation": "packing note"
+        }
+      ]
+    },
+    {
+      "id": "distractor-1",
+      "family": "distractor",
+      "query": "Jasmine shipment",
+      "shipmentId": "fbb0b4ec-fe1a-55a0-89d3-4e30f45c510b",
+      "instruction": "Return a supported dispatch packet with pickupCode, gate and packingSymbol, or abstain.",
+      "rows": [
+        {
+          "key": "anchor",
+          "text": "Jasmine shipment dispatch. Jasmine shipment verified manifest. Jasmine shipment collection.\nFACT {\"gate\":\"gate-4c8b\",\"packingSymbol\":\"symbol-1de399\",\"pickupCode\":\"code-13745669\",\"schema\":\"dispatch-fact/v1\",\"shipmentId\":\"fbb0b4ec-fe1a-55a0-89d3-4e30f45c510b\"}"
+        },
+        {
+          "key": "detail",
+          "text": "Shipment manifest for another consignment.\nFACT {\"gate\":\"gate-4c8b\",\"packingSymbol\":\"symbol-1de399\",\"pickupCode\":\"do-not-use\",\"schema\":\"dispatch-fact/v1\",\"shipmentId\":\"b54ef4e2-52ef-5254-876c-1f3ec173dcc2\"}"
+        }
+      ],
+      "links": [
+        {
+          "from": "anchor",
+          "to": "detail",
+          "relation": "packing note"
+        }
+      ]
+    },
+    {
+      "id": "distractor-2",
+      "family": "distractor",
+      "query": "Linden shipment",
+      "shipmentId": "46479581-a225-599b-9ba6-d50de201da16",
+      "instruction": "Return a supported dispatch packet with pickupCode, gate and packingSymbol, or abstain.",
+      "rows": [
+        {
+          "key": "anchor",
+          "text": "Linden shipment dispatch. Linden shipment verified manifest. Linden shipment collection.\nFACT {\"gate\":\"gate-c9cb\",\"packingSymbol\":\"symbol-f814dd\",\"pickupCode\":\"code-f6cd361f\",\"schema\":\"dispatch-fact/v1\",\"shipmentId\":\"46479581-a225-599b-9ba6-d50de201da16\"}"
+        },
+        {
+          "key": "detail",
+          "text": "Shipment manifest for another consignment.\nFACT {\"gate\":\"gate-c9cb\",\"packingSymbol\":\"symbol-f814dd\",\"pickupCode\":\"do-not-use\",\"schema\":\"dispatch-fact/v1\",\"shipmentId\":\"01652d4b-33f2-5cf9-aacd-78c14566cc71\"}"
+        }
+      ],
+      "links": [
+        {
+          "from": "anchor",
+          "to": "detail",
+          "relation": "packing note"
+        }
+      ]
+    },
+    {
+      "id": "conflict-1",
+      "family": "conflict",
+      "query": "Marigold shipment",
+      "shipmentId": "b7d88177-c9c1-56da-996b-2d392242ef66",
+      "instruction": "Return a supported dispatch packet with pickupCode, gate and packingSymbol, or abstain.",
+      "rows": [
+        {
+          "key": "anchor",
+          "text": "Marigold shipment dispatch. Marigold shipment verified manifest. Marigold shipment collection.\nFACT {\"gate\":\"gate-57b7\",\"packingSymbol\":\"symbol-63921e\",\"pickupCode\":\"code-34a15881\",\"schema\":\"dispatch-fact/v1\",\"shipmentId\":\"b7d88177-c9c1-56da-996b-2d392242ef66\"}"
+        },
+        {
+          "key": "detail",
+          "text": "Shipment pickup code remains disputed and requires verification.\nFACT {\"pickupCode\":\"conflicting-code\",\"schema\":\"dispatch-fact/v1\",\"shipmentId\":\"b7d88177-c9c1-56da-996b-2d392242ef66\"}",
+          "tags": [
+            "unresolved"
+          ]
+        }
+      ],
+      "links": [
+        {
+          "from": "anchor",
+          "to": "detail",
+          "relation": "supersedes"
+        }
+      ]
+    },
+    {
+      "id": "conflict-2",
+      "family": "conflict",
+      "query": "Osprey shipment",
+      "shipmentId": "b8d65416-54d6-5e3f-acb8-86130b2122b7",
+      "instruction": "Return a supported dispatch packet with pickupCode, gate and packingSymbol, or abstain.",
+      "rows": [
+        {
+          "key": "anchor",
+          "text": "Osprey shipment dispatch. Osprey shipment verified manifest. Osprey shipment collection.\nFACT {\"gate\":\"gate-93c8\",\"packingSymbol\":\"symbol-9207d0\",\"pickupCode\":\"code-0b486db4\",\"schema\":\"dispatch-fact/v1\",\"shipmentId\":\"b8d65416-54d6-5e3f-acb8-86130b2122b7\"}"
+        },
+        {
+          "key": "detail",
+          "text": "Shipment pickup code remains disputed and requires verification.\nFACT {\"pickupCode\":\"conflicting-code\",\"schema\":\"dispatch-fact/v1\",\"shipmentId\":\"b8d65416-54d6-5e3f-acb8-86130b2122b7\"}",
+          "tags": [
+            "unresolved"
+          ]
+        }
+      ],
+      "links": [
+        {
+          "from": "anchor",
+          "to": "detail",
+          "relation": "supersedes"
+        }
+      ]
+    },
+    {
+      "id": "excluded-scope-1",
+      "family": "excluded-scope",
+      "query": "Poppy shipment",
+      "shipmentId": "f54fd217-9202-5b40-8df5-23e7b4c96653",
+      "instruction": "Return a supported dispatch packet with pickupCode, gate and packingSymbol, or abstain.",
+      "rows": [
+        {
+          "key": "anchor",
+          "text": "Poppy shipment dispatch. Poppy shipment verified manifest. Poppy shipment collection.\nFACT {\"gate\":\"gate-9520\",\"pickupCode\":\"code-ec85bf1f\",\"schema\":\"dispatch-fact/v1\",\"shipmentId\":\"f54fd217-9202-5b40-8df5-23e7b4c96653\"}"
+        },
+        {
+          "key": "detail",
+          "text": "Shipment packing details.\nFACT {\"packingSymbol\":\"symbol-5d83c7\",\"schema\":\"dispatch-fact/v1\",\"shipmentId\":\"f54fd217-9202-5b40-8df5-23e7b4c96653\"}",
+          "sourceSuffix": "excluded"
+        }
+      ],
+      "links": [
+        {
+          "from": "anchor",
+          "to": "detail",
+          "relation": "packing note"
+        }
+      ]
+    },
+    {
+      "id": "excluded-scope-2",
+      "family": "excluded-scope",
+      "query": "Quartz shipment",
+      "shipmentId": "98a131fb-c737-5c3c-a7df-59a9862176b5",
+      "instruction": "Return a supported dispatch packet with pickupCode, gate and packingSymbol, or abstain.",
+      "rows": [
+        {
+          "key": "anchor",
+          "text": "Quartz shipment dispatch. Quartz shipment verified manifest. Quartz shipment collection.\nFACT {\"gate\":\"gate-5388\",\"pickupCode\":\"code-9d225505\",\"schema\":\"dispatch-fact/v1\",\"shipmentId\":\"98a131fb-c737-5c3c-a7df-59a9862176b5\"}"
+        },
+        {
+          "key": "detail",
+          "text": "Shipment packing details.\nFACT {\"packingSymbol\":\"symbol-17cc82\",\"schema\":\"dispatch-fact/v1\",\"shipmentId\":\"98a131fb-c737-5c3c-a7df-59a9862176b5\"}",
+          "sourceSuffix": "excluded"
+        }
+      ],
+      "links": [
+        {
+          "from": "anchor",
+          "to": "detail",
+          "relation": "packing note"
+        }
+      ]
+    }
+  ]
+}

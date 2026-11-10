@@ -1,0 +1,38 @@
+{
+  "schemaVersion": "cloud-dispatch-query-free-protocol/v1",
+  "frozenCorpus": "/Users/johnmcmahon/workspace/2025/valkyr/GrayMatter/benchmarks/association-recall/dispatch-task/fixture.json",
+  "frozenCorpusSha256": "c6fca3e6a0b0c73e327eaab788f3a55d1418a626743695121dcb9eed512488ea",
+  "cases": [
+    "query-free-1",
+    "query-free-2"
+  ],
+  "retrieval": {
+    "discovery": "actual generated ContentMediaLinkService.findAllMatching(QbeQuery.parse({fileName:{$contains:originalQuery}}))",
+    "scope": "server-resolved ordinary tenant actor; canonical transaction then placement",
+    "page": 0,
+    "size": 8,
+    "graph": "owning HTTP plan and PATH tool; target identity only from returned source FK",
+    "graphPath": "ContentMediaLink.contentData.ContentData",
+    "maxHops": 1,
+    "maxNodes": 6,
+    "maxCandidates": 8,
+    "maxLatencyMs": 1200,
+    "query": "unchanged original query",
+    "model": "no model; structured SQL discovery and real typed graph proof"
+  },
+  "consumer": "unchanged dispatch-task/consumer.py",
+  "judge": "unchanged dispatch-task/judge.py",
+  "outputArms": [
+    "target_only",
+    "source_plus_target"
+  ],
+  "repetitions": 1,
+  "limits": [
+    "Internal service diagnostic, not a complete agent entrypoint: generated HTTP source list is CORE-only.",
+    "Typed FK mapping requires real READ/MERGE authority and differs from free association labels.",
+    "Target-only scope is ALLOW_WITH_CAVEAT; does not confer generic answer authority.",
+    "No compound multi-source ContextPage receipt is asserted.",
+    "Native setup/JVM/transport/budgets differ from frozen rival benchmark; no speed ranking."
+  ],
+  "sourceSha256": "9008f1da8423cb6a9552ddeebe94356de71d6f5404f2dc750bad73d5127c18e1"
+}

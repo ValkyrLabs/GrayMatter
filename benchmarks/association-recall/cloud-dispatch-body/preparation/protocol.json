@@ -1,0 +1,104 @@
+{
+  "schemaVersion": "cloud-dispatch-body-protocol/v1",
+  "state": "frozen before body-mapping execution; no body results yet",
+  "frozenInputs": {
+    "fixture.json": "c6fca3e6a0b0c73e327eaab788f3a55d1418a626743695121dcb9eed512488ea",
+    "consumer.py": "60e03185e168adcec6e505fc84c6a664939fc3599641369067e666cfa99d605f",
+    "judge.py": "5671dcda710f7ec970252849dfe7be1cf49f57baf6e0f89814a46ab6f69bdf30",
+    "protocol.json": "ac486d74e10d325cda1edb57f5af7b6fd97cffe0c50ccf9836c0f204a9848906"
+  },
+  "assignment": {
+    "cases": 12,
+    "arms": [
+      "source_only",
+      "typed_pair"
+    ],
+    "warmups": 2,
+    "measuredRepetitions": 7,
+    "order": "fixture case order; control then treatment per iteration",
+    "unit": "12 assigned tasks; repetitions are not independent task samples"
+  },
+  "consumer": {
+    "maxEvidenceUtf8Bytes": 1024,
+    "maxSources": 16,
+    "model": "none; unchanged frozen consumer and SQLite judge"
+  },
+  "native": {
+    "mode": "BALANCED",
+    "recipe": "ENTITY_NEIGHBORHOOD",
+    "planBudgets": {
+      "maxGraphHops": 1,
+      "maxLatencyMs": 1200,
+      "maxCandidates": 8
+    },
+    "sourceOnly": {
+      "queryMode": "ENTITY",
+      "objectTypes": [
+        "ContentData"
+      ],
+      "maxHops": 0,
+      "maxNodes": 1,
+      "maxResults": 1,
+      "targetReadMaxBytes": 4096,
+      "targetReadMaxTokens": 1024
+    },
+    "typedPair": {
+      "queryMode": "PATH",
+      "discoverPathFromQuery": true,
+      "objectTypes": [
+        "ContentData"
+      ],
+      "graphPaths": [
+        "ContentMediaLink.contentData.ContentData"
+      ],
+      "direction": "INBOUND",
+      "maxHops": 1,
+      "maxNodes": 2,
+      "maxEdges": 1,
+      "maxResults": 1,
+      "pageTokenBudget": 1024,
+      "hydrateMaxItems": 2,
+      "hydrateMaxTokens": 1024
+    },
+    "bodyDiscoveryWork": {
+      "pageSize": 2,
+      "maxPagesPerSeedOrChildSearch": 8,
+      "maxCandidatesPerSeedOrChildSearch": 16,
+      "continuation": "follow generated final-ACL pages including empty pages; no uniqueness claim if the cap leaves continuation",
+      "uniqueness": "two distinct readable IDs deny ambiguity; only exhausted search can admit a single result"
+    }
+  },
+  "mapping": {
+    "version": "content-body-inbound/v1",
+    "anchor": "exact complete frozen anchor text once -> ContentData.contentData",
+    "detail": "exact complete frozen detail text once -> ContentMediaLink.fileName (all supplied details <= 206 chars)",
+    "edge": "supplied directed anchor/detail relation represented by INBOUND traversal of detail.contentData FK to anchor; owning FK direction is opposite supplied association direction, disclosed",
+    "labels": "supplied free relation label retained in enrollment metadata only; no native label field and no authority",
+    "detailTags": "supplied tags retained in enrollment metadata only; ContentMediaLink has no tag relation; not inserted into body, query, proof, consumer or current policy",
+    "excluded": "sourceSuffix rows stored but effective requester READ and MERGE denied",
+    "identity": "ordinary organization MEMBER; actual per-object source READ/MERGE; detail owner is peer OWNER",
+    "sourceKeys": "native IDs map to frozen row keys for assertions/scoring only; retrieval gets original query and fixed schema/path",
+    "enrollment": "synthetic ORM fixture in one atomic tenant transaction per case; anchor persisted/flushed under actor, detail under real peer authentication; no claim about generated create API authorization"
+  },
+  "knownPreRunBoundaries": [
+    "All twelve original source texts fit the existing fields (anchors <= 261, details <= 206); actual insert/readback is still required and setup errors retain assigned rows.",
+    "Text is lossless but metadata equivalence is not: two unresolved detail tags and free relation labels have no native ContentMediaLink field, remain capture-only and have no authority.",
+    "Direct cases have no supplied edge; typed pair does not invent a child, self-edge or source-only fallback.",
+    "Body ENTITY requires one unique authorized body. INBOUND PATH additionally requires one unique authorized child; uniqueness is observed at discovery, selected revisions and FK rechecked later.",
+    "Current source-only ALLOW_ANSWER and typed-pair ALLOW_WITH_CAVEAT plus exact typed claim policy remain unchanged; action policy is not loosened for this variant.",
+    "Provider failures, setup errors and failed target reads are unavailable and receive no correct-abstention credit.",
+    "Content body projection is bounded to 8,000 chars/field; all frozen rows fit, consumer still receives at most 1,024 UTF8 bytes.",
+    "No family, shipment ID, expected answer, native IDs, tags or relation labels enter retrieval.",
+    "No causal latency/rival-wide ranking: native schema/projection/authority mappings and required work differ.",
+    "Source-only needs the separate generated-identity source-read repair; no direct database body fallback is permitted."
+  ],
+  "postCaptureControls": [
+    "effective target READ denial invalidates existing receipt and page hydration",
+    "independent MERGE revocation invalidates existing receipt and page hydration"
+  ],
+  "qualification": "Canonical VAIX regeneration/AJC/H2 is required; this preparation does not launch it.",
+  "variantOf": {
+    "protocolSha256": "6fe230f152003323bc72c0d7d43c35e9bcfb804c9b66d59ad747ffc815e2ccfe",
+    "mapping": "original outbound remains immutable"
+  }
+}

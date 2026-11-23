@@ -39,18 +39,18 @@ test('public MCP smoke script verifies the complete reviewer contract', async (t
       return;
     }
     const auth = String(req.headers.authorization || '');
-    if (!auth.startsWith('Bearer ')) {
-      res.writeHead(401, {
-        'content-type': 'application/json',
-        'www-authenticate': `Bearer resource_metadata="http://127.0.0.1:${server.address().port}/.well-known/oauth-protected-resource"`
-      });
-      res.end(JSON.stringify({ ok: false, error: { code: 'AUTH_REQUIRED' } }));
-      return;
-    }
     const chunks = [];
     req.on('data', (chunk) => chunks.push(chunk));
     req.on('end', () => {
       const message = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+      if (!auth.startsWith('Bearer ') && !['initialize', 'tools/list'].includes(message.method)) {
+        res.writeHead(401, {
+          'content-type': 'application/json',
+          'www-authenticate': `Bearer resource_metadata="http://127.0.0.1:${server.address().port}/.well-known/oauth-protected-resource"`
+        });
+        res.end(JSON.stringify({ ok: false, error: { code: 'AUTH_REQUIRED' } }));
+        return;
+      }
       const token = auth.slice('Bearer '.length);
       let result;
       if (message.method === 'initialize') {

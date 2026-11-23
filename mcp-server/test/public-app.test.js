@@ -226,18 +226,16 @@ test('public endpoint publishes protected-resource metadata and challenges unaut
   assert.deepEqual(metadata.body.authorization_servers, ['https://identity.example.test']);
   assert.deepEqual(metadata.body.scopes_supported, ['memory:read', 'memory:write', 'context:read']);
 
-  const denied = await request(port, 'POST', '/graymatter/mcp', rpc('initialize'));
+  const denied = await request(port, 'POST', '/graymatter/mcp',
+    rpc('tools/call', { name: 'memory_search', arguments: { query: 'test' } }));
   assert.equal(denied.status, 401);
   assert.equal(denied.body.error.code, 'AUTH_REQUIRED');
-  assert.equal(denied.headers.connection, 'close');
   assert.match(denied.headers['www-authenticate'], /oauth-protected-resource/);
   assert.match(denied.headers['www-authenticate'], /memory:read/);
 
-  const stalled = await stalledRequest(
-    port,
-    '/graymatter/mcp',
-    '{"jsonrpc":"2.0","id":"unauthorized-stalled-body",'
-  );
+  const stalled = await stalledRequest(port, '/graymatter/mcp',
+    '{"jsonrpc":"2.0","id":"unauthorized-stalled-body",',
+    { authorization: 'Basic invalid' });
   assert.equal(stalled.status, 401);
   assert.equal(stalled.headers.connection, 'close');
   assert.equal(stalled.body.error.code, 'AUTH_REQUIRED');

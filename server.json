@@ -7,8 +7,15 @@
     "url": "https://github.com/ValkyrLabs/GrayMatter",
     "source": "github"
   },
-  "version": "0.3.3",
+  "version": "0.3.4",
   "websiteUrl": "https://github.com/ValkyrLabs/GrayMatter",
+  "icons": [
+    {
+      "src": "https://raw.githubusercontent.com/ValkyrLabs/GrayMatter/dc62999bd03402dbb032db760effd5eafd464af9/assets/graymatter-logo.png",
+      "mimeType": "image/png",
+      "sizes": ["64x64"]
+    }
+  ],
   "remotes": [
     {
       "type": "streamable-http",
@@ -24,6 +31,8 @@
       "authentication": {
         "type": "oauth2",
         "hostedAccountRequired": true,
+        "publicDiscoveryMethods": ["initialize", "tools/list"],
+        "toolCallsRequireAuthentication": true,
         "protectedResourceMetadataUrl": "https://api-0.valkyrlabs.com/.well-known/oauth-protected-resource",
         "authorizationServerMetadataUrl": "https://api-0.valkyrlabs.com/.well-known/oauth-authorization-server"
       },

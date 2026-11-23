@@ -80,6 +80,13 @@ VALKYR_API_BASE=http://localhost:8080/v1 GRAYMATTER_LIGHT_MODE=true GRAYMATTER_L
 
 Stdio mode exposes the same JSON-RPC methods over newline-delimited stdin/stdout and does not print startup text to stdout.
 
+Hosted public HTTP discovery accepts `initialize`, `tools/list`, and the
+initialization notification without a token. These return only static public
+metadata; every tool call and resource read still requires OAuth. Anonymous
+request bodies are limited to the smaller of 64 KiB or the configured body limit,
+with a five-second read deadline (or an earlier configured execution deadline).
+Presented invalid credentials are rejected even for discovery.
+
 The server also implements `resources/list` and `resources/read` for the Apps SDK overview widget at `ui://graymatter/overview.html`. Tool descriptors include Apps SDK security scheme mirrors, tool invocation status text, and action annotations for review.
 
 ## Available Tools

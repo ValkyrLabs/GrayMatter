@@ -19,6 +19,18 @@ test('gallery installation uses the canonical hosted Streamable HTTP resource', 
   assert.deepEqual(server.remotes, [{ type: 'streamable-http', url: 'https://api-0.valkyrlabs.com/graymatter/mcp' }]);
   assert.equal(publisher.authentication.type, 'oauth2');
   assert.equal(publisher.authentication.hostedAccountRequired, true);
+  assert.deepEqual(publisher.authentication.publicDiscoveryMethods, ['initialize', 'tools/list']);
+  assert.equal(publisher.authentication.toolCallsRequireAuthentication, true);
+});
+
+test('registry icon uses the existing immutable HTTPS PNG and its real dimensions', () => {
+  assert.equal(server.icons.length, 1);
+  const [icon] = server.icons;
+  assert.match(icon.src, /^https:\/\/raw\.githubusercontent\.com\/ValkyrLabs\/GrayMatter\/[a-f0-9]{40}\/assets\/graymatter-logo\.png$/);
+  assert.equal(icon.mimeType, 'image/png');
+  const png = fs.readFileSync(path.join(root, 'assets/graymatter-logo.png'));
+  assert.deepEqual(png.subarray(0, 8), Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
+  assert.deepEqual(icon.sizes, [`${png.readUInt32BE(16)}x${png.readUInt32BE(20)}`]);
 });
 
 test('local Lite remains separate from hosted authentication and unpublished packages', () => {

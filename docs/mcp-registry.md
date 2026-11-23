@@ -14,6 +14,13 @@ https://api-0.valkyrlabs.com/graymatter/mcp
 
 Name the connection `graymatter`. VS Code uses the server's OAuth discovery metadata for sign-in. Keep tokens and passwords out of MCP configuration files. An ordinary api-0 login session is separate from an OAuth grant for this MCP resource.
 
+Clients can call `initialize` and `tools/list` without a token to inspect the
+static public catalog. The initialization notification is also accepted without
+sign-in. Every `tools/call`, including memory reads and context compilation, still
+requires OAuth; resource reads are not anonymous. Anonymous discovery never
+queries customer data or uses a server-side credential. Supplied invalid or
+expired credentials are rejected, not silently treated as anonymous requests.
+
 The equivalent VS Code workspace configuration is:
 
 ```json
@@ -56,3 +63,7 @@ mcp-publisher publish server.json
 After publication, verify the exact server name and version in the [official registry API](https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.ValkyrLabs%2Fgraymatter&version=latest), then separately verify the [GitHub-backed gallery](https://api.mcp.github.com/v0.1/servers?search=io.github.ValkyrLabs%2Fgraymatter&version=latest) and VS Code's `@mcp GrayMatter` search. A successful official-registry publication is not proof that GitHub's gallery has included the server. Record the actual result for both services.
 
 Published version metadata is immutable. Review changes and publish a new metadata version for subsequent updates; retrying an interrupted publication should first check whether that exact version already exists.
+
+The registry metadata version is independent of the OpenAI/Claude plugin and npm
+versions. The icon uses the existing 64×64 PNG at an immutable repository revision;
+verify its public HTTPS response before publishing a new registry version.

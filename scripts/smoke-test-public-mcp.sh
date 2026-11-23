@@ -65,8 +65,14 @@ curl --fail-with-body --silent --show-error "$METADATA_URL" >"$TMP_DIR/resource-
 jq -e '.resource and (.authorization_servers | length > 0) and (.scopes_supported | index("memory:read")) and (.scopes_supported | index("memory:write")) and (.scopes_supported | index("context:read"))' \
   "$TMP_DIR/resource-metadata.json" >/dev/null
 
+for method in initialize tools/list; do
+  curl --fail-with-body --silent --show-error -H 'content-type: application/json' \
+    --data "$(rpc_payload 1 "$method")" "$MCP_URL" >"$TMP_DIR/anonymous-discovery.json"
+  jq -e 'if .result.serverInfo then .result.serverInfo.name == "graymatter" else (.result.tools | length > 0) end' \
+    "$TMP_DIR/anonymous-discovery.json" >/dev/null
+done
 unauth_status="$(curl --silent --show-error -o "$TMP_DIR/unauth.json" -D "$TMP_DIR/unauth.headers" -w '%{http_code}' \
-  -H 'content-type: application/json' --data "$(rpc_payload 1 initialize)" "$MCP_URL")"
+  -H 'content-type: application/json' --data "$(rpc_payload 1 tools/call '{"name":"memory_search","arguments":{"query":"authentication-check"}}')" "$MCP_URL")"
 [[ "$unauth_status" == "401" ]] || { echo "expected OAuth challenge HTTP 401, got $unauth_status" >&2; exit 1; }
 grep -qi '^www-authenticate: Bearer .*oauth-protected-resource' "$TMP_DIR/unauth.headers"
 

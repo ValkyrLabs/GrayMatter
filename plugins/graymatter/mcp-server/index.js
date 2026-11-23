@@ -1679,32 +1679,38 @@ function createGrayMatterMcpServer(options = {}) {
         req.__grayMatterRequestBodyPending = true;
         const rpcResponse = await runWithMcpExecutionBudget(async () => {
           let principal = null;
-          let requestAuth = authContextFrom(req, processToken, security);
+          let requestAuth = publicApp
+            ? { token: '', requestScopedToken: true }
+            : authContextFrom(req, processToken, security);
+          const anonymous = publicApp && req.headers.authorization === undefined;
+          const authenticate = () => runWithinExecutionBudget(
+            'POST', requestUrl.pathname, 'oauth_principal_verification',
+            (signal) => requirePublicPrincipal(req, {
+              oauthIssuer, oauthJwksUri, publicResource, fetchImpl,
+              tokenVerifier, jwksCache, signal
+            })
+          );
           if (!publicApp) assertNoTenantOverrideHeaders(req);
           if (publicApp) {
             assertNoIdentityOverrideHeaders(req);
-            principal = await runWithinExecutionBudget(
-              'POST',
-              requestUrl.pathname,
-              'oauth_principal_verification',
-              (signal) => requirePublicPrincipal(req, {
-                oauthIssuer,
-                oauthJwksUri,
-                publicResource,
-                fetchImpl,
-                tokenVerifier,
-                jwksCache,
-                signal
-              })
-            );
-            requestAuth = { token: principal.accessToken, requestScopedToken: true };
+            // Presented credentials must still validate, even for discovery.
+            // Never silently downgrade a bad credential to anonymous access.
+            if (!anonymous) principal = await authenticate();
           }
-          const rpcRequest = await runWithinExecutionBudget(
-            'POST',
-            requestUrl.pathname,
-            'request_body',
-            (signal) => readJson(req, signal, maxRequestBodyBytes, publicApp)
+          const readRequest = () => runWithinExecutionBudget(
+            'POST', requestUrl.pathname, 'request_body',
+            (signal) => readJson(req, signal,
+              anonymous ? Math.min(maxRequestBodyBytes, 64 * 1024) : maxRequestBodyBytes, publicApp)
           );
+          // Inspect only a bounded anonymous body. The allowlist does not
+          // include tools/call, resources, arbitrary notifications or batches.
+          const rpcRequest = anonymous
+            ? await runWithMcpExecutionBudget(readRequest, Math.min(configuredMcpExecutionTimeoutMs(), 5000))
+            : await readRequest();
+          if (publicApp) {
+            if (!principal && !isAnonymousPublicDiscovery(rpcRequest)) principal = await authenticate();
+            if (principal) requestAuth = { token: principal.accessToken, requestScopedToken: true };
+          }
           return handleRpc(rpcRequest, {
             apiBase,
             fetchImpl,
@@ -5436,6 +5442,11 @@ function normalizeHttpPath(value) {
     throw new Error('GrayMatter MCP path must be an absolute URL path.');
   }
   return pathValue.length > 1 ? pathValue.replace(/\/+$/, '') : pathValue;
+}
+
+function isAnonymousPublicDiscovery(message) {
+  return isPlainObject(message) && message.jsonrpc === '2.0'
+    && ['initialize', 'tools/list', 'notifications/initialized'].includes(message.method);
 }
 
 function isMcpRequestPath(pathname, publicMcpPath, publicApp) {

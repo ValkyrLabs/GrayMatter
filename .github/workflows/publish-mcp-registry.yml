@@ -1,6 +1,6 @@
 name: Publish GrayMatter MCP Registry Metadata
 
-# Manual publication of the approved immutable 0.3.3 metadata only.
+# Manual publication of the reviewed immutable server.json metadata only.
 # OIDC credentials exist only on the ephemeral GitHub Actions runner.
 on:
   workflow_dispatch:
@@ -132,7 +132,7 @@ jobs:
           observed = gallery_status == 200 and bool(matches)
           print("GitHub MCP gallery version observed:", observed)
           with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a") as summary:
-              summary.write("Official MCP Registry version 0.3.3 verified: " + record_url + "\n")
+              summary.write("Official MCP Registry version " + expected["version"] + " verified: " + record_url + "\n")
               summary.write("GitHub MCP gallery version observed: " + str(observed) + "\n")
           PY
 

@@ -55,15 +55,15 @@ jobs:
           import urllib.request
           from pathlib import Path
 
-          expected_sha = "cbeb1627551d28e5ae1fb9b66d565d6136f96bf89efb751d03c299c77cb32403"
+          expected_sha = "04c5a8bd905709f7e6f00786e389a7930faa9ba6c2888e914d6e6e0eb3dbef40"
           metadata = Path("server.json")
           assert hashlib.sha256(metadata.read_bytes()).hexdigest() == expected_sha
           expected = json.loads(metadata.read_text())
           assert expected["name"] == "io.github.ValkyrLabs/graymatter"
-          assert expected["version"] == "0.3.3"
+          assert expected["version"] == "0.3.4"
           registry = "https://registry.modelcontextprotocol.io"
           encoded_name = urllib.parse.quote(expected["name"], safe="")
-          record_url = registry + "/v0.1/servers/" + encoded_name + "/versions/0.3.3"
+          record_url = registry + "/v0.1/servers/" + encoded_name + "/versions/" + urllib.parse.quote(expected["version"], safe="")
           publisher = Path(os.environ["RUNNER_TEMP"]) / "graymatter-mcp-publisher/mcp-publisher"
 
           class NoRedirect(urllib.request.HTTPRedirectHandler):

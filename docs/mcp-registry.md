@@ -53,14 +53,22 @@ node --test tests/mcp-registry.test.mjs
 mcp-publisher validate server.json
 ```
 
-Use an already-authorized MCP Registry login. If a new GitHub OAuth authorization is required, complete it through the publisher's supported device flow with the account owner's approval. Do not export a GitHub CLI credential or place tokens in the repository.
+For this GitHub organization namespace, use the repository's existing manual
+**Publish GrayMatter MCP Registry Metadata** workflow on `main`. It uses a
+short-lived GitHub Actions OIDC identity; no token needs to be exported or placed
+in the repository. Update its exact metadata checksum and version pin together
+with `server.json`; the listing test rejects a stale pin.
 
 ```bash
-mcp-publisher login github
-mcp-publisher publish server.json
+gh workflow run publish-mcp-registry.yml --repo ValkyrLabs/GrayMatter --ref main
 ```
 
 After publication, verify the exact server name and version in the [official registry API](https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.ValkyrLabs%2Fgraymatter&version=latest), then separately verify the [GitHub-backed gallery](https://api.mcp.github.com/v0.1/servers?search=io.github.ValkyrLabs%2Fgraymatter&version=latest) and VS Code's `@mcp GrayMatter` search. A successful official-registry publication is not proof that GitHub's gallery has included the server. Record the actual result for both services.
+
+The publisher's interactive GitHub device flow currently grants only a personal
+namespace, even for organization owners. It cannot publish this organization
+listing; use the OIDC workflow rather than repeatedly signing in or copying a
+GitHub credential. See the [official organization authentication guidance](https://modelcontextprotocol.io/registry/authentication#personal-vs-organization-namespaces).
 
 Published version metadata is immutable. Review changes and publish a new metadata version for subsequent updates; retrying an interrupted publication should first check whether that exact version already exists.
 

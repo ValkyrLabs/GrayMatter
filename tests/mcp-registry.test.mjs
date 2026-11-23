@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -7,6 +8,15 @@ import test from 'node:test';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const server = JSON.parse(fs.readFileSync(path.join(root, 'server.json'), 'utf8'));
 const publisher = server._meta['io.modelcontextprotocol.registry/publisher-provided'];
+
+test('publication pins the exact reviewed metadata and verifies its own version', () => {
+  const workflow = fs.readFileSync(path.join(root, '.github/workflows/publish-mcp-registry.yml'), 'utf8');
+  const digest = createHash('sha256').update(fs.readFileSync(path.join(root, 'server.json'))).digest('hex');
+  assert.equal(workflow.match(/expected_sha = "([a-f0-9]{64})"/)?.[1], digest);
+  assert.equal(workflow.match(/assert expected\["version"\] == "([^"]+)"/)?.[1], server.version);
+  assert.match(workflow, /urllib\.parse\.quote\(expected\["version"\], safe=""\)/);
+  assert.match(workflow, /run_publisher\("login", "github-oidc"/);
+});
 
 test('publication identifies the authorized organization and its own public repository', () => {
   assert.equal(server.name, 'io.github.ValkyrLabs/graymatter');
